@@ -6,7 +6,7 @@ from tensorflow.keras.layers import (
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout
 )
-from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications import MobileNetV3Small
 
 class SpatialAttention(tf.keras.layers.Layer):
     def __init__(self, kernel_size=7):
@@ -39,11 +39,12 @@ def create_model(input_shape, num_classes):
     # Входной слой
     inputs = Input(shape=input_shape)
     
-    # MobileNetV2 как backbone
-    base_model = MobileNetV2(
+    # MobileNetV3Small как backbone
+    base_model = MobileNetV3Small(
         include_top=False,
         weights='imagenet',
-        input_shape=input_shape
+        input_shape=input_shape,
+        include_preprocessing=True
     )
     base_model.trainable = False
     
