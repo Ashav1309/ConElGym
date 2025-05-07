@@ -13,9 +13,9 @@ class Config:
     TARGET_SIZE = (224, 224)
     
     # Пути
-    TRAIN_DATA_PATH = "data_proc/train"
-    VALID_DATA_PATH = "data_proc/valid"
-    MODEL_SAVE_PATH = "models"
+    TRAIN_DATA_PATH = "src/data_proc/train"
+    VALID_DATA_PATH = "src/data_proc/valid"
+    MODEL_SAVE_PATH = "src/models"
     
     # Аугментация
     AUGMENTATION = True
