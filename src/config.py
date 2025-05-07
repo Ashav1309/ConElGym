@@ -13,7 +13,7 @@ class Config:
     TARGET_SIZE = (224, 224)
     
     # Пути
-    TRAIN_DATA_PATH = "data_/train"
+    TRAIN_DATA_PATH = "data/train"
     VALID_DATA_PATH = "data/valid"
     MODEL_SAVE_PATH = "src/models"
     
