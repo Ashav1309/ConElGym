@@ -64,4 +64,5 @@ Thumbs.db
 # Служебные скрипты
 process_archive.py
 run_annotate.py
-run_train.py 
+run_train.py
+run_tuning.py
