@@ -1,4 +1,4 @@
-from src.data.annotate_video import process_all_videos, process_validation_videos
+from src.data_proc.annotate_video import process_all_videos, process_validation_videos
 
 if __name__ == "__main__":
     # Обрабатываем тренировочные видео

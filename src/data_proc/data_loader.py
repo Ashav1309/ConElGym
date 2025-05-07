@@ -3,7 +3,7 @@ import numpy as np
 from typing import Tuple, List, Generator
 import os
 import json
-from src.data.annotation import VideoAnnotation
+from src.data_proc.annotation import VideoAnnotation
 from src.config import Config
 import tensorflow as tf
 from concurrent.futures import ThreadPoolExecutor

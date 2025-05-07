@@ -1,7 +1,7 @@
 import tensorflow as tf
 import optuna
 from src.models.model import create_model
-from src.data.data_loader import VideoDataLoader
+from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
 import os
 import numpy as np

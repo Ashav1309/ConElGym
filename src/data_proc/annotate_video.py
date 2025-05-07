@@ -1,6 +1,6 @@
 import cv2
 import os
-from src.data.annotation import VideoAnnotation
+from src.data_proc.annotation import VideoAnnotation
 from src.config import Config
 import json
 from datetime import datetime
