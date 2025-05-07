@@ -35,7 +35,6 @@ env/
 
 # Данные и модели
 data/
-models/
 *.h5
 *.pkl
 *.joblib
