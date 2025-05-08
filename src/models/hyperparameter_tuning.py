@@ -162,9 +162,6 @@ def objective(trial):
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
     try:
-        # Очищаем память перед каждым trial
-        clear_memory()
-        
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
         model = create_and_compile_model(
@@ -175,32 +172,20 @@ def objective(trial):
             lstm_units=lstm_units
         )
         
-        # Загрузка и подготовка данных с меньшим размером батча
-        batch_size = 2  # Уменьшаем размер батча
+        # Загрузка и подготовка данных
+        batch_size = 4
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
-        # Обучение модели с меньшим количеством шагов
+        # Обучение модели
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=20,  # Уменьшаем количество эпох до 20
-            steps_per_epoch=20,  # Уменьшаем количество шагов
-            validation_steps=5,  # Уменьшаем количество шагов валидации
-            verbose=1,
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(
-                    monitor='val_accuracy',
-                    patience=3,  # Уменьшаем patience
-                    restore_best_weights=True
-                )
-            ]
+            epochs=50,
+            steps_per_epoch=10,
+            validation_steps=3,
+            verbose=1
         )
         
-        # Проверяем, что модель действительно обучилась
-        if not history.history['val_accuracy']:
-            print("Model training failed - no validation accuracy recorded")
-            return None
-            
         best_val_accuracy = max(history.history['val_accuracy'])
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
@@ -213,11 +198,11 @@ def objective(trial):
     except tf.errors.ResourceExhaustedError:
         print("GPU memory exhausted. Skipping trial.")
         clear_memory()
-        return None
+        return float('-inf')  # Возвращаем отрицательную бесконечность для пропуска trial
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         clear_memory()
-        return None
+        return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -278,42 +263,32 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=3),  # Уменьшаем количество начальных trials
+        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=3,  # Уменьшаем количество начальных trials
-            n_warmup_steps=3,    # Уменьшаем количество шагов разогрева
+            n_startup_trials=5,
+            n_warmup_steps=5,
             interval_steps=1
         )
     )
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = 5  # Уменьшаем количество trials
+    n_trials = 10
     
-    try:
-        study.optimize(objective, n_trials=n_trials)
-        
-        # Проверяем, есть ли успешные trials
-        if not any(t.value is not None for t in study.trials):
-            print("No successful trials completed. Please check GPU memory and try again.")
-            return None
-        
-        # Сохранение результатов
-        total_time = time.time() - start_time
-        save_tuning_results(study, total_time, n_trials)
-        
-        # Визуализация результатов
-        plot_tuning_results(study)
-        
-        print("\nHyperparameter tuning completed!")
-        print(f"Best trial value: {study.best_trial.value}")
-        print(f"Best parameters: {study.best_trial.params}")
-        
-        return study.best_trial.params
-        
-    except Exception as e:
-        print(f"Error during hyperparameter tuning: {str(e)}")
-        return None
+    print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
+    study.optimize(objective, n_trials=n_trials, n_jobs=1)
+    
+    total_time = time.time() - start_time
+    
+    print(f"\nHyperparameter tuning completed!")
+    print(f"Total time: {timedelta(seconds=int(total_time))}")
+    print(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}")
+    
+    # Сохранение и визуализация результатов
+    save_tuning_results(study, total_time, n_trials)
+    plot_tuning_results(study)
+    
+    return study.best_trial.params
 
 if __name__ == "__main__":
     best_params = tune_hyperparameters()
