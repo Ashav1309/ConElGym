@@ -1,5 +1,7 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем только первую GPU
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Принудительный рост памяти
 
 import tensorflow as tf
 import optuna
@@ -14,26 +16,45 @@ from datetime import datetime, timedelta
 import time
 import gc
 
-# Настройка GPU
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
+def setup_gpu():
+    """Настройка GPU с ограничением памяти"""
     try:
+        # Очищаем все сессии TensorFlow
+        tf.keras.backend.clear_session()
+        
+        # Получаем список доступных GPU
+        gpus = tf.config.list_physical_devices('GPU')
+        if not gpus:
+            print("No GPU devices found")
+            return False
+            
+        # Настраиваем каждую GPU
         for gpu in gpus:
+            # Включаем динамический рост памяти
             tf.config.experimental.set_memory_growth(gpu, True)
-            # Устанавливаем лимит памяти GPU
+            
+            # Устанавливаем жесткий лимит памяти (2GB)
             tf.config.set_logical_device_configuration(
                 gpu,
-                [tf.config.LogicalDeviceConfiguration(memory_limit=4096)]  # 4GB
+                [tf.config.LogicalDeviceConfiguration(memory_limit=2048)]
             )
-        print("Memory growth enabled for GPUs")
+            
+        print("GPU memory growth enabled")
+        return True
+        
     except RuntimeError as e:
-        print(f"Error setting memory growth: {e}")
+        print(f"Error setting up GPU: {e}")
+        return False
 
-# Включение mixed precision
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
+# Инициализация GPU
+gpu_available = setup_gpu()
 
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-print("GPU Device: ", tf.test.gpu_device_name())
+# Включение mixed precision только если GPU доступна
+if gpu_available:
+    tf.keras.mixed_precision.set_global_policy('mixed_float16')
+    print("Mixed precision enabled")
+else:
+    print("Running on CPU")
 
 def clear_memory():
     """Очистка памяти GPU и Python"""
@@ -80,7 +101,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    if gpu_available:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
     model.compile(
         optimizer=optimizer,
@@ -140,7 +162,7 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 16  # Уменьшаем размер батча
+        batch_size = 8  # Уменьшаем размер батча еще больше
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Обучение модели
@@ -207,6 +229,9 @@ def tune_hyperparameters():
     """
     Подбор оптимальных гиперпараметров модели с помощью Optuna.
     """
+    if not gpu_available:
+        print("Warning: Running without GPU. This will be very slow.")
+    
     # Создание директории для сохранения результатов
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'tuning'), exist_ok=True)
     
