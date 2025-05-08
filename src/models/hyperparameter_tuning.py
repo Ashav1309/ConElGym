@@ -168,19 +168,31 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 4  # Уменьшаем размер батча еще больше
+        batch_size = 4
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Обучение модели
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=50,  # Увеличиваем количество эпох до 50
-            steps_per_epoch=10,
-            validation_steps=3,
-            verbose=1
+            epochs=50,
+            steps_per_epoch=50,  # Увеличиваем количество шагов
+            validation_steps=10,  # Увеличиваем количество шагов валидации
+            verbose=1,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy',
+                    patience=5,
+                    restore_best_weights=True
+                )
+            ]
         )
         
+        # Проверяем, что модель действительно обучилась
+        if not history.history['val_accuracy']:
+            print("Model training failed - no validation accuracy recorded")
+            return None
+            
         best_val_accuracy = max(history.history['val_accuracy'])
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
@@ -193,11 +205,11 @@ def objective(trial):
     except tf.errors.ResourceExhaustedError:
         print("GPU memory exhausted. Skipping trial.")
         clear_memory()
-        return float('-inf')  # Возвращаем отрицательную бесконечность для пропуска trial
+        return None
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         clear_memory()
-        return float('-inf')
+        return None
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -206,16 +218,27 @@ def save_tuning_results(study, total_time, n_trials):
     results_path = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', 'optuna_results.txt')
     with open(results_path, 'w') as f:
         f.write(f"Best trial:\n")
-        f.write(f"  Value: {study.best_trial.value}\n")
+        if study.best_trial.value is not None:
+            f.write(f"  Value: {study.best_trial.value:.4f}\n")
+        else:
+            f.write(f"  Value: Failed\n")
         f.write(f"  Params: {study.best_trial.params}\n\n")
+        
         f.write("All trials:\n")
         for trial in study.trials:
             f.write(f"Trial {trial.number}:\n")
-            f.write(f"  Value: {trial.value}\n")
+            if trial.value is not None:
+                f.write(f"  Value: {trial.value:.4f}\n")
+            else:
+                f.write(f"  Value: Failed\n")
             f.write(f"  Params: {trial.params}\n\n")
         
         f.write(f"\nTotal time: {timedelta(seconds=int(total_time))}\n")
         f.write(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}\n")
+        
+        # Добавляем статистику успешных trials
+        successful_trials = sum(1 for t in study.trials if t.value is not None)
+        f.write(f"\nSuccessful trials: {successful_trials}/{n_trials}\n")
 
 def plot_tuning_results(study):
     """
@@ -247,32 +270,37 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),  # Увеличиваем количество начальных trials
+        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,  # Увеличиваем количество начальных trials
-            n_warmup_steps=5,    # Увеличиваем количество шагов разогрева
+            n_startup_trials=5,
+            n_warmup_steps=5,
             interval_steps=1
         )
     )
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = 10  # Увеличиваем количество trials до 10
+    n_trials = 10
     
-    print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
-    study.optimize(objective, n_trials=n_trials, n_jobs=1)
-    
-    total_time = time.time() - start_time
-    
-    print(f"\nHyperparameter tuning completed!")
-    print(f"Total time: {timedelta(seconds=int(total_time))}")
-    print(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}")
-    
-    # Сохранение и визуализация результатов
-    save_tuning_results(study, total_time, n_trials)
-    plot_tuning_results(study)
-    
-    return study.best_trial.params
+    try:
+        study.optimize(objective, n_trials=n_trials)
+        
+        # Сохранение результатов
+        total_time = time.time() - start_time
+        save_tuning_results(study, total_time, n_trials)
+        
+        # Визуализация результатов
+        plot_tuning_results(study)
+        
+        print("\nHyperparameter tuning completed!")
+        print(f"Best trial value: {study.best_trial.value}")
+        print(f"Best parameters: {study.best_trial.params}")
+        
+        return study.best_trial.params
+        
+    except Exception as e:
+        print(f"Error during hyperparameter tuning: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     best_params = tune_hyperparameters()
