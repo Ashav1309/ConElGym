@@ -1,7 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем только первую GPU
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Принудительный рост памяти
 
 import tensorflow as tf
 import optuna
@@ -32,12 +31,6 @@ def setup_gpu():
         for gpu in gpus:
             # Включаем динамический рост памяти
             tf.config.experimental.set_memory_growth(gpu, True)
-            
-            # Устанавливаем жесткий лимит памяти (2GB)
-            tf.config.set_logical_device_configuration(
-                gpu,
-                [tf.config.LogicalDeviceConfiguration(memory_limit=2048)]
-            )
             
         print("GPU memory growth enabled")
         return True
