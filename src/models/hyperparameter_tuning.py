@@ -175,7 +175,7 @@ def objective(trial):
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=10,
+            epochs=50,  # Увеличиваем количество эпох до 50
             steps_per_epoch=10,
             validation_steps=3,
             verbose=1
@@ -247,17 +247,17 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=3),
+        sampler=optuna.samplers.TPESampler(n_startup_trials=5),  # Увеличиваем количество начальных trials
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=3,
-            n_warmup_steps=3,
+            n_startup_trials=5,  # Увеличиваем количество начальных trials
+            n_warmup_steps=5,    # Увеличиваем количество шагов разогрева
             interval_steps=1
         )
     )
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = 5
+    n_trials = 10  # Увеличиваем количество trials до 10
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
     study.optimize(objective, n_trials=n_trials, n_jobs=1)
