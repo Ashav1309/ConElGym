@@ -133,13 +133,13 @@ def load_and_prepare_data(batch_size):
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=(112, 112),
+        target_size=(224, 224),  # Исправляем размер для MobileNetV3
         one_hot=True
     )
     val_generator = val_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=(112, 112),
+        target_size=(224, 224),  # Исправляем размер для MobileNetV3
         one_hot=True
     )
     
@@ -163,7 +163,7 @@ def objective(trial):
     
     try:
         # Создание и компиляция модели
-        input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
+        input_shape = (Config.SEQUENCE_LENGTH, 224, 224, 3)  # Исправляем размер для MobileNetV3
         model = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
