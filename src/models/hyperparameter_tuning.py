@@ -12,6 +12,7 @@ import pandas as pd
 import seaborn as sns
 from datetime import datetime, timedelta
 import time
+import gc
 
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
@@ -19,6 +20,11 @@ if gpus:
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
+            # Устанавливаем лимит памяти GPU
+            tf.config.set_logical_device_configuration(
+                gpu,
+                [tf.config.LogicalDeviceConfiguration(memory_limit=4096)]  # 4GB
+            )
         print("Memory growth enabled for GPUs")
     except RuntimeError as e:
         print(f"Error setting memory growth: {e}")
@@ -28,6 +34,11 @@ tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 print("GPU Device: ", tf.test.gpu_device_name())
+
+def clear_memory():
+    """Очистка памяти GPU и Python"""
+    tf.keras.backend.clear_session()
+    gc.collect()
 
 def create_data_pipeline(generator, batch_size):
     """
@@ -59,6 +70,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     """
     Создание и компиляция модели с заданными параметрами
     """
+    clear_memory()  # Очищаем память перед созданием модели
+    
     model = create_model(
         input_shape=input_shape,
         num_classes=num_classes,
@@ -115,34 +128,48 @@ def objective(trial):
     
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
-    # Создание и компиляция модели
-    input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
-    model = create_and_compile_model(
-        input_shape=input_shape,
-        num_classes=Config.NUM_CLASSES,
-        learning_rate=learning_rate,
-        dropout_rate=dropout_rate,
-        lstm_units=lstm_units
-    )
-    
-    # Загрузка и подготовка данных
-    batch_size = 32
-    train_dataset, val_dataset = load_and_prepare_data(batch_size)
-    
-    # Обучение модели
-    history = model.fit(
-        train_dataset,
-        validation_data=val_dataset,
-        epochs=10,
-        steps_per_epoch=10,
-        validation_steps=3,
-        verbose=1
-    )
-    
-    best_val_accuracy = max(history.history['val_accuracy'])
-    print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
-    
-    return best_val_accuracy
+    try:
+        # Создание и компиляция модели
+        input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
+        model = create_and_compile_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            learning_rate=learning_rate,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
+        )
+        
+        # Загрузка и подготовка данных
+        batch_size = 16  # Уменьшаем размер батча
+        train_dataset, val_dataset = load_and_prepare_data(batch_size)
+        
+        # Обучение модели
+        history = model.fit(
+            train_dataset,
+            validation_data=val_dataset,
+            epochs=10,
+            steps_per_epoch=10,
+            validation_steps=3,
+            verbose=1
+        )
+        
+        best_val_accuracy = max(history.history['val_accuracy'])
+        print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
+        
+        # Очищаем память после обучения
+        del model
+        clear_memory()
+        
+        return best_val_accuracy
+        
+    except tf.errors.ResourceExhaustedError:
+        print("GPU memory exhausted. Skipping trial.")
+        clear_memory()
+        return float('-inf')  # Возвращаем отрицательную бесконечность для пропуска trial
+    except Exception as e:
+        print(f"Error in trial: {str(e)}")
+        clear_memory()
+        return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
     """
