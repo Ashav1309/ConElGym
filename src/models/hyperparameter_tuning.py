@@ -163,7 +163,7 @@ def objective(trial):
     
     try:
         # Создание и компиляция модели
-        input_shape = (Config.SEQUENCE_LENGTH, 224, 224, 3)  # Исправляем размер для MobileNetV3
+        input_shape = (Config.SEQUENCE_LENGTH, 224, 224, 3)
         model = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
@@ -173,16 +173,16 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 4
+        batch_size = 2  # Уменьшаем размер батча с 4 до 2
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Обучение модели
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=50,
-            steps_per_epoch=10,
-            validation_steps=3,
+            epochs=30,  # Уменьшаем количество эпох с 50 до 30
+            steps_per_epoch=5,  # Уменьшаем количество шагов с 10 до 5
+            validation_steps=2,  # Уменьшаем количество шагов валидации с 3 до 2
             verbose=1
         )
         
@@ -198,7 +198,7 @@ def objective(trial):
     except tf.errors.ResourceExhaustedError:
         print("GPU memory exhausted. Skipping trial.")
         clear_memory()
-        return float('-inf')  # Возвращаем отрицательную бесконечность для пропуска trial
+        return float('-inf')
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         clear_memory()
