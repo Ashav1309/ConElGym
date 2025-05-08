@@ -69,7 +69,7 @@ def objective(trial):
     # Определение гиперпараметров для оптимизации
     learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
     dropout_rate = trial.suggest_float('dropout_rate', 0.3, 0.7)
-    lstm_units = trial.suggest_categorical('lstm_units', [32, 64, 128])
+    lstm_units = trial.suggest_categorical('lstm_units', [32, 64])
     
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
@@ -98,7 +98,7 @@ def objective(trial):
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
     # Создание генераторов данных с оптимизированным размером батча
-    batch_size = 64  # Увеличиваем размер батча для лучшего использования GPU
+    batch_size = 32  # Уменьшаем размер батча для подбора
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
@@ -116,13 +116,13 @@ def objective(trial):
     train_dataset = create_data_pipeline(train_generator, batch_size)
     val_dataset = create_data_pipeline(val_generator, batch_size)
     
-    # Обучение модели
+    # Обучение модели с уменьшенным количеством эпох и шагов
     history = model.fit(
         train_dataset,
         validation_data=val_dataset,
-        epochs=Config.EPOCHS,
-        steps_per_epoch=20,  # Увеличиваем количество батчей на эпоху
-        validation_steps=5,  # Увеличиваем количество батчей для валидации
+        epochs=10,  # Уменьшаем количество эпох для подбора
+        steps_per_epoch=10,  # Уменьшаем количество шагов
+        validation_steps=3,  # Уменьшаем количество шагов валидации
         verbose=1
     )
     
@@ -141,20 +141,20 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
+        sampler=optuna.samplers.TPESampler(n_startup_trials=3),
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
+            n_startup_trials=3,
+            n_warmup_steps=3,
             interval_steps=1
         )
     )
     
     # Запуск оптимизации с отслеживанием времени
     start_time = time.time()
-    n_trials = 10
+    n_trials = 5  # Уменьшаем количество trials
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
-    study.optimize(objective, n_trials=n_trials)
+    study.optimize(objective, n_trials=n_trials, n_jobs=1)  # Используем один процесс для стабильности
     
     total_time = time.time() - start_time
     avg_time_per_trial = total_time / n_trials

@@ -12,6 +12,47 @@ from tensorflow.keras.callbacks import (
 )
 import numpy as np
 
+# Настройка GPU
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("Memory growth enabled for GPUs")
+    except RuntimeError as e:
+        print(f"Error setting memory growth: {e}")
+
+# Включение mixed precision
+tf.keras.mixed_precision.set_global_policy('mixed_float16')
+
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+print("GPU Device: ", tf.test.gpu_device_name())
+
+def create_data_pipeline(generator, batch_size):
+    """
+    Создает оптимизированный pipeline данных с использованием tf.data.Dataset
+    """
+    dataset = tf.data.Dataset.from_generator(
+        lambda: generator,
+        output_signature=(
+            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 112, 112, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, Config.NUM_CLASSES), dtype=tf.float32)
+        )
+    )
+    # Оптимизация загрузки данных
+    dataset = dataset.cache()  # Кэширование данных
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)  # Предзагрузка следующих батчей
+    dataset = dataset.batch(batch_size)  # Группировка в батчи
+    
+    # Исправление размерности данных
+    def reshape_data(x, y):
+        x = tf.squeeze(x, axis=1)
+        y = tf.squeeze(y, axis=1)
+        return x, y
+    
+    dataset = dataset.map(reshape_data)
+    return dataset
+
 class TrainingPlotter(Callback):
     def __init__(self, save_path):
         super().__init__()
@@ -76,17 +117,22 @@ def train():
     os.makedirs(Config.MODEL_SAVE_PATH, exist_ok=True)
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'plots'), exist_ok=True)
     
-    # Создание модели
+    # Создание модели с уменьшенным размером входных данных
+    input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
     model = create_model(
-        input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SHAPE),
+        input_shape=input_shape,
         num_classes=Config.NUM_CLASSES
     )
     
-    # Компиляция модели
+    # Компиляция модели с mixed precision
+    optimizer = tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE)
+    optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
-        loss='binary_crossentropy',
-        metrics=['accuracy']
+        optimizer=optimizer,
+        loss='categorical_crossentropy',
+        metrics=['accuracy'],
+        jit_compile=True
     )
     
     # Callbacks
@@ -114,18 +160,33 @@ def train():
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
-    # Создание генераторов данных
-    train_generator = train_loader.load_data(Config.SEQUENCE_LENGTH, Config.BATCH_SIZE)
-    val_generator = val_loader.load_data(Config.SEQUENCE_LENGTH, Config.BATCH_SIZE)
+    # Создание генераторов данных с оптимизированным размером батча
+    batch_size = 32  # Уменьшаем размер батча
+    train_generator = train_loader.load_data(
+        Config.SEQUENCE_LENGTH, 
+        batch_size, 
+        target_size=(112, 112),
+        one_hot=True
+    )
+    val_generator = val_loader.load_data(
+        Config.SEQUENCE_LENGTH, 
+        batch_size, 
+        target_size=(112, 112),
+        one_hot=True
+    )
+    
+    # Создание оптимизированных pipeline данных
+    train_dataset = create_data_pipeline(train_generator, batch_size)
+    val_dataset = create_data_pipeline(val_generator, batch_size)
     
     # Обучение
     history = model.fit(
-        train_generator,
+        train_dataset,
         epochs=Config.EPOCHS,
-        validation_data=val_generator,
+        validation_data=val_dataset,
         callbacks=callbacks,
-        steps_per_epoch=100,  # Количество батчей в эпохе
-        validation_steps=20   # Количество батчей для валидации
+        steps_per_epoch=50,  # Уменьшаем количество шагов
+        validation_steps=10   # Уменьшаем количество шагов валидации
     )
     
     # Визуализация результатов
@@ -157,11 +218,12 @@ def train():
     plt.close()
     
     # Матрица ошибок
-    val_generator = val_loader.load_data(Config.SEQUENCE_LENGTH, Config.BATCH_SIZE)
+    val_generator = val_loader.load_data(Config.SEQUENCE_LENGTH, batch_size, target_size=(112, 112), one_hot=True)
+    val_dataset = create_data_pipeline(val_generator, batch_size)
     y_true = []
     y_pred = []
     
-    for _ in range(20):  # Используем 20 батчей для оценки
+    for _ in range(10):  # Уменьшаем количество батчей для оценки
         X_val, y_val = next(val_generator)
         pred = model.predict(X_val)
         y_true.extend(y_val)
