@@ -15,16 +15,6 @@ from datetime import datetime, timedelta
 import time
 import gc
 
-def check_dependencies():
-    """Проверка и установка необходимых зависимостей"""
-    try:
-        import plotly
-    except ImportError:
-        print("Installing required dependencies...")
-        import subprocess
-        subprocess.check_call(["pip", "install", "plotly"])
-        print("Dependencies installed successfully")
-
 def setup_gpu():
     """Настройка GPU с ограничением памяти"""
     try:
@@ -49,9 +39,6 @@ def setup_gpu():
         print(f"Error setting up GPU: {e}")
         return False
 
-# Проверяем зависимости
-check_dependencies()
-
 # Инициализация GPU
 gpu_available = setup_gpu()
 
@@ -64,8 +51,26 @@ else:
 
 def clear_memory():
     """Очистка памяти GPU и Python"""
+    # Очищаем все сессии TensorFlow
     tf.keras.backend.clear_session()
+    
+    # Принудительная очистка кэша CUDA
+    if gpu_available:
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except:
+            pass
+    
+    # Очистка Python garbage collector
     gc.collect()
+    
+    # Принудительная очистка памяти
+    if gpu_available:
+        try:
+            tf.config.experimental.reset_memory_stats('GPU:0')
+        except:
+            pass
 
 def create_data_pipeline(generator, batch_size):
     """
@@ -157,6 +162,9 @@ def objective(trial):
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
     try:
+        # Очищаем память перед каждым trial
+        clear_memory()
+        
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
         model = create_and_compile_model(
@@ -167,22 +175,22 @@ def objective(trial):
             lstm_units=lstm_units
         )
         
-        # Загрузка и подготовка данных
-        batch_size = 4
+        # Загрузка и подготовка данных с меньшим размером батча
+        batch_size = 2  # Уменьшаем размер батча
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
-        # Обучение модели
+        # Обучение модели с меньшим количеством шагов
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=50,
-            steps_per_epoch=50,  # Увеличиваем количество шагов
-            validation_steps=10,  # Увеличиваем количество шагов валидации
+            epochs=30,  # Уменьшаем количество эпох
+            steps_per_epoch=20,  # Уменьшаем количество шагов
+            validation_steps=5,  # Уменьшаем количество шагов валидации
             verbose=1,
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy',
-                    patience=5,
+                    patience=3,  # Уменьшаем patience
                     restore_best_weights=True
                 )
             ]
@@ -270,20 +278,25 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
+        sampler=optuna.samplers.TPESampler(n_startup_trials=3),  # Уменьшаем количество начальных trials
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
+            n_startup_trials=3,  # Уменьшаем количество начальных trials
+            n_warmup_steps=3,    # Уменьшаем количество шагов разогрева
             interval_steps=1
         )
     )
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = 10
+    n_trials = 5  # Уменьшаем количество trials
     
     try:
         study.optimize(objective, n_trials=n_trials)
+        
+        # Проверяем, есть ли успешные trials
+        if not any(t.value is not None for t in study.trials):
+            print("No successful trials completed. Please check GPU memory and try again.")
+            return None
         
         # Сохранение результатов
         total_time = time.time() - start_time
