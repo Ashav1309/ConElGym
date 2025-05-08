@@ -15,6 +15,16 @@ from datetime import datetime, timedelta
 import time
 import gc
 
+def check_dependencies():
+    """Проверка и установка необходимых зависимостей"""
+    try:
+        import plotly
+    except ImportError:
+        print("Installing required dependencies...")
+        import subprocess
+        subprocess.check_call(["pip", "install", "plotly"])
+        print("Dependencies installed successfully")
+
 def setup_gpu():
     """Настройка GPU с ограничением памяти"""
     try:
@@ -38,6 +48,9 @@ def setup_gpu():
     except RuntimeError as e:
         print(f"Error setting up GPU: {e}")
         return False
+
+# Проверяем зависимости
+check_dependencies()
 
 # Инициализация GPU
 gpu_available = setup_gpu()
@@ -155,7 +168,7 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 8  # Уменьшаем размер батча еще больше
+        batch_size = 4  # Уменьшаем размер батча еще больше
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Обучение модели
@@ -208,15 +221,18 @@ def plot_tuning_results(study):
     """
     Визуализация результатов подбора гиперпараметров
     """
-    tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
-    
-    # График истории оптимизации
-    fig = optuna.visualization.plot_optimization_history(study)
-    fig.write_image(os.path.join(tuning_dir, 'optimization_history.png'))
-    
-    # График важности параметров
-    fig = optuna.visualization.plot_param_importances(study)
-    fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
+    try:
+        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        
+        # График истории оптимизации
+        fig = optuna.visualization.plot_optimization_history(study)
+        fig.write_image(os.path.join(tuning_dir, 'optimization_history.png'))
+        
+        # График важности параметров
+        fig = optuna.visualization.plot_param_importances(study)
+        fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
+    except Exception as e:
+        print(f"Warning: Could not create visualization plots: {str(e)}")
 
 def tune_hyperparameters():
     """
