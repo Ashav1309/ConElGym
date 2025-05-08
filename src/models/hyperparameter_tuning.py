@@ -183,7 +183,7 @@ def objective(trial):
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=30,  # Уменьшаем количество эпох
+            epochs=20,  # Уменьшаем количество эпох до 20
             steps_per_epoch=20,  # Уменьшаем количество шагов
             validation_steps=5,  # Уменьшаем количество шагов валидации
             verbose=1,
