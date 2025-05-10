@@ -18,21 +18,19 @@ import gc
 def setup_gpu():
     """Настройка GPU с ограничением памяти"""
     try:
-        # Очищаем все сессии TensorFlow
         tf.keras.backend.clear_session()
-        
-        # Получаем список доступных GPU
         gpus = tf.config.list_physical_devices('GPU')
         if not gpus:
             print("No GPU devices found")
             return False
             
-        # Настраиваем каждую GPU
-        for gpu in gpus:
-            # Включаем динамический рост памяти
-            tf.config.experimental.set_memory_growth(gpu, True)
-            
-        print("GPU memory growth enabled")
+        # Ограничиваем память GPU до 4 ГБ
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(memory_limit=4096)]
+        )
+        
+        print("GPU memory limited to 4GB")
         return True
         
     except RuntimeError as e:
@@ -51,14 +49,20 @@ else:
 
 def clear_memory():
     """Очистка памяти GPU и Python"""
+    # Удаляем все глобальные переменные, связанные с моделью
+    global model
+    if 'model' in globals():
+        del model
+    
     # Очищаем все сессии TensorFlow
     tf.keras.backend.clear_session()
     
-    # Принудительная очистка кэша CUDA
+    # Принудительная очистка кэша CUDA (только если CUDA доступна)
     if gpu_available:
         try:
-            import torch
-            torch.cuda.empty_cache()
+            from numba import cuda
+            cuda.select_device(0)
+            cuda.close()
         except:
             pass
     
@@ -154,14 +158,22 @@ def objective(trial):
     """
     print(f"\nTrial {trial.number + 1} started")
     
-    # Определение гиперпараметров для оптимизации
-    learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
-    dropout_rate = trial.suggest_float('dropout_rate', 0.3, 0.7)
-    lstm_units = trial.suggest_categorical('lstm_units', [32, 64])
-    
-    print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
-    
     try:
+        # Проверка доступной памяти
+        if gpu_available:
+            from tensorflow.python.client import device_lib
+            stats = tf.config.experimental.get_memory_info('GPU:0')
+            if stats['current'] / 1024**3 > 3.5:  # Если занято более 3.5 ГБ
+                print("Not enough GPU memory. Skipping trial.")
+                return float('-inf')
+    
+        # Определение гиперпараметров для оптимизации
+        learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.3, 0.7)
+        lstm_units = trial.suggest_categorical('lstm_units', [16, 32])  # Уменьшаем размер LSTM
+        
+        print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
+        
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, 224, 224, 3)
         model = create_and_compile_model(
@@ -173,16 +185,16 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 2  # Уменьшаем размер батча с 4 до 2
+        batch_size = 1  # Уменьшаем размер батча до 1
         train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Обучение модели
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=30,  # Уменьшаем количество эпох с 50 до 30
-            steps_per_epoch=5,  # Уменьшаем количество шагов с 10 до 5
-            validation_steps=2,  # Уменьшаем количество шагов валидации с 3 до 2
+            epochs=30,
+            steps_per_epoch=5,
+            validation_steps=2,
             verbose=1
         )
         
