@@ -4,14 +4,14 @@ class Config:
     NUM_CLASSES = 2  # Начало и конец элемента
     
     # Параметры обучения
-    BATCH_SIZE = 1  # Размер батча для оптимизации гиперпараметров
-    EPOCHS = 30  # Количество эпох для оптимизации
+    BATCH_SIZE = 1  # Минимальный размер батча
+    EPOCHS = 20  # Количество эпох
     LEARNING_RATE = 0.001
-    STEPS_PER_EPOCH = 5  # Шаги на эпоху
-    VALIDATION_STEPS = 2  # Шаги валидации
+    STEPS_PER_EPOCH = 3  # Шаги на эпоху
+    VALIDATION_STEPS = 1  # Шаги валидации
     
     # Параметры данных
-    SEQUENCE_LENGTH = 16
+    SEQUENCE_LENGTH = 8  # Длина последовательности
     TARGET_SIZE = (224, 224)
     INPUT_SIZE = (224, 224)  # Размер входного изображения для MobileNetV3
     
@@ -29,22 +29,21 @@ class Config:
     
     # Параметры оптимизации гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 10,  # Количество испытаний
+        'n_trials': 5,  # Количество испытаний
         'learning_rate_range': (1e-4, 1e-3),  # Диапазон learning rate
-        'dropout_range': (0.3, 0.7),  # Диапазон dropout
-        'lstm_units': [16, 32],  # Возможные значения LSTM units
+        'dropout_range': (0.3, 0.5),  # Диапазон dropout
+        'lstm_units': [8, 16],  # Возможные значения LSTM units
     }
     
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
-        'use_gpu': False,  # Использовать ли GPU
+        'use_gpu': False,  # Отключаем GPU
         'cpu_threads': 4,  # Количество потоков CPU
-        'gpu_memory_limit': 4096,  # Лимит памяти GPU в МБ
     }
     
     # Настройки оптимизации памяти
     MEMORY_OPTIMIZATION = {
         'clear_memory_after_trial': True,  # Очищать память после каждого испытания
-        'use_mixed_precision': False,  # Использовать mixed precision
-        'cache_dataset': True,  # Кэшировать датасет
+        'use_mixed_precision': False,  # Отключаем mixed precision для CPU
+        'cache_dataset': True,  # Включаем кэширование датасета
     } 

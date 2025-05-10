@@ -1,6 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем только первую GPU
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Отключаем GPU
 
 import tensorflow as tf
 import optuna
@@ -16,57 +16,37 @@ import time
 import gc
 
 def setup_device():
-    """Настройка устройства (CPU/GPU)"""
+    """Настройка для работы на CPU"""
     try:
-        if Config.DEVICE_CONFIG['use_gpu']:
-            # Настройка GPU
-            gpus = tf.config.list_physical_devices('GPU')
-            if not gpus:
-                print("No GPU devices found")
-                return False
-                
-            # Ограничиваем память GPU
-            tf.config.set_logical_device_configuration(
-                gpus[0],
-                [tf.config.LogicalDeviceConfiguration(
-                    memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
-                )]
-            )
-            
-            # Включаем mixed precision если нужно
-            if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-                tf.keras.mixed_precision.set_global_policy('mixed_float16')
-            
-            print("GPU optimization enabled")
-            return True
-        else:
-            # Настройка CPU
-            tf.config.set_visible_devices([], 'GPU')
-            tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-            tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-            print("CPU optimization enabled")
-            return True
-            
+        # Отключаем GPU
+        tf.config.set_visible_devices([], 'GPU')
+        
+        # Настраиваем количество потоков для CPU
+        tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+        tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+        
+        print("CPU optimization enabled")
+        return True
+        
     except RuntimeError as e:
-        print(f"Error setting up device: {e}")
+        print(f"Error setting up CPU: {e}")
         return False
 
-# Инициализация устройства
+# Инициализация CPU
 device_available = setup_device()
 
 def clear_memory():
-    """Очистка памяти"""
-    if Config.MEMORY_OPTIMIZATION['clear_memory_after_trial']:
-        # Удаляем все глобальные переменные, связанные с моделью
-        global model
-        if 'model' in globals():
-            del model
-        
-        # Очищаем все сессии TensorFlow
-        tf.keras.backend.clear_session()
-        
-        # Очистка Python garbage collector
-        gc.collect()
+    """Очистка памяти Python"""
+    # Удаляем все глобальные переменные, связанные с моделью
+    global model
+    if 'model' in globals():
+        del model
+    
+    # Очищаем все сессии TensorFlow
+    tf.keras.backend.clear_session()
+    
+    # Очистка Python garbage collector
+    gc.collect()
 
 def create_data_pipeline(generator, batch_size):
     """
