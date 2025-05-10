@@ -15,84 +15,76 @@ from datetime import datetime, timedelta
 import time
 import gc
 
-def setup_gpu():
-    """Настройка GPU с ограничением памяти"""
+def setup_device():
+    """Настройка устройства (CPU/GPU)"""
     try:
-        tf.keras.backend.clear_session()
-        gpus = tf.config.list_physical_devices('GPU')
-        if not gpus:
-            print("No GPU devices found")
-            return False
+        if Config.DEVICE_CONFIG['use_gpu']:
+            # Настройка GPU
+            gpus = tf.config.list_physical_devices('GPU')
+            if not gpus:
+                print("No GPU devices found")
+                return False
+                
+            # Ограничиваем память GPU
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [tf.config.LogicalDeviceConfiguration(
+                    memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
+                )]
+            )
             
-        # Ограничиваем память GPU до 4 ГБ
-        tf.config.set_logical_device_configuration(
-            gpus[0],
-            [tf.config.LogicalDeviceConfiguration(memory_limit=4096)]
-        )
-        
-        print("GPU memory limited to 4GB")
-        return True
-        
+            # Включаем mixed precision если нужно
+            if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+                tf.keras.mixed_precision.set_global_policy('mixed_float16')
+            
+            print("GPU optimization enabled")
+            return True
+        else:
+            # Настройка CPU
+            tf.config.set_visible_devices([], 'GPU')
+            tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            print("CPU optimization enabled")
+            return True
+            
     except RuntimeError as e:
-        print(f"Error setting up GPU: {e}")
+        print(f"Error setting up device: {e}")
         return False
 
-# Инициализация GPU
-gpu_available = setup_gpu()
-
-# Включение mixed precision только если GPU доступна
-if gpu_available:
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
-    print("Mixed precision enabled")
-else:
-    print("Running on CPU")
+# Инициализация устройства
+device_available = setup_device()
 
 def clear_memory():
-    """Очистка памяти GPU и Python"""
-    # Удаляем все глобальные переменные, связанные с моделью
-    global model
-    if 'model' in globals():
-        del model
-    
-    # Очищаем все сессии TensorFlow
-    tf.keras.backend.clear_session()
-    
-    # Принудительная очистка кэша CUDA (только если CUDA доступна)
-    if gpu_available:
-        try:
-            from numba import cuda
-            cuda.select_device(0)
-            cuda.close()
-            cuda.select_device(0)  # Повторная инициализация
-        except:
-            pass
-    
-    # Очистка Python garbage collector
-    gc.collect()
-    
-    # Принудительная очистка памяти
-    if gpu_available:
-        try:
-            tf.config.experimental.reset_memory_stats('GPU:0')
-        except:
-            pass
+    """Очистка памяти"""
+    if Config.MEMORY_OPTIMIZATION['clear_memory_after_trial']:
+        # Удаляем все глобальные переменные, связанные с моделью
+        global model
+        if 'model' in globals():
+            del model
+        
+        # Очищаем все сессии TensorFlow
+        tf.keras.backend.clear_session()
+        
+        # Очистка Python garbage collector
+        gc.collect()
 
 def create_data_pipeline(generator, batch_size):
     """
-    Создает оптимизированный pipeline данных с использованием tf.data.Dataset
+    Создает оптимизированный pipeline данных
     """
     dataset = tf.data.Dataset.from_generator(
         lambda: generator,
         output_signature=(
-            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 224, 224, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, Config.NUM_CLASSES), dtype=tf.float32)
         )
     )
     
     # Оптимизация загрузки данных
-    dataset = dataset.cache()  # Кэширование данных
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)  # Предзагрузка следующих батчей
-    dataset = dataset.batch(batch_size)  # Группировка в батчи
+    if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+        dataset = dataset.cache()
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.batch(batch_size)
     
     # Исправление размерности данных
     def reshape_data(x, y):
@@ -117,8 +109,6 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    if gpu_available:
-        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
     model.compile(
         optimizer=optimizer,
@@ -155,28 +145,30 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     """
-    Функция для оптимизации гиперпараметров.
+    Функция для оптимизации гиперпараметров
     """
     print(f"\nTrial {trial.number + 1} started")
     
     try:
-        # Проверка доступной памяти
-        if gpu_available:
-            from tensorflow.python.client import device_lib
-            stats = tf.config.experimental.get_memory_info('GPU:0')
-            if stats['current'] / 1024**3 > 3.5:  # Если занято более 3.5 ГБ
-                print("Not enough GPU memory. Skipping trial.")
-                return float('-inf')
-    
         # Определение гиперпараметров для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', 0.3, 0.7)
-        lstm_units = trial.suggest_categorical('lstm_units', [16, 32])  # Уменьшаем размер LSTM
+        learning_rate = trial.suggest_float(
+            'learning_rate',
+            *Config.HYPERPARAM_TUNING['learning_rate_range'],
+            log=True
+        )
+        dropout_rate = trial.suggest_float(
+            'dropout_rate',
+            *Config.HYPERPARAM_TUNING['dropout_range']
+        )
+        lstm_units = trial.suggest_categorical(
+            'lstm_units',
+            Config.HYPERPARAM_TUNING['lstm_units']
+        )
         
         print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
         
         # Создание и компиляция модели
-        input_shape = (Config.SEQUENCE_LENGTH, 224, 224, 3)
+        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
         model = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
@@ -186,16 +178,15 @@ def objective(trial):
         )
         
         # Загрузка и подготовка данных
-        batch_size = 1  # Уменьшаем размер батча до 1
-        train_dataset, val_dataset = load_and_prepare_data(batch_size)
+        train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
         
         # Обучение модели
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=30,
-            steps_per_epoch=5,
-            validation_steps=2,
+            epochs=Config.EPOCHS,
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_steps=Config.VALIDATION_STEPS,
             verbose=1
         )
         
@@ -208,10 +199,6 @@ def objective(trial):
         
         return best_val_accuracy
         
-    except tf.errors.ResourceExhaustedError:
-        print("GPU memory exhausted. Skipping trial.")
-        clear_memory()
-        return float('-inf')
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         clear_memory()
@@ -265,10 +252,10 @@ def plot_tuning_results(study):
 
 def tune_hyperparameters():
     """
-    Подбор оптимальных гиперпараметров модели с помощью Optuna.
+    Подбор оптимальных гиперпараметров модели
     """
-    if not gpu_available:
-        print("Warning: Running without GPU. This will be very slow.")
+    if not device_available:
+        print("Warning: Device setup failed. This will be very slow.")
     
     # Создание директории для сохранения результатов
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'tuning'), exist_ok=True)
@@ -286,7 +273,7 @@ def tune_hyperparameters():
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = 10
+    n_trials = Config.HYPERPARAM_TUNING['n_trials']
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
     study.optimize(objective, n_trials=n_trials, n_jobs=1)
