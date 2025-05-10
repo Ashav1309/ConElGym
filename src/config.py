@@ -38,7 +38,7 @@ class Config:
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
         'use_gpu': True,  # Включаем GPU
-        'gpu_memory_limit': 2048,  # Ограничение памяти GPU в МБ
+        'gpu_memory_limit': 1024,  # Ограничение памяти GPU в МБ (1 ГБ)
         'cpu_threads': 4,  # Количество потоков CPU
     }
     
@@ -46,7 +46,7 @@ class Config:
     MEMORY_OPTIMIZATION = {
         'clear_memory_after_trial': True,  # Очищать память после каждого испытания
         'use_mixed_precision': True,  # Включаем mixed precision для GPU
-        'cache_dataset': True,  # Включаем кэширование датасета
+        'cache_dataset': False,  # Отключаем кэширование датасета для экономии памяти
         'prefetch_buffer_size': 1,  # Минимальный размер буфера предзагрузки
         'allow_memory_growth': True,  # Разрешаем динамический рост памяти
     } 

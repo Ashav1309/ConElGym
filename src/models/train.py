@@ -16,6 +16,15 @@ import numpy as np
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
+        # Ограничиваем память GPU
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(
+                memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
+            )]
+        )
+        
+        # Включаем динамический рост памяти
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
         print("Memory growth enabled for GPUs")
@@ -35,14 +44,16 @@ def create_data_pipeline(generator, batch_size):
     dataset = tf.data.Dataset.from_generator(
         lambda: generator,
         output_signature=(
-            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 112, 112, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, Config.NUM_CLASSES), dtype=tf.float32)
         )
     )
+    
     # Оптимизация загрузки данных
-    dataset = dataset.cache()  # Кэширование данных
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)  # Предзагрузка следующих батчей
-    dataset = dataset.batch(batch_size)  # Группировка в батчи
+    if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+        dataset = dataset.cache()
+    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+    dataset = dataset.batch(batch_size)
     
     # Исправление размерности данных
     def reshape_data(x, y):
@@ -50,7 +61,7 @@ def create_data_pipeline(generator, batch_size):
         y = tf.squeeze(y, axis=1)
         return x, y
     
-    dataset = dataset.map(reshape_data)
+    dataset = dataset.map(reshape_data, num_parallel_calls=tf.data.AUTOTUNE)
     return dataset
 
 class TrainingPlotter(Callback):
@@ -117,11 +128,13 @@ def train():
     os.makedirs(Config.MODEL_SAVE_PATH, exist_ok=True)
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'plots'), exist_ok=True)
     
-    # Создание модели с уменьшенным размером входных данных
-    input_shape = (Config.SEQUENCE_LENGTH, 112, 112, 3)
+    # Создание модели
+    input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
     model = create_model(
         input_shape=input_shape,
-        num_classes=Config.NUM_CLASSES
+        num_classes=Config.NUM_CLASSES,
+        dropout_rate=0.5,
+        lstm_units=16  # Уменьшаем количество LSTM units
     )
     
     # Компиляция модели с mixed precision
@@ -160,24 +173,23 @@ def train():
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
-    # Создание генераторов данных с оптимизированным размером батча
-    batch_size = 32  # Уменьшаем размер батча
+    # Создание генераторов данных
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
-        batch_size, 
-        target_size=(112, 112),
+        Config.BATCH_SIZE, 
+        target_size=Config.INPUT_SIZE,
         one_hot=True
     )
     val_generator = val_loader.load_data(
         Config.SEQUENCE_LENGTH, 
-        batch_size, 
-        target_size=(112, 112),
+        Config.BATCH_SIZE, 
+        target_size=Config.INPUT_SIZE,
         one_hot=True
     )
     
     # Создание оптимизированных pipeline данных
-    train_dataset = create_data_pipeline(train_generator, batch_size)
-    val_dataset = create_data_pipeline(val_generator, batch_size)
+    train_dataset = create_data_pipeline(train_generator, Config.BATCH_SIZE)
+    val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
     
     # Обучение
     history = model.fit(
@@ -185,8 +197,8 @@ def train():
         epochs=Config.EPOCHS,
         validation_data=val_dataset,
         callbacks=callbacks,
-        steps_per_epoch=50,  # Уменьшаем количество шагов
-        validation_steps=10   # Уменьшаем количество шагов валидации
+        steps_per_epoch=Config.STEPS_PER_EPOCH,
+        validation_steps=Config.VALIDATION_STEPS
     )
     
     # Визуализация результатов
@@ -218,14 +230,19 @@ def train():
     plt.close()
     
     # Матрица ошибок
-    val_generator = val_loader.load_data(Config.SEQUENCE_LENGTH, batch_size, target_size=(112, 112), one_hot=True)
-    val_dataset = create_data_pipeline(val_generator, batch_size)
+    val_generator = val_loader.load_data(
+        Config.SEQUENCE_LENGTH, 
+        Config.BATCH_SIZE, 
+        target_size=Config.INPUT_SIZE, 
+        one_hot=True
+    )
+    val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
     y_true = []
     y_pred = []
     
-    for _ in range(10):  # Уменьшаем количество батчей для оценки
+    for _ in range(Config.VALIDATION_STEPS):
         X_val, y_val = next(val_generator)
-        pred = model.predict(X_val)
+        pred = model.predict(X_val, verbose=0)
         y_true.extend(y_val)
         y_pred.extend(np.round(pred))
     
