@@ -1,6 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем только первую GPU
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем только первую GPU
 
 import tensorflow as tf
 import optuna
@@ -63,6 +63,7 @@ def clear_memory():
             from numba import cuda
             cuda.select_device(0)
             cuda.close()
+            cuda.select_device(0)  # Повторная инициализация
         except:
             pass
     

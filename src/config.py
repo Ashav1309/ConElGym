@@ -9,7 +9,7 @@ class Config:
     LEARNING_RATE = 0.001
     
     # Параметры данных
-    SEQUENCE_LENGTH = 16
+    SEQUENCE_LENGTH = 8
     TARGET_SIZE = (224, 224)
     
     # Пути
