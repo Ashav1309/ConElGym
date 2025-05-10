@@ -1,6 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Отключаем GPU
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
 
 import tensorflow as tf
 import optuna
@@ -16,37 +16,70 @@ import time
 import gc
 
 def setup_device():
-    """Настройка для работы на CPU"""
+    """Настройка устройства (CPU/GPU)"""
     try:
-        # Отключаем GPU
-        tf.config.set_visible_devices([], 'GPU')
-        
-        # Настраиваем количество потоков для CPU
-        tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-        tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-        
-        print("CPU optimization enabled")
-        return True
-        
+        if Config.DEVICE_CONFIG['use_gpu']:
+            # Настройка GPU
+            gpus = tf.config.list_physical_devices('GPU')
+            if not gpus:
+                print("No GPU devices found")
+                return False
+            
+            # Ограничиваем память GPU
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [tf.config.LogicalDeviceConfiguration(
+                    memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
+                )]
+            )
+            
+            # Включаем динамический рост памяти
+            if Config.MEMORY_OPTIMIZATION['allow_memory_growth']:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            
+            # Включаем mixed precision если нужно
+            if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+                tf.keras.mixed_precision.set_global_policy('mixed_float16')
+            
+            print("GPU optimization enabled")
+            return True
+        else:
+            # Настройка CPU
+            tf.config.set_visible_devices([], 'GPU')
+            tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            print("CPU optimization enabled")
+            return True
+            
     except RuntimeError as e:
-        print(f"Error setting up CPU: {e}")
+        print(f"Error setting up device: {e}")
         return False
 
-# Инициализация CPU
+# Инициализация устройства
 device_available = setup_device()
 
 def clear_memory():
-    """Очистка памяти Python"""
-    # Удаляем все глобальные переменные, связанные с моделью
-    global model
-    if 'model' in globals():
-        del model
-    
-    # Очищаем все сессии TensorFlow
-    tf.keras.backend.clear_session()
-    
-    # Очистка Python garbage collector
-    gc.collect()
+    """Очистка памяти"""
+    if Config.MEMORY_OPTIMIZATION['clear_memory_after_trial']:
+        # Удаляем все глобальные переменные, связанные с моделью
+        global model
+        if 'model' in globals():
+            del model
+        
+        # Очищаем все сессии TensorFlow
+        tf.keras.backend.clear_session()
+        
+        # Очистка Python garbage collector
+        gc.collect()
+        
+        # Очистка CUDA кэша если используется GPU
+        if Config.DEVICE_CONFIG['use_gpu']:
+            try:
+                import numba
+                numba.cuda.close()
+            except:
+                pass
 
 def create_data_pipeline(generator, batch_size):
     """
@@ -63,7 +96,9 @@ def create_data_pipeline(generator, batch_size):
     # Оптимизация загрузки данных
     if Config.MEMORY_OPTIMIZATION['cache_dataset']:
         dataset = dataset.cache()
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+    # Настраиваем размер буфера предзагрузки
+    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
     dataset = dataset.batch(batch_size)
     
     # Исправление размерности данных
@@ -130,6 +165,17 @@ def objective(trial):
     print(f"\nTrial {trial.number + 1} started")
     
     try:
+        # Проверка доступной памяти GPU
+        if Config.DEVICE_CONFIG['use_gpu']:
+            try:
+                from tensorflow.python.client import device_lib
+                stats = tf.config.experimental.get_memory_info('GPU:0')
+                if stats['current'] / 1024**3 > Config.DEVICE_CONFIG['gpu_memory_limit'] / 1024:
+                    print("Not enough GPU memory. Skipping trial.")
+                    return float('-inf')
+            except:
+                pass
+        
         # Определение гиперпараметров для оптимизации
         learning_rate = trial.suggest_float(
             'learning_rate',
@@ -146,6 +192,9 @@ def objective(trial):
         )
         
         print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
+        
+        # Очищаем память перед созданием модели
+        clear_memory()
         
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
@@ -179,6 +228,10 @@ def objective(trial):
         
         return best_val_accuracy
         
+    except tf.errors.ResourceExhaustedError:
+        print("GPU memory exhausted. Skipping trial.")
+        clear_memory()
+        return float('-inf')
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         clear_memory()
