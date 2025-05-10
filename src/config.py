@@ -39,6 +39,7 @@ class Config:
     DEVICE_CONFIG = {
         'use_gpu': False,  # Отключаем GPU
         'cpu_threads': 4,  # Количество потоков CPU
+        'force_cpu': True,  # Принудительное использование CPU
     }
     
     # Настройки оптимизации памяти
@@ -46,4 +47,5 @@ class Config:
         'clear_memory_after_trial': True,  # Очищать память после каждого испытания
         'use_mixed_precision': False,  # Отключаем mixed precision для CPU
         'cache_dataset': True,  # Включаем кэширование датасета
+        'prefetch_buffer_size': 1,  # Минимальный размер буфера предзагрузки
     } 
