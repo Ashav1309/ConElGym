@@ -67,7 +67,8 @@ class VideoDataLoader:
             
             # Изменение размера изображения, если указано
             if target_size:
-                frame = cv2.resize(frame, target_size)
+                # cv2.resize ожидает размеры в формате (ширина, высота)
+                frame = cv2.resize(frame, (target_size[1], target_size[0]))
             
             # Нормализация
             frame = frame.astype(np.float32) / 255.0

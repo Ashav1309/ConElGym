@@ -161,6 +161,10 @@ def load_and_prepare_data(batch_size):
     # Проверяем размеры данных
     sample_batch = next(train_generator)
     print(f"Sample batch shape: {sample_batch[0].shape}")
+    print(f"Expected shape: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
+    
+    if sample_batch[0].shape[2:] != (*Config.INPUT_SIZE, 3):
+        raise ValueError(f"Неверный размер изображения. Получено: {sample_batch[0].shape[2:]}, ожидалось: {(*Config.INPUT_SIZE, 3)}")
     
     train_dataset = create_data_pipeline(train_generator, batch_size)
     val_dataset = create_data_pipeline(val_generator, batch_size)
