@@ -365,7 +365,7 @@ def tune_hyperparameters():
             raise e
     
     try:
-        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=2)
+        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=1)
     finally:
         pbar.close()
     
