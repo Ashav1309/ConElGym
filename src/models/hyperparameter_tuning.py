@@ -143,13 +143,13 @@ def load_and_prepare_data(batch_size):
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=(224, 224),  # Исправляем размер для MobileNetV3
+        target_size=Config.INPUT_SIZE,  # Исправляем размер для MobileNetV3
         one_hot=True
     )
     val_generator = val_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=(224, 224),  # Исправляем размер для MobileNetV3
+        target_size=Config.INPUT_SIZE,  # Исправляем размер для MobileNetV3
         one_hot=True
     )
     
