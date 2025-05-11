@@ -25,18 +25,16 @@ def setup_device():
                 print("No GPU devices found")
                 return False
             
-            # Ограничиваем память GPU
-            tf.config.set_logical_device_configuration(
-                gpus[0],
-                [tf.config.LogicalDeviceConfiguration(
-                    memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
-                )]
-            )
-            
-            # Включаем динамический рост памяти
-            if Config.MEMORY_OPTIMIZATION['allow_memory_growth']:
-                for gpu in gpus:
-                    tf.config.experimental.set_memory_growth(gpu, True)
+            # Настройка памяти GPU
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
+                if Config.DEVICE_CONFIG['per_process_gpu_memory_fraction']:
+                    tf.config.set_logical_device_configuration(
+                        gpu,
+                        [tf.config.LogicalDeviceConfiguration(
+                            memory_limit=int(Config.DEVICE_CONFIG['gpu_memory_limit'] * 1024 * 1024)
+                        )]
+                    )
             
             # Включаем mixed precision если нужно
             if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
