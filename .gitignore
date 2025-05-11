@@ -59,3 +59,5 @@ config.ini
 # Системные файлы
 .DS_Store
 Thumbs.db
+
+test_gpu.py
