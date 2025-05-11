@@ -85,6 +85,9 @@ def create_data_pipeline(generator, batch_size):
     """
     Создает оптимизированный pipeline данных
     """
+    print(f"Creating data pipeline with batch_size={batch_size}")
+    print(f"Expected input shape: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
+    
     dataset = tf.data.Dataset.from_generator(
         lambda: generator,
         output_signature=(
@@ -102,8 +105,10 @@ def create_data_pipeline(generator, batch_size):
     
     # Исправление размерности данных
     def reshape_data(x, y):
+        print(f"Input shape before reshape: {x.shape}")  # Отладочная информация
         x = tf.squeeze(x, axis=1)
         y = tf.squeeze(y, axis=1)
+        print(f"Input shape after reshape: {x.shape}")  # Отладочная информация
         return x, y
     
     dataset = dataset.map(reshape_data, num_parallel_calls=tf.data.AUTOTUNE)
