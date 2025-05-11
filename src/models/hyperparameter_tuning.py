@@ -97,8 +97,7 @@ def create_data_pipeline(generator, batch_size):
     if Config.MEMORY_OPTIMIZATION['cache_dataset']:
         dataset = dataset.cache()
     
-    # Настраиваем размер буфера предзагрузки
-    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
     dataset = dataset.batch(batch_size)
     
     # Исправление размерности данных
@@ -140,18 +139,28 @@ def load_and_prepare_data(batch_size):
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
+    # Проверяем и устанавливаем правильный размер изображения
+    target_size = Config.INPUT_SIZE
+    print(f"Using target size: {target_size}")
+    
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=Config.INPUT_SIZE,  # Исправляем размер для MobileNetV3
-        one_hot=True
+        target_size=target_size,
+        one_hot=True,
+        infinite_loop=True
     )
     val_generator = val_loader.load_data(
         Config.SEQUENCE_LENGTH, 
         batch_size, 
-        target_size=Config.INPUT_SIZE,  # Исправляем размер для MobileNetV3
-        one_hot=True
+        target_size=target_size,
+        one_hot=True,
+        infinite_loop=True
     )
+    
+    # Проверяем размеры данных
+    sample_batch = next(train_generator)
+    print(f"Sample batch shape: {sample_batch[0].shape}")
     
     train_dataset = create_data_pipeline(train_generator, batch_size)
     val_dataset = create_data_pipeline(val_generator, batch_size)
@@ -198,6 +207,8 @@ def objective(trial):
         
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
+        print(f"Model input shape: {input_shape}")
+        
         model = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
