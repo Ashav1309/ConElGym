@@ -5,7 +5,7 @@ os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda'
 os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
-
+os.environ['TF_DISABLE_JIT'] = '1'  # Явное отключение JIT
 import tensorflow as tf
 # Отключаем JIT компиляцию
 tf.config.optimizer.set_jit(False)
@@ -45,8 +45,10 @@ def setup_device():
             
             # Включаем mixed precision если нужно
             if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-                tf.keras.mixed_precision.set_global_policy('mixed_float16')
-            
+                from tensorflow.keras.mixed_precision import Policy
+                policy = Policy('mixed_float16')
+                tf.keras.mixed_precision.set_global_policy(policy)
+                print("Mixed precision policy set:", policy.name)
             print("GPU optimization enabled")
             return True
         else:
@@ -80,11 +82,10 @@ def clear_memory():
         
         # Очистка CUDA кэша если используется GPU
         if Config.DEVICE_CONFIG['use_gpu']:
-            try:
-                import numba
-                numba.cuda.close()
-            except:
-                pass
+            from numba import cuda
+            cuda.select_device(0)
+            cuda.close()
+            cuda.select_device(0)
 
 def create_data_pipeline(generator, batch_size):
     """

@@ -9,6 +9,7 @@ os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda'
 os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_DISABLE_JIT'] = '1'  # Явное отключение JIT
 
 # Отключаем JIT компиляцию
 tf.config.optimizer.set_jit(False)
