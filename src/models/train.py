@@ -69,7 +69,7 @@ def create_data_pipeline(generator, batch_size):
     # Оптимизация загрузки данных
     if Config.MEMORY_OPTIMIZATION['cache_dataset']:
         dataset = dataset.cache()
-    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
     dataset = dataset.batch(batch_size)
     
     # Исправление размерности данных
@@ -224,13 +224,15 @@ def train():
             Config.SEQUENCE_LENGTH, 
             Config.BATCH_SIZE, 
             target_size=Config.INPUT_SIZE,
-            one_hot=True
+            one_hot=True,
+            infinite_loop=True
         )
         val_generator = val_loader.load_data(
             Config.SEQUENCE_LENGTH, 
             Config.BATCH_SIZE, 
             target_size=Config.INPUT_SIZE,
-            one_hot=True
+            one_hot=True,
+            infinite_loop=True
         )
         
         # Создание оптимизированных pipeline данных

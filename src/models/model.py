@@ -110,7 +110,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
     # Выходные слои
     x = Dense(lstm_units // 2, activation='relu')(x)
     x = Dropout(dropout_rate / 2)(x)
-    outputs = Dense(num_classes, activation='softmax')(x)  # Изменено на softmax для многоклассовой классификации
+    outputs = Dense(num_classes, activation='softmax', dtype='float32')(x)  # Изменено на softmax для многоклассовой классификации
     
     return Model(inputs=inputs, outputs=outputs)
 

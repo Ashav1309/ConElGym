@@ -25,17 +25,20 @@ class VideoDataLoader:
         self.cache_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=4)
     
-    def _load_data(self):
+    def _load_data(self, infinite_loop=False):
         """
         Загрузка путей к видео и меток.
         """
-        for class_name in os.listdir(self.data_path):
-            class_path = os.path.join(self.data_path, class_name)
-            if os.path.isdir(class_path):
-                for video_name in os.listdir(class_path):
-                    if video_name.endswith('.mp4'):
-                        self.video_paths.append(os.path.join(class_path, video_name))
-                        self.labels.append(1 if class_name == 'correct' else 0)
+        while True:
+            for class_name in os.listdir(self.data_path):
+                class_path = os.path.join(self.data_path, class_name)
+                if os.path.isdir(class_path):
+                    for video_name in os.listdir(class_path):
+                        if video_name.endswith('.mp4'):
+                            self.video_paths.append(os.path.join(class_path, video_name))
+                            self.labels.append(1 if class_name == 'correct' else 0)
+            if not infinite_loop:
+                break
     
     def load_video(self, video_path, target_size=None):
         """
