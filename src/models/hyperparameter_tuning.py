@@ -372,14 +372,26 @@ def tune_hyperparameters():
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
     
-    # Добавляем прогресс-бар для trials
-    with tqdm(total=n_trials, desc="Hyperparameter Tuning") as pbar:
-        def objective_with_progress(trial):
+    # Создаем прогресс-бар для trials
+    pbar = tqdm(total=n_trials, desc="Hyperparameter Tuning", position=0)
+    
+    def objective_with_progress(trial):
+        try:
             result = objective(trial)
             pbar.update(1)
+            pbar.set_postfix({
+                'best_value': f"{study.best_value:.4f}" if study.best_value is not None else "N/A",
+                'trial': trial.number + 1
+            })
             return result
-        
+        except Exception as e:
+            pbar.update(1)
+            raise e
+    
+    try:
         study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=1)
+    finally:
+        pbar.close()
     
     total_time = time.time() - start_time
     
