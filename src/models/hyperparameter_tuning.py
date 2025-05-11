@@ -22,6 +22,22 @@ from datetime import datetime, timedelta
 import time
 import gc
 
+def clear_memory():
+    """Очистка памяти"""
+    # Очищаем все сессии TensorFlow
+    tf.keras.backend.clear_session()
+    
+    # Очистка Python garbage collector
+    gc.collect()
+    
+    # Очистка CUDA кэша если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu']:
+        try:
+            # Пробуем очистить CUDA кэш через TensorFlow
+            tf.config.experimental.reset_memory_stats('GPU:0')
+        except:
+            pass
+
 def setup_device():
     """Настройка устройства (CPU/GPU)"""
     try:
@@ -35,13 +51,6 @@ def setup_device():
             # Настройка памяти GPU
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
-                if Config.DEVICE_CONFIG['per_process_gpu_memory_fraction']:
-                    tf.config.set_logical_device_configuration(
-                        gpu,
-                        [tf.config.LogicalDeviceConfiguration(
-                            memory_limit=int(Config.DEVICE_CONFIG['gpu_memory_limit'] * 1024 * 1024)
-                        )]
-                    )
             
             # Включаем mixed precision если нужно
             if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
@@ -49,6 +58,7 @@ def setup_device():
                 policy = Policy('mixed_float16')
                 tf.keras.mixed_precision.set_global_policy(policy)
                 print("Mixed precision policy set:", policy.name)
+            
             print("GPU optimization enabled")
             return True
         else:
@@ -65,27 +75,6 @@ def setup_device():
 
 # Инициализация устройства
 device_available = setup_device()
-
-def clear_memory():
-    """Очистка памяти"""
-    if Config.MEMORY_OPTIMIZATION['clear_memory_after_trial']:
-        # Удаляем все глобальные переменные, связанные с моделью
-        global model
-        if 'model' in globals():
-            del model
-        
-        # Очищаем все сессии TensorFlow
-        tf.keras.backend.clear_session()
-        
-        # Очистка Python garbage collector
-        gc.collect()
-        
-        # Очистка CUDA кэша если используется GPU
-        if Config.DEVICE_CONFIG['use_gpu']:
-            from numba import cuda
-            cuda.select_device(0)
-            cuda.close()
-            cuda.select_device(0)
 
 def create_data_pipeline(generator, batch_size):
     """

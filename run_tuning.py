@@ -31,8 +31,10 @@ gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
         # Включаем mixed precision
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        print("Mixed precision enabled")
+        from tensorflow.keras.mixed_precision import Policy
+        policy = Policy('mixed_float16')
+        tf.keras.mixed_precision.set_global_policy(policy)
+        print("Mixed precision policy set:", policy.name)
         
         # Проверяем, что GPU действительно используется
         with tf.device('/GPU:0'):
@@ -46,5 +48,9 @@ else:
     print("\nNo GPU devices found")
 
 if __name__ == "__main__":
-    best_params = tune_hyperparameters()
-    print("Best parameters:", best_params) 
+    try:
+        best_params = tune_hyperparameters()
+        print("Best parameters:", best_params)
+    except Exception as e:
+        print(f"Error during hyperparameter tuning: {e}")
+        raise 
