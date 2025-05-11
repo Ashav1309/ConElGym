@@ -11,6 +11,7 @@ from tensorflow.keras.callbacks import (
     Callback
 )
 import numpy as np
+import gc
 
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
@@ -36,6 +37,22 @@ tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 print("GPU Device: ", tf.test.gpu_device_name())
+
+def clear_memory():
+    """Очистка памяти"""
+    # Очищаем все сессии TensorFlow
+    tf.keras.backend.clear_session()
+    
+    # Очистка Python garbage collector
+    gc.collect()
+    
+    # Очистка CUDA кэша если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu']:
+        try:
+            import numba
+            numba.cuda.close()
+        except:
+            pass
 
 def create_data_pipeline(generator, batch_size):
     """
@@ -63,6 +80,29 @@ def create_data_pipeline(generator, batch_size):
     
     dataset = dataset.map(reshape_data, num_parallel_calls=tf.data.AUTOTUNE)
     return dataset
+
+class OverfittingMonitor(Callback):
+    """Мониторинг переобучения"""
+    def __init__(self, threshold):
+        super().__init__()
+        self.threshold = threshold
+        self.overfitting_epochs = 0
+        
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            return
+            
+        train_acc = logs.get('accuracy')
+        val_acc = logs.get('val_accuracy')
+        
+        if train_acc is not None and val_acc is not None:
+            diff = train_acc - val_acc
+            if diff > self.threshold:
+                self.overfitting_epochs += 1
+                print(f"\nWarning: Possible overfitting detected! "
+                      f"Train-Val accuracy difference: {diff:.4f}")
+            else:
+                self.overfitting_epochs = 0
 
 class TrainingPlotter(Callback):
     def __init__(self, save_path):
@@ -124,6 +164,9 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
     plt.close()
 
 def train():
+    # Очищаем память перед началом обучения
+    clear_memory()
+    
     # Создание директорий
     os.makedirs(Config.MODEL_SAVE_PATH, exist_ok=True)
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'plots'), exist_ok=True)
@@ -134,7 +177,7 @@ def train():
         input_shape=input_shape,
         num_classes=Config.NUM_CLASSES,
         dropout_rate=0.5,
-        lstm_units=16  # Уменьшаем количество LSTM units
+        lstm_units=32  # Увеличиваем количество LSTM units
     )
     
     # Компиляция модели с mixed precision
@@ -144,8 +187,7 @@ def train():
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=['accuracy'],
-        jit_compile=True
+        metrics=['accuracy']
     )
     
     # Callbacks
@@ -157,98 +199,110 @@ def train():
         ),
         EarlyStopping(
             monitor='val_loss',
-            patience=10,
+            patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
             restore_best_weights=True
         ),
         ReduceLROnPlateau(
             monitor='val_loss',
-            factor=0.2,
-            patience=5,
-            min_lr=1e-6
+            factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
+            patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
+            min_lr=Config.OVERFITTING_PREVENTION['min_lr']
+        ),
+        OverfittingMonitor(
+            threshold=Config.OVERFITTING_PREVENTION['max_overfitting_threshold']
         ),
         TrainingPlotter(os.path.join(Config.MODEL_SAVE_PATH, 'plots'))
     ]
     
-    # Загрузка данных
-    train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-    val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
-    
-    # Создание генераторов данных
-    train_generator = train_loader.load_data(
-        Config.SEQUENCE_LENGTH, 
-        Config.BATCH_SIZE, 
-        target_size=Config.INPUT_SIZE,
-        one_hot=True
-    )
-    val_generator = val_loader.load_data(
-        Config.SEQUENCE_LENGTH, 
-        Config.BATCH_SIZE, 
-        target_size=Config.INPUT_SIZE,
-        one_hot=True
-    )
-    
-    # Создание оптимизированных pipeline данных
-    train_dataset = create_data_pipeline(train_generator, Config.BATCH_SIZE)
-    val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
-    
-    # Обучение
-    history = model.fit(
-        train_dataset,
-        epochs=Config.EPOCHS,
-        validation_data=val_dataset,
-        callbacks=callbacks,
-        steps_per_epoch=Config.STEPS_PER_EPOCH,
-        validation_steps=Config.VALIDATION_STEPS
-    )
-    
-    # Визуализация результатов
-    plot_path = os.path.join(Config.MODEL_SAVE_PATH, 'plots')
-    
-    # Графики потерь и точности
-    plt.figure(figsize=(12, 4))
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(history.history['accuracy'], label='Training Accuracy')
-    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-    plt.title('Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(plot_path, 'final_training_plot.png'))
-    plt.close()
-    
-    # Матрица ошибок
-    val_generator = val_loader.load_data(
-        Config.SEQUENCE_LENGTH, 
-        Config.BATCH_SIZE, 
-        target_size=Config.INPUT_SIZE, 
-        one_hot=True
-    )
-    val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
-    y_true = []
-    y_pred = []
-    
-    for _ in range(Config.VALIDATION_STEPS):
-        X_val, y_val = next(val_generator)
-        pred = model.predict(X_val, verbose=0)
-        y_true.extend(y_val)
-        y_pred.extend(np.round(pred))
-    
-    plot_confusion_matrix(np.array(y_true), np.array(y_pred), plot_path)
-    
-    return history
+    try:
+        # Загрузка данных
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        
+        # Создание генераторов данных
+        train_generator = train_loader.load_data(
+            Config.SEQUENCE_LENGTH, 
+            Config.BATCH_SIZE, 
+            target_size=Config.INPUT_SIZE,
+            one_hot=True
+        )
+        val_generator = val_loader.load_data(
+            Config.SEQUENCE_LENGTH, 
+            Config.BATCH_SIZE, 
+            target_size=Config.INPUT_SIZE,
+            one_hot=True
+        )
+        
+        # Создание оптимизированных pipeline данных
+        train_dataset = create_data_pipeline(train_generator, Config.BATCH_SIZE)
+        val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
+        
+        # Обучение
+        history = model.fit(
+            train_dataset,
+            epochs=Config.EPOCHS,
+            validation_data=val_dataset,
+            callbacks=callbacks,
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_steps=Config.VALIDATION_STEPS
+        )
+        
+        # Визуализация результатов
+        plot_path = os.path.join(Config.MODEL_SAVE_PATH, 'plots')
+        
+        # Графики потерь и точности
+        plt.figure(figsize=(12, 4))
+        
+        plt.subplot(1, 2, 1)
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.title('Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True)
+        
+        plt.subplot(1, 2, 2)
+        plt.plot(history.history['accuracy'], label='Training Accuracy')
+        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+        plt.title('Accuracy')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.grid(True)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plot_path, 'final_training_plot.png'))
+        plt.close()
+        
+        # Матрица ошибок
+        val_generator = val_loader.load_data(
+            Config.SEQUENCE_LENGTH, 
+            Config.BATCH_SIZE, 
+            target_size=Config.INPUT_SIZE, 
+            one_hot=True
+        )
+        val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
+        y_true = []
+        y_pred = []
+        
+        for _ in range(Config.VALIDATION_STEPS):
+            X_val, y_val = next(val_generator)
+            pred = model.predict(X_val, verbose=0)
+            y_true.extend(y_val)
+            y_pred.extend(np.round(pred))
+        
+        plot_confusion_matrix(np.array(y_true), np.array(y_pred), plot_path)
+        
+        return history
+        
+    except Exception as e:
+        print(f"Error during training: {str(e)}")
+        clear_memory()
+        raise e
+    finally:
+        # Очищаем память после обучения
+        clear_memory()
 
 if __name__ == "__main__":
     train() 
