@@ -21,14 +21,16 @@ print("LD_LIBRARY_PATH:", os.environ.get('LD_LIBRARY_PATH'))
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        # Разрешаем динамический рост памяти
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print("\nMemory growth enabled for GPUs")
+        # Сначала сбрасываем все конфигурации
+        tf.config.experimental.reset_memory_stats('GPU:0')
         
         # Устанавливаем видимые устройства
         tf.config.set_visible_devices(gpus[0], 'GPU')
         print("Set visible GPU device")
+        
+        # Настраиваем память GPU
+        tf.config.experimental.set_memory_growth(gpus[0], True)
+        print("Memory growth enabled for GPU")
         
         # Включаем mixed precision
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
