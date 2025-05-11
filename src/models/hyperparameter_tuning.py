@@ -142,9 +142,7 @@ def load_and_prepare_data(batch_size):
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
-    # Проверяем и устанавливаем правильный размер изображения
     target_size = Config.INPUT_SIZE
-    print(f"Using target size: {target_size}")
     
     train_generator = train_loader.load_data(
         Config.SEQUENCE_LENGTH, 
@@ -214,7 +212,6 @@ def objective(trial):
         
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        print(f"Model input shape: {input_shape}")
         
         model = create_and_compile_model(
             input_shape=input_shape,
