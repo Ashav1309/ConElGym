@@ -22,6 +22,8 @@ import seaborn as sns
 from datetime import datetime, timedelta
 import time
 import gc
+from tqdm.auto import tqdm
+from tqdm.keras import TqdmCallback
 
 def clear_memory():
     """Очистка памяти"""
@@ -225,7 +227,7 @@ def objective(trial):
         # Загрузка и подготовка данных
         train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
         
-        # Добавляем callbacks для раннего прерывания
+        # Добавляем callbacks для раннего прерывания и прогресс-бар
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_accuracy',
@@ -237,7 +239,8 @@ def objective(trial):
                 factor=0.5,
                 patience=2,
                 min_lr=1e-6
-            )
+            ),
+            TqdmCallback(verbose=1)  # Добавляем прогресс-бар
         ]
         
         # Обучение модели
@@ -248,7 +251,7 @@ def objective(trial):
             steps_per_epoch=Config.STEPS_PER_EPOCH,
             validation_steps=Config.VALIDATION_STEPS,
             callbacks=callbacks,
-            verbose=1
+            verbose=0  # Отключаем стандартный вывод, так как используем tqdm
         )
         
         best_val_accuracy = max(history.history['val_accuracy'])
@@ -341,7 +344,15 @@ def tune_hyperparameters():
     n_trials = Config.HYPERPARAM_TUNING['n_trials']
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
-    study.optimize(objective, n_trials=n_trials, n_jobs=1)
+    
+    # Добавляем прогресс-бар для trials
+    with tqdm(total=n_trials, desc="Hyperparameter Tuning") as pbar:
+        def objective_with_progress(trial):
+            result = objective(trial)
+            pbar.update(1)
+            return result
+        
+        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=1)
     
     total_time = time.time() - start_time
     

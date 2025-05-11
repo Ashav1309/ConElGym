@@ -12,6 +12,8 @@ from tensorflow.keras.callbacks import (
 )
 import numpy as np
 import gc
+from tqdm.auto import tqdm
+from tqdm.keras import TqdmCallback
 
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
@@ -211,7 +213,8 @@ def train():
         OverfittingMonitor(
             threshold=Config.OVERFITTING_PREVENTION['max_overfitting_threshold']
         ),
-        TrainingPlotter(os.path.join(Config.MODEL_SAVE_PATH, 'plots'))
+        TrainingPlotter(os.path.join(Config.MODEL_SAVE_PATH, 'plots')),
+        TqdmCallback(verbose=1)  # Добавляем прогресс-бар
     ]
     
     try:
@@ -246,7 +249,8 @@ def train():
             validation_data=val_dataset,
             callbacks=callbacks,
             steps_per_epoch=Config.STEPS_PER_EPOCH,
-            validation_steps=Config.VALIDATION_STEPS
+            validation_steps=Config.VALIDATION_STEPS,
+            verbose=0  # Отключаем стандартный вывод, так как используем tqdm
         )
         
         # Визуализация результатов
@@ -278,6 +282,7 @@ def train():
         plt.close()
         
         # Матрица ошибок
+        print("\nВычисление матрицы ошибок...")
         val_generator = val_loader.load_data(
             Config.SEQUENCE_LENGTH, 
             Config.BATCH_SIZE, 
@@ -288,11 +293,14 @@ def train():
         y_true = []
         y_pred = []
         
-        for _ in range(Config.VALIDATION_STEPS):
-            X_val, y_val = next(val_generator)
-            pred = model.predict(X_val, verbose=0)
-            y_true.extend(y_val)
-            y_pred.extend(np.round(pred))
+        # Добавляем прогресс-бар для вычисления матрицы ошибок
+        with tqdm(total=Config.VALIDATION_STEPS, desc="Computing Confusion Matrix") as pbar:
+            for _ in range(Config.VALIDATION_STEPS):
+                X_val, y_val = next(val_generator)
+                pred = model.predict(X_val, verbose=0)
+                y_true.extend(y_val)
+                y_pred.extend(np.round(pred))
+                pbar.update(1)
         
         plot_confusion_matrix(np.array(y_true), np.array(y_pred), plot_path)
         
