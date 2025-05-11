@@ -187,7 +187,8 @@ def objective(trial):
                 if stats['current'] / 1024**3 > Config.DEVICE_CONFIG['gpu_memory_limit'] / 1024:
                     print("Not enough GPU memory. Skipping trial.")
                     return float('-inf')
-            except:
+            except Exception as e:
+                print(f"[DEBUG] Ошибка при проверке памяти GPU: {e}")
                 pass
         
         # Определение гиперпараметров для оптимизации
@@ -212,7 +213,6 @@ def objective(trial):
         
         # Создание и компиляция модели
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        
         model = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
@@ -220,9 +220,11 @@ def objective(trial):
             dropout_rate=dropout_rate,
             lstm_units=lstm_units
         )
+        print("[DEBUG] Модель успешно создана и скомпилирована")
         
         # Загрузка и подготовка данных
         train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
+        print("[DEBUG] Данные успешно загружены и подготовлены")
         
         # Добавляем callbacks для раннего прерывания
         callbacks = [
@@ -247,10 +249,12 @@ def objective(trial):
             steps_per_epoch=Config.STEPS_PER_EPOCH,
             validation_steps=Config.VALIDATION_STEPS,
             callbacks=callbacks,
-            verbose=0  # Отключаем стандартный вывод, так как используем tqdm
+            verbose=0
         )
+        print("[DEBUG] Обучение модели завершено")
         
         best_val_accuracy = max(history.history['val_accuracy'])
+        print(f"[DEBUG] Лучшая val_accuracy: {best_val_accuracy}")
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
         # Очищаем память после обучения
@@ -264,7 +268,7 @@ def objective(trial):
         clear_memory()
         return float('-inf')
     except Exception as e:
-        print(f"Error in trial: {str(e)}")
+        print(f"[DEBUG] Error in trial: {str(e)}")
         clear_memory()
         return float('-inf')
 
