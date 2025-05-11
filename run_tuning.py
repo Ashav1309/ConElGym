@@ -2,8 +2,10 @@ import tensorflow as tf
 import os
 from src.models.hyperparameter_tuning import tune_hyperparameters
 
-# Включаем подробный вывод
+# Настройка переменных окружения для GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 # Настройка GPU
 print("TensorFlow version:", tf.__version__)
@@ -21,20 +23,16 @@ print("LD_LIBRARY_PATH:", os.environ.get('LD_LIBRARY_PATH'))
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        # Сначала сбрасываем все конфигурации
-        tf.config.experimental.reset_memory_stats('GPU:0')
-        
-        # Устанавливаем видимые устройства
-        tf.config.set_visible_devices(gpus[0], 'GPU')
-        print("Set visible GPU device")
-        
-        # Настраиваем память GPU
-        tf.config.experimental.set_memory_growth(gpus[0], True)
-        print("Memory growth enabled for GPU")
-        
         # Включаем mixed precision
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
         print("Mixed precision enabled")
+        
+        # Проверяем, что GPU действительно используется
+        with tf.device('/GPU:0'):
+            a = tf.random.normal([1000, 1000])
+            b = tf.random.normal([1000, 1000])
+            c = tf.matmul(a, b)
+            print("GPU test successful")
     except RuntimeError as e:
         print(f"Error setting up GPU: {e}")
 else:
