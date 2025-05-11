@@ -225,6 +225,21 @@ def objective(trial):
         # Загрузка и подготовка данных
         train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
         
+        # Добавляем callbacks для раннего прерывания
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_accuracy',
+                patience=3,
+                restore_best_weights=True
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_accuracy',
+                factor=0.5,
+                patience=2,
+                min_lr=1e-6
+            )
+        ]
+        
         # Обучение модели
         history = model.fit(
             train_dataset,
@@ -232,6 +247,7 @@ def objective(trial):
             epochs=Config.EPOCHS,
             steps_per_epoch=Config.STEPS_PER_EPOCH,
             validation_steps=Config.VALIDATION_STEPS,
+            callbacks=callbacks,
             verbose=1
         )
         
