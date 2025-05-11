@@ -377,7 +377,6 @@ def tune_hyperparameters():
             result = objective(trial)
             pbar.update(1)
             pbar.set_postfix({
-                'best_value': f"{study.best_value:.4f}" if study.best_value is not None else "N/A",
                 'trial': trial.number + 1
             })
             return result
