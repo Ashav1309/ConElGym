@@ -1,0 +1,50 @@
+Best trial:
+  Value: -inf
+  Params: {'learning_rate': 6.275082703484273e-05, 'dropout_rate': 0.3054027379660637, 'lstm_units': 64}
+
+All trials:
+Trial 0:
+  Value: -inf
+  Params: {'learning_rate': 6.275082703484273e-05, 'dropout_rate': 0.3054027379660637, 'lstm_units': 64}
+
+Trial 1:
+  Value: -inf
+  Params: {'learning_rate': 1.3624455900272647e-05, 'dropout_rate': 0.2854523226125066, 'lstm_units': 32}
+
+Trial 2:
+  Value: -inf
+  Params: {'learning_rate': 0.00028333940376908513, 'dropout_rate': 0.5504266631159633, 'lstm_units': 64}
+
+Trial 3:
+  Value: -inf
+  Params: {'learning_rate': 5.510300486251575e-05, 'dropout_rate': 0.5074835084984677, 'lstm_units': 32}
+
+Trial 4:
+  Value: -inf
+  Params: {'learning_rate': 1.707296118155007e-05, 'dropout_rate': 0.32127261481739067, 'lstm_units': 16}
+
+Trial 5:
+  Value: -inf
+  Params: {'learning_rate': 0.000756958156632328, 'dropout_rate': 0.20039633349126523, 'lstm_units': 64}
+
+Trial 6:
+  Value: -inf
+  Params: {'learning_rate': 8.243020846637239e-05, 'dropout_rate': 0.4162560030668076, 'lstm_units': 64}
+
+Trial 7:
+  Value: -inf
+  Params: {'learning_rate': 3.8015298277067075e-05, 'dropout_rate': 0.40144629871526416, 'lstm_units': 16}
+
+Trial 8:
+  Value: -inf
+  Params: {'learning_rate': 0.00023220508567033606, 'dropout_rate': 0.2892109642263539, 'lstm_units': 64}
+
+Trial 9:
+  Value: -inf
+  Params: {'learning_rate': 0.00019592760177363953, 'dropout_rate': 0.2014678781132348, 'lstm_units': 64}
+
+
+Total time: 0:00:19
+Average time per trial: 0:00:01
+
+Successful trials: 10/10
