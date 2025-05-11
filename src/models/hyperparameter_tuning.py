@@ -161,7 +161,9 @@ def load_and_prepare_data(batch_size):
     
     # Проверяем размеры данных
     sample_batch = next(train_generator)
-    print(f"Sample batch shape: {sample_batch[0].shape}")
+    print(f"[DEBUG] sample_batch type: {type(sample_batch)}")
+    print(f"[DEBUG] sample_batch[0] shape: {getattr(sample_batch[0], 'shape', 'None')}")
+    print(f"[DEBUG] sample_batch[1] shape: {getattr(sample_batch[1], 'shape', 'None')}")
     print(f"Expected shape: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
     if sample_batch[0].shape[2:] != (*Config.INPUT_SIZE, 3):
@@ -268,7 +270,9 @@ def objective(trial):
         clear_memory()
         return float('-inf')
     except Exception as e:
+        import traceback
         print(f"[DEBUG] Error in trial: {str(e)}")
+        traceback.print_exc()
         clear_memory()
         return float('-inf')
 
@@ -361,7 +365,7 @@ def tune_hyperparameters():
             raise e
     
     try:
-        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=4)
+        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=2)
     finally:
         pbar.close()
     
