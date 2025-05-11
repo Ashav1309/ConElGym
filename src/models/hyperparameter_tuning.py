@@ -224,34 +224,7 @@ def objective(trial):
         # Загрузка и подготовка данных
         train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
         
-        # Создаем кастомный callback для отображения прогресса
-        class TrialProgressCallback(tf.keras.callbacks.Callback):
-            def __init__(self, trial_number):
-                super().__init__()
-                self.trial_number = trial_number
-                self.pbar = None
-                
-            def on_train_begin(self, logs=None):
-                self.pbar = tqdm(
-                    total=Config.EPOCHS,
-                    desc=f"Trial {self.trial_number + 1} Training",
-                    leave=True
-                )
-                
-            def on_epoch_end(self, epoch, logs=None):
-                if logs:
-                    self.pbar.set_postfix({
-                        'loss': f"{logs.get('loss', 0):.4f}",
-                        'val_loss': f"{logs.get('val_loss', 0):.4f}",
-                        'accuracy': f"{logs.get('accuracy', 0):.4f}",
-                        'val_accuracy': f"{logs.get('val_accuracy', 0):.4f}"
-                    })
-                self.pbar.update(1)
-                
-            def on_train_end(self, logs=None):
-                self.pbar.close()
-        
-        # Добавляем callbacks для раннего прерывания и прогресс-бар
+        # Добавляем callbacks для раннего прерывания
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_accuracy',
@@ -263,8 +236,7 @@ def objective(trial):
                 factor=0.5,
                 patience=2,
                 min_lr=1e-6
-            ),
-            TrialProgressCallback(trial.number)  # Добавляем кастомный прогресс-бар
+            )
         ]
         
         # Обучение модели
