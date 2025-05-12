@@ -29,23 +29,31 @@ import sys
 
 def clear_memory():
     """Очистка памяти"""
+    print("[DEBUG] Начало очистки памяти...")
+    
     # Очищаем все сессии TensorFlow
     tf.keras.backend.clear_session()
+    print("[DEBUG] TensorFlow сессия очищена")
     
     # Очистка Python garbage collector
     gc.collect()
+    print("[DEBUG] Garbage collector выполнен")
     
     # Очистка CUDA кэша если используется GPU
     if Config.DEVICE_CONFIG['use_gpu']:
         try:
             # Пробуем очистить CUDA кэш через TensorFlow
             tf.config.experimental.reset_memory_stats('GPU:0')
+            print("[DEBUG] CUDA кэш очищен")
             # Принудительно очищаем CUDA кэш
             tf.keras.backend.clear_session()
             # Очищаем все переменные
             tf.keras.backend.reset_uids()
-        except:
-            pass
+            print("[DEBUG] TensorFlow переменные сброшены")
+        except Exception as e:
+            print(f"[DEBUG] Ошибка при очистке CUDA: {str(e)}")
+    
+    print("[DEBUG] Очистка памяти завершена")
 
 def setup_device():
     """Настройка устройства (CPU/GPU)"""
@@ -89,32 +97,45 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     """
     Создает оптимизированный pipeline данных
     """
-    print(f"Creating data pipeline with batch_size={batch_size}")
-    print(f"Expected input shape: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
+    print(f"[DEBUG] Создание pipeline данных: batch_size={batch_size}")
+    print(f"[DEBUG] Ожидаемая форма входных данных: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
     def generator():
-        return loader.data_generator(
-            sequence_length=sequence_length,
-            batch_size=batch_size,
-            target_size=target_size,
-            one_hot=one_hot,
-            infinite_loop=infinite_loop,
-            max_sequences_per_video=max_sequences_per_video
+        print("[DEBUG] Запуск генератора данных...")
+        try:
+            gen = loader.data_generator(
+                sequence_length=sequence_length,
+                batch_size=batch_size,
+                target_size=target_size,
+                one_hot=one_hot,
+                infinite_loop=infinite_loop,
+                max_sequences_per_video=max_sequences_per_video
+            )
+            print("[DEBUG] Генератор данных создан успешно")
+            return gen
+        except Exception as e:
+            print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
+            raise
+    
+    try:
+        dataset = tf.data.Dataset.from_generator(
+            generator,
+            output_signature=(
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
+            )
         )
-    
-    dataset = tf.data.Dataset.from_generator(
-        generator,
-        output_signature=(
-            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
-        )
-    )
-    
-    # Оптимизация загрузки данных
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
-    
-    return dataset
+        print("[DEBUG] tf.data.Dataset создан успешно")
+        
+        # Оптимизация загрузки данных
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+        print("[DEBUG] Pipeline данных оптимизирован")
+        
+        return dataset
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при создании pipeline данных: {str(e)}")
+        raise
 
 def f1_score_element(y_true, y_pred):
     y_true = tf.argmax(y_true, axis=-1)
@@ -200,6 +221,7 @@ def load_and_prepare_data(batch_size):
     return train_dataset, val_dataset
 
 def objective(trial):
+    print(f"\n[DEBUG] Начало trial {trial.number}")
     # Очищаем память перед каждым испытанием
     clear_memory()
     
@@ -258,17 +280,22 @@ def objective(trial):
         print(f"[DEBUG] Best validation accuracy: {best_val_accuracy:.4f}")
         
         # Очищаем память
+        print("[DEBUG] Cleaning up after training...")
         del model
         del history
         del train_dataset
         del val_dataset
         clear_memory()
+        print("[DEBUG] Cleanup completed")
         
         return best_val_accuracy
         
     except Exception as e:
         print(f"\n[ERROR] Error in trial {trial.number}: {str(e)}")
-        clear_memory()  # Очищаем память в случае ошибки
+        print(f"[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        clear_memory()
         return None
 
 def save_tuning_results(study, n_trials):
@@ -313,6 +340,8 @@ def tune_hyperparameters():
     """
     Подбор оптимальных гиперпараметров модели
     """
+    print("[DEBUG] Начало подбора гиперпараметров")
+    
     if not device_available:
         print("Warning: Device setup failed. This will be very slow.")
     
@@ -343,9 +372,12 @@ def tune_hyperparameters():
         study.optimize(objective, n_trials=n_trials)
     except Exception as e:
         print(f"\nError during optimization: {str(e)}")
-        clear_memory()  # Очищаем память в случае ошибки
+        print(f"[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        clear_memory()
     finally:
-        clear_memory()  # Очищаем память после завершения оптимизации
+        clear_memory()
     
     total_time = time.time() - start_time
     
