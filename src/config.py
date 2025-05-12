@@ -33,6 +33,9 @@ class Config:
         'learning_rate_range': (1e-5, 1e-3),  # Расширяем диапазон learning rate
         'dropout_range': (0.2, 0.6),  # Расширяем диапазон dropout
         'lstm_units': [16, 32, 64],  # Увеличиваем варианты LSTM units
+        'epochs_per_trial': 5,  # Количество эпох для каждого испытания
+        'steps_per_epoch': 10,  # Количество шагов на эпоху
+        'validation_steps': 5,  # Количество шагов валидации
     }
     
     # Настройки CPU/GPU

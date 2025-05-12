@@ -199,7 +199,7 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     """
-    Функция для оптимизации гиперпараметров (запуск в отдельном процессе)
+    Функция для оптимизации гиперпараметров
     """
     print(f"\nTrial {trial.number + 1} started")
     
@@ -220,31 +220,48 @@ def objective(trial):
     
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
-    # Формируем команду для запуска отдельного процесса
-    cmd = [
-        sys.executable, 'run_single_trial.py',
-        '--learning_rate', str(learning_rate),
-        '--dropout_rate', str(dropout_rate),
-        '--lstm_units', str(lstm_units),
-        '--batch_size', str(Config.BATCH_SIZE),
-        '--sequence_length', str(Config.SEQUENCE_LENGTH),
-        '--max_sequences_per_video', '10'
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output = result.stdout.strip()
-        print(f"[DEBUG] Output from run_single_trial.py: {output}")
-        best_val_accuracy = float(output.splitlines()[-1])
-        print(f"[DEBUG] Лучшая val_accuracy: {best_val_accuracy}")
+        # Загрузка данных
+        train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
+        
+        # Создание и компиляция модели
+        model = create_and_compile_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+            num_classes=2,
+            learning_rate=learning_rate,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
+        )
+        
+        # Обучение модели
+        history = model.fit(
+            train_dataset,
+            validation_data=val_dataset,
+            epochs=Config.HYPERPARAM_TUNING['epochs_per_trial'],
+            steps_per_epoch=Config.HYPERPARAM_TUNING['steps_per_epoch'],
+            validation_steps=Config.HYPERPARAM_TUNING['validation_steps'],
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_accuracy',
+                    patience=3,
+                    restore_best_weights=True
+                ),
+                TqdmCallback(verbose=0)
+            ],
+            verbose=0
+        )
+        
+        # Получаем лучшую точность на валидации
+        best_val_accuracy = max(history.history['val_accuracy'])
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
+        
+        # Очистка памяти
+        clear_memory()
+        
         return best_val_accuracy
-    except subprocess.CalledProcessError as e:
-        print(f"[DEBUG] Ошибка при запуске run_single_trial.py: {e}")
-        print(f"[DEBUG] stdout: {e.stdout}")
-        print(f"[DEBUG] stderr: {e.stderr}")
-        return float('-inf')
+        
     except Exception as e:
-        print(f"[DEBUG] Unexpected error: {e}")
+        print(f"Error in trial {trial.number + 1}: {str(e)}")
         return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
@@ -328,7 +345,8 @@ def tune_hyperparameters():
             result = objective(trial)
             pbar.update(1)
             pbar.set_postfix({
-                'trial': trial.number + 1
+                'trial': trial.number + 1,
+                'best_val_acc': f"{study.best_value:.4f}" if study.best_value is not None else "N/A"
             })
             return result
         except Exception as e:
@@ -336,7 +354,7 @@ def tune_hyperparameters():
             raise e
     
     try:
-        study.optimize(objective_with_progress, n_trials=n_trials, n_jobs=1)
+        study.optimize(objective_with_progress, n_trials=n_trials)
     finally:
         pbar.close()
     
@@ -348,7 +366,7 @@ def tune_hyperparameters():
     # Визуализация результатов
     plot_tuning_results(study)
     
-    return study
+    return study.best_params
 
 if __name__ == "__main__":
     best_params = tune_hyperparameters()
