@@ -322,34 +322,56 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=3),  # Уменьшаем количество начальных trials
+        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=3,
-            n_warmup_steps=3,
+            n_startup_trials=5,
+            n_warmup_steps=5,
             interval_steps=1
         )
     )
     
-    # Запуск оптимизации с меньшим количеством trials
+    # Запуск оптимизации
     start_time = time.time()
-    n_trials = min(Config.HYPERPARAM_TUNING['n_trials'], 5)  # Ограничиваем количество trials
+    n_trials = Config.HYPERPARAM_TUNING['n_trials']
     
-    print(f"Starting hyperparameter tuning with {n_trials} trials...")
-    study.optimize(objective, n_trials=n_trials)
+    print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
+    
+    try:
+        study.optimize(objective, n_trials=n_trials)
+    except Exception as e:
+        print(f"\nError during optimization: {str(e)}")
+    
+    total_time = time.time() - start_time
+    
+    # Проверяем, есть ли успешные trials
+    successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
+    if not successful_trials:
+        print("\nNo successful trials completed. Check the error messages above.")
+        return None
     
     # Сохранение результатов
-    save_tuning_results(study, n_trials)
+    save_tuning_results(study, total_time, n_trials)
     
     # Визуализация результатов
-    plot_tuning_results(study)
+    try:
+        plot_tuning_results(study)
+    except Exception as e:
+        print(f"\nWarning: Could not create visualization plots: {str(e)}")
     
-    # Возвращаем лучшие параметры
-    if study.best_trial is not None:
-        return {
-            'best_params': study.best_trial.params,
-            'best_value': study.best_trial.value
-        }
-    return None
+    # Возвращаем и study, и лучшие параметры
+    return {
+        'study': study,
+        'best_params': study.best_params,
+        'best_value': study.best_value
+    }
 
 if __name__ == "__main__":
-    tune_hyperparameters() 
+    try:
+        result = tune_hyperparameters()
+        if result is not None:
+            print("\nBest parameters:", result['best_params'])
+            print("Best validation accuracy:", result['best_value'])
+        else:
+            print("\nFailed to find best parameters. Check the error messages above.")
+    except Exception as e:
+        print(f"\nError during hyperparameter tuning: {str(e)}") 

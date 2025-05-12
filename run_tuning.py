@@ -53,7 +53,7 @@ else:
 def main():
     try:
         result = tune_hyperparameters()
-        if result is not None:
+        if result is not None and result['best_value'] is not None:
             print("\nBest parameters:", result['best_params'])
             print("Best validation accuracy:", result['best_value'])
             
