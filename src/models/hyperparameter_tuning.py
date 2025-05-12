@@ -31,27 +31,42 @@ def clear_memory():
     """Очистка памяти"""
     print("[DEBUG] Начало очистки памяти...")
     
-    # Очищаем все сессии TensorFlow
-    tf.keras.backend.clear_session()
-    print("[DEBUG] TensorFlow сессия очищена")
-    
-    # Очистка Python garbage collector
-    gc.collect()
-    print("[DEBUG] Garbage collector выполнен")
-    
-    # Очистка CUDA кэша если используется GPU
-    if Config.DEVICE_CONFIG['use_gpu']:
-        try:
-            # Пробуем очистить CUDA кэш через TensorFlow
-            tf.config.experimental.reset_memory_stats('GPU:0')
-            print("[DEBUG] CUDA кэш очищен")
-            # Принудительно очищаем CUDA кэш
-            tf.keras.backend.clear_session()
-            # Очищаем все переменные
-            tf.keras.backend.reset_uids()
-            print("[DEBUG] TensorFlow переменные сброшены")
-        except Exception as e:
-            print(f"[DEBUG] Ошибка при очистке CUDA: {str(e)}")
+    try:
+        # Очищаем все сессии TensorFlow
+        tf.keras.backend.clear_session()
+        print("[DEBUG] TensorFlow сессия очищена")
+        
+        # Очистка Python garbage collector
+        gc.collect()
+        print("[DEBUG] Garbage collector выполнен")
+        
+        # Очистка CUDA кэша если используется GPU
+        if Config.DEVICE_CONFIG['use_gpu']:
+            try:
+                # Пробуем очистить CUDA кэш через TensorFlow
+                tf.config.experimental.reset_memory_stats('GPU:0')
+                print("[DEBUG] CUDA кэш очищен")
+                
+                # Принудительно очищаем CUDA кэш
+                tf.keras.backend.clear_session()
+                
+                # Очищаем все переменные
+                for var in tf.global_variables():
+                    del var
+                print("[DEBUG] TensorFlow переменные очищены")
+                
+                # Очищаем все операции
+                tf.keras.backend.clear_session()
+                
+            except Exception as e:
+                print(f"[DEBUG] Ошибка при очистке CUDA: {str(e)}")
+        
+        # Дополнительная очистка
+        gc.collect()
+        print("[DEBUG] Дополнительная очистка выполнена")
+        
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при очистке памяти: {str(e)}")
     
     print("[DEBUG] Очистка памяти завершена")
 
@@ -112,7 +127,18 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                 max_sequences_per_video=max_sequences_per_video
             )
             print("[DEBUG] Генератор данных создан успешно")
-            return gen
+            
+            for batch_x, batch_y in gen:
+                try:
+                    yield batch_x, batch_y
+                    # Очищаем память после каждого батча
+                    del batch_x
+                    del batch_y
+                    gc.collect()
+                except Exception as e:
+                    print(f"[DEBUG] Ошибка при обработке батча: {str(e)}")
+                    raise
+                
         except Exception as e:
             print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
             raise
