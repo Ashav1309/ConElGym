@@ -40,6 +40,10 @@ def clear_memory():
         try:
             # Пробуем очистить CUDA кэш через TensorFlow
             tf.config.experimental.reset_memory_stats('GPU:0')
+            # Принудительно очищаем CUDA кэш
+            tf.keras.backend.clear_session()
+            # Очищаем все переменные
+            tf.keras.backend.reset_uids()
         except:
             pass
 
@@ -165,6 +169,8 @@ def load_and_prepare_data(batch_size):
     """
     Загрузка и подготовка данных для обучения
     """
+    clear_memory()  # Очищаем память перед загрузкой данных
+    
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     
@@ -177,7 +183,7 @@ def load_and_prepare_data(batch_size):
         batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=True,  # Для обучения используем бесконечный цикл
+        infinite_loop=True,
         max_sequences_per_video=10
     )
     
@@ -187,7 +193,7 @@ def load_and_prepare_data(batch_size):
         batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=False,  # Для валидации не используем бесконечный цикл
+        infinite_loop=False,
         max_sequences_per_video=10
     )
     
@@ -253,12 +259,16 @@ def objective(trial):
         
         # Очищаем память
         del model
+        del history
+        del train_dataset
+        del val_dataset
         clear_memory()
         
         return best_val_accuracy
         
     except Exception as e:
         print(f"\n[ERROR] Error in trial {trial.number}: {str(e)}")
+        clear_memory()  # Очищаем память в случае ошибки
         return None
 
 def save_tuning_results(study, n_trials):
@@ -309,6 +319,9 @@ def tune_hyperparameters():
     # Создание директории для сохранения результатов
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'tuning'), exist_ok=True)
     
+    # Очищаем память перед началом оптимизации
+    clear_memory()
+    
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
@@ -330,6 +343,9 @@ def tune_hyperparameters():
         study.optimize(objective, n_trials=n_trials)
     except Exception as e:
         print(f"\nError during optimization: {str(e)}")
+        clear_memory()  # Очищаем память в случае ошибки
+    finally:
+        clear_memory()  # Очищаем память после завершения оптимизации
     
     total_time = time.time() - start_time
     
