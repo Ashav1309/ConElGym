@@ -110,12 +110,6 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     
     # Оптимизация загрузки данных
     dataset = dataset.batch(batch_size)
-    
-    # Кэширование только если не бесконечный цикл
-    if Config.MEMORY_OPTIMIZATION['cache_dataset'] and not infinite_loop:
-        dataset = dataset.cache()
-    
-    # Предзагрузка данных
     dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
     
     return dataset
@@ -253,13 +247,13 @@ def objective(trial):
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_accuracy',
-                    patience=3,
+                    patience=2,  # Уменьшаем patience
                     restore_best_weights=True
                 ),
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_accuracy',
                     factor=0.5,
-                    patience=2,
+                    patience=1,  # Уменьшаем patience
                     min_lr=1e-6
                 ),
                 TqdmCallback(verbose=0)
@@ -272,6 +266,7 @@ def objective(trial):
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
         # Очистка памяти после триала
+        del model
         clear_memory()
         
         return best_val_accuracy

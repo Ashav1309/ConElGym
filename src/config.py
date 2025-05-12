@@ -4,16 +4,16 @@ class Config:
     NUM_CLASSES = 2  # Начало и конец элемента
     
     # Параметры обучения
-    BATCH_SIZE = 2
-    EPOCHS = 10  # Уменьшаем количество эпох для подбора гиперпараметров
+    BATCH_SIZE = 1  # Уменьшаем размер батча
+    EPOCHS = 10
     LEARNING_RATE = 0.001
-    STEPS_PER_EPOCH = 10  # Уменьшаем количество шагов
-    VALIDATION_STEPS = 5  # Уменьшаем количество шагов валидации
+    STEPS_PER_EPOCH = 10
+    VALIDATION_STEPS = 5
     
     # Параметры данных
     SEQUENCE_LENGTH = 8
     TARGET_SIZE = (224, 224)
-    INPUT_SIZE = (224, 224)  # Размер входного изображения для MobileNetV3
+    INPUT_SIZE = (224, 224)
     
     # Пути
     TRAIN_DATA_PATH = 'data/train'
@@ -29,31 +29,31 @@ class Config:
     
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
-        'use_gpu': True,  # Включаем GPU
-        'gpu_memory_limit': 8192,  # Увеличиваем лимит памяти GPU до 8 ГБ
-        'cpu_threads': 4,  # Количество потоков CPU
-        'allow_gpu_memory_growth': True,  # Разрешаем динамический рост памяти GPU
-        'per_process_gpu_memory_fraction': 0.8,  # Используем 80% доступной памяти GPU
+        'use_gpu': True,
+        'gpu_memory_limit': 4096,  # Уменьшаем лимит памяти GPU
+        'cpu_threads': 2,  # Уменьшаем количество потоков CPU
+        'allow_gpu_memory_growth': True,
+        'per_process_gpu_memory_fraction': 0.6,  # Уменьшаем долю используемой памяти GPU
     }
     
     # Настройки оптимизации памяти
     MEMORY_OPTIMIZATION = {
-        'clear_memory_after_trial': True,  # Очищать память после каждого испытания
-        'use_mixed_precision': True,  # Включаем mixed precision для GPU
-        'cache_dataset': True,  # Включаем кэширование датасета только для валидации
-        'prefetch_buffer_size': 2,  # Уменьшаем размер буфера предзагрузки
-        'allow_memory_growth': True,  # Разрешаем динамический рост памяти
+        'clear_memory_after_trial': True,
+        'use_mixed_precision': True,
+        'cache_dataset': False,  # Отключаем кэширование датасета
+        'prefetch_buffer_size': 1,  # Минимальный размер буфера
+        'allow_memory_growth': True,
     }
     
     # Параметры оптимизации гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 10,  # Количество испытаний
-        'learning_rate_range': (1e-5, 1e-3),  # Диапазон learning rate
-        'dropout_range': (0.2, 0.6),  # Диапазон dropout
-        'lstm_units': [16, 32, 64],  # Варианты LSTM units
-        'epochs_per_trial': 5,  # Количество эпох для каждого испытания
-        'steps_per_epoch': 10,  # Количество шагов на эпоху
-        'validation_steps': 5,  # Количество шагов валидации
+        'n_trials': 10,
+        'learning_rate_range': (1e-5, 1e-3),
+        'dropout_range': (0.2, 0.6),
+        'lstm_units': [16, 32],  # Уменьшаем варианты LSTM units
+        'epochs_per_trial': 3,  # Уменьшаем количество эпох
+        'steps_per_epoch': 5,  # Уменьшаем количество шагов
+        'validation_steps': 3,  # Уменьшаем количество шагов валидации
     }
     
     # Параметры для предотвращения переобучения
