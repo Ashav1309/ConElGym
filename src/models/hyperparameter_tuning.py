@@ -26,6 +26,8 @@ import gc
 from tensorflow.keras.metrics import Precision, Recall
 import subprocess
 import sys
+import json
+import cv2
 
 def clear_memory():
     """Очистка памяти"""
@@ -134,27 +136,83 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             # Очищаем память перед созданием генератора
             clear_memory()
             
-            gen = loader.data_generator(
-                sequence_length=sequence_length,
-                batch_size=batch_size,
-                target_size=target_size,
-                one_hot=one_hot,
-                infinite_loop=infinite_loop,
-                max_sequences_per_video=max_sequences_per_video
-            )
-            print("[DEBUG] Генератор данных создан успешно")
+            # Получаем список видео и аннотаций
+            video_files = loader.video_files
+            annotation_files = loader.annotation_files
             
-            for batch_x, batch_y in gen:
-                try:
-                    yield batch_x, batch_y
-                    # Очищаем память после каждого батча
-                    del batch_x
-                    del batch_y
-                    gc.collect()
-                except Exception as e:
-                    print(f"[DEBUG] Ошибка при обработке батча: {str(e)}")
-                    raise
+            while True:  # Бесконечный цикл для infinite_loop
+                for video_path, annotation_path in zip(video_files, annotation_files):
+                    try:
+                        print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
+                        
+                        # Загружаем аннотацию
+                        with open(annotation_path, 'r') as f:
+                            annotation = json.load(f)
+                        start_frame = annotation['start_frame']
+                        end_frame = annotation['end_frame']
+                        
+                        # Открываем видео
+                        cap = cv2.VideoCapture(video_path)
+                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        
+                        # Определяем границы для последовательностей
+                        sequence_count = 0
+                        while sequence_count < max_sequences_per_video:
+                            # Выбираем случайную начальную позицию в пределах аннотации
+                            if end_frame - start_frame <= sequence_length:
+                                start_pos = start_frame
+                            else:
+                                start_pos = np.random.randint(start_frame, end_frame - sequence_length)
+                            
+                            # Загружаем только нужные кадры
+                            frames = []
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_pos)
+                            
+                            for _ in range(sequence_length):
+                                ret, frame = cap.read()
+                                if not ret:
+                                    break
+                                frame = cv2.resize(frame, target_size)
+                                frame = frame.astype(np.float32) / 255.0
+                                frames.append(frame)
+                            
+                            if len(frames) == sequence_length:
+                                # Создаем метки
+                                labels = np.zeros((sequence_length, 2))
+                                for i in range(sequence_length):
+                                    frame_idx = start_pos + i
+                                    if start_frame <= frame_idx <= end_frame:
+                                        labels[i, 1] = 1  # Элемент присутствует
+                                    else:
+                                        labels[i, 0] = 1  # Элемент отсутствует
+                                
+                                # Преобразуем в one-hot если нужно
+                                if one_hot:
+                                    labels = tf.keras.utils.to_categorical(labels, num_classes=2)
+                                
+                                # Очищаем память после создания последовательности
+                                frames_array = np.array(frames)
+                                del frames
+                                gc.collect()
+                                
+                                yield frames_array, labels
+                                sequence_count += 1
+                                
+                                # Очищаем память после yield
+                                del frames_array
+                                del labels
+                                gc.collect()
+                        
+                        # Закрываем видео
+                        cap.release()
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] Ошибка при обработке видео {video_path}: {str(e)}")
+                        continue
                 
+                if not infinite_loop:
+                    break
+            
         except Exception as e:
             print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
             raise
