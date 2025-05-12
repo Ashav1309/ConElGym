@@ -132,30 +132,29 @@ class VideoDataLoader:
         Yields:
             tuple: (X_batch, y_batch)
         """
+        print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
-            # Случайный выбор видео
             indices = np.random.permutation(len(self.video_paths))
-            
+            print(f"[DEBUG] Индексы для батча: {indices}")
             for i in range(0, len(indices), batch_size):
                 batch_indices = indices[i:i + batch_size]
                 batch_frames = []
                 batch_labels = []
-                
-                # Загрузка текущего батча
+                print(f"[DEBUG] batch_indices: {batch_indices}")
                 for idx in batch_indices:
                     frames = self.load_video(self.video_paths[idx], target_size)
-                    if len(frames) >= sequence_length:  # Проверяем, что видео достаточно длинное
+                    print(f"[DEBUG] Загружено {len(frames)} кадров из {self.video_paths[idx]}")
+                    if len(frames) >= sequence_length:
                         batch_frames.extend(frames)
                         batch_labels.extend([self.labels[idx]] * len(frames))
-                
-                if len(batch_frames) > 0:  # Проверяем, что есть данные для обработки
+                print(f"[DEBUG] batch_frames: {len(batch_frames)}")
+                if len(batch_frames) > 0:
                     sequences, sequence_labels = self.create_sequences(
                         batch_frames, batch_labels, sequence_length, target_size, one_hot
                     )
-                    
-                    if len(sequences) > 0:  # Проверяем, что последовательности созданы
+                    print(f"[DEBUG] sequences: {sequences.shape if hasattr(sequences, 'shape') else type(sequences)}")
+                    if len(sequences) > 0:
                         yield sequences, sequence_labels
-            
             if not infinite_loop:
                 break
     
