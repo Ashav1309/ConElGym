@@ -109,10 +109,13 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     )
     
     # Оптимизация загрузки данных
-    if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+    dataset = dataset.batch(batch_size)
+    
+    # Кэширование только если не бесконечный цикл
+    if Config.MEMORY_OPTIMIZATION['cache_dataset'] and not infinite_loop:
         dataset = dataset.cache()
     
-    dataset = dataset.batch(batch_size)
+    # Предзагрузка данных
     dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
     
     return dataset
@@ -175,7 +178,7 @@ def load_and_prepare_data(batch_size):
         batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=True,
+        infinite_loop=True,  # Для обучения используем бесконечный цикл
         max_sequences_per_video=10
     )
     
@@ -185,7 +188,7 @@ def load_and_prepare_data(batch_size):
         batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=True,
+        infinite_loop=False,  # Для валидации не используем бесконечный цикл
         max_sequences_per_video=10
     )
     
@@ -225,6 +228,9 @@ def objective(trial):
     print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
     
     try:
+        # Очистка памяти перед началом триала
+        clear_memory()
+        
         # Загрузка данных
         train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
         
@@ -265,13 +271,14 @@ def objective(trial):
         best_val_accuracy = max(history.history['val_accuracy'])
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
-        # Очистка памяти
+        # Очистка памяти после триала
         clear_memory()
         
         return best_val_accuracy
         
     except Exception as e:
         print(f"Error in trial {trial.number + 1}: {str(e)}")
+        clear_memory()  # Очищаем память даже в случае ошибки
         return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):

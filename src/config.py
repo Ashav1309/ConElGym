@@ -27,17 +27,6 @@ class Config:
     HEIGHT_SHIFT_RANGE = 0.1
     HORIZONTAL_FLIP = True
     
-    # Параметры оптимизации гиперпараметров
-    HYPERPARAM_TUNING = {
-        'n_trials': 10,  # Увеличиваем количество испытаний
-        'learning_rate_range': (1e-5, 1e-3),  # Расширяем диапазон learning rate
-        'dropout_range': (0.2, 0.6),  # Расширяем диапазон dropout
-        'lstm_units': [16, 32, 64],  # Увеличиваем варианты LSTM units
-        'epochs_per_trial': 5,  # Количество эпох для каждого испытания
-        'steps_per_epoch': 10,  # Количество шагов на эпоху
-        'validation_steps': 5,  # Количество шагов валидации
-    }
-    
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
         'use_gpu': True,  # Включаем GPU
@@ -51,9 +40,20 @@ class Config:
     MEMORY_OPTIMIZATION = {
         'clear_memory_after_trial': True,  # Очищать память после каждого испытания
         'use_mixed_precision': True,  # Включаем mixed precision для GPU
-        'cache_dataset': True,  # Включаем кэширование датасета
-        'prefetch_buffer_size': 4,  # Увеличиваем размер буфера предзагрузки
+        'cache_dataset': True,  # Включаем кэширование датасета только для валидации
+        'prefetch_buffer_size': 2,  # Уменьшаем размер буфера предзагрузки
         'allow_memory_growth': True,  # Разрешаем динамический рост памяти
+    }
+    
+    # Параметры оптимизации гиперпараметров
+    HYPERPARAM_TUNING = {
+        'n_trials': 10,  # Количество испытаний
+        'learning_rate_range': (1e-5, 1e-3),  # Диапазон learning rate
+        'dropout_range': (0.2, 0.6),  # Диапазон dropout
+        'lstm_units': [16, 32, 64],  # Варианты LSTM units
+        'epochs_per_trial': 5,  # Количество эпох для каждого испытания
+        'steps_per_epoch': 10,  # Количество шагов на эпоху
+        'validation_steps': 5,  # Количество шагов валидации
     }
     
     # Параметры для предотвращения переобучения
