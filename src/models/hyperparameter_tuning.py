@@ -90,7 +90,7 @@ def create_data_pipeline(generator, batch_size):
         lambda: generator,
         output_signature=(
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, Config.NUM_CLASSES), dtype=tf.float32)
+            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
         )
     )
     
@@ -98,8 +98,8 @@ def create_data_pipeline(generator, batch_size):
     if Config.MEMORY_OPTIMIZATION['cache_dataset']:
         dataset = dataset.cache()
     
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
     dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(1)
     
     # Исправление размерности данных
     def reshape_data(x, y):
@@ -109,7 +109,7 @@ def create_data_pipeline(generator, batch_size):
         print(f"Input shape after reshape: {x.shape}")  # Отладочная информация
         return x, y
     
-    dataset = dataset.map(reshape_data, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.map(reshape_data, num_parallel_calls=1)
     return dataset
 
 def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units):
