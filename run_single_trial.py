@@ -1,7 +1,9 @@
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 print('[DEBUG] CUDA отключена, используется только CPU', flush=True)
-os.environ['OMP_NUM_THREADS'] = '2'
+os.environ['OMP_NUM_THREADS'] = '1'
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 os.environ['TF_NUM_INTRAOP_THREADS'] = '2'
 os.environ['TF_NUM_INTEROP_THREADS'] = '2'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'

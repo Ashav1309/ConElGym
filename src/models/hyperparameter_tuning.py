@@ -1,8 +1,9 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda'
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.2'
 os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 os.environ['TF_DISABLE_JIT'] = '1'
@@ -55,8 +56,8 @@ def setup_device():
                 return False
             
             # Настройка памяти GPU
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
+            # for gpu in gpus:
+                # tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
             
             # Включаем mixed precision если нужно
             if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
