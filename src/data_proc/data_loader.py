@@ -138,26 +138,12 @@ class VideoDataLoader:
         print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
-            batch_frames = []
-            batch_labels = []
             for idx in indices:
                 frames = self.load_video(self.video_paths[idx], target_size)
                 annotation_path = self.labels[idx]
                 seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
-                print(f"[DEBUG] sequences: {seqs.shape if hasattr(seqs, 'shape') else type(seqs)}")
                 for s, l in zip(seqs, seq_labels):
-                    batch_frames.append(s)
-                    batch_labels.append(l)
-                    if len(batch_frames) == batch_size:
-                        print(f"[DEBUG] batch_frames: {len(batch_frames)}")
-                        print(f"[DEBUG] batch_labels shape: {np.array(batch_labels).shape}")
-                        yield np.array(batch_frames), np.array(batch_labels)
-                        batch_frames = []
-                        batch_labels = []
-            if len(batch_frames) > 0:
-                print(f"[DEBUG] batch_frames (остаток): {len(batch_frames)}")
-                print(f"[DEBUG] batch_labels shape (остаток): {np.array(batch_labels).shape}")
-                yield np.array(batch_frames), np.array(batch_labels)
+                    yield np.array(s), np.array(l)
             if not infinite_loop:
                 break
     
