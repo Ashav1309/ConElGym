@@ -23,8 +23,6 @@ import seaborn as sns
 from datetime import datetime, timedelta
 import time
 import gc
-from tqdm.auto import tqdm
-from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
 import subprocess
 import sys
@@ -209,12 +207,12 @@ def objective(trial):
     # Очищаем память перед каждым испытанием
     clear_memory()
     
-    # Определяем пространство поиска
+    # Определяем пространство поиска с меньшими значениями
     params = {
         'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
         'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-        'lstm_units': trial.suggest_int('lstm_units', 32, 128),
-        'batch_size': trial.suggest_int('batch_size', 16, 64)
+        'lstm_units': trial.suggest_int('lstm_units', 32, 64),  # Уменьшаем максимальное количество LSTM юнитов
+        'batch_size': trial.suggest_int('batch_size', 8, 32)    # Уменьшаем размер батча
     }
     
     print(f"\n[DEBUG] Trial {trial.number} parameters:")
@@ -239,21 +237,21 @@ def objective(trial):
         )
         print("[DEBUG] Model created and compiled successfully")
         
-        # Используем раннюю остановку
+        # Используем раннюю остановку с меньшим patience
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor='val_accuracy',
-            patience=5,
+            patience=3,  # Уменьшаем patience
             restore_best_weights=True
         )
         
-        # Обучаем модель
+        # Обучаем модель с меньшим количеством эпох
         print("\n[DEBUG] Starting model training...")
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=Config.EPOCHS,
-            steps_per_epoch=Config.STEPS_PER_EPOCH,
-            validation_steps=Config.VALIDATION_STEPS,
+            epochs=min(Config.EPOCHS, 10),  # Ограничиваем количество эпох
+            steps_per_epoch=min(Config.STEPS_PER_EPOCH, 50),  # Ограничиваем количество шагов
+            validation_steps=min(Config.VALIDATION_STEPS, 20),  # Ограничиваем количество шагов валидации
             callbacks=[early_stopping],
             verbose=0
         )
@@ -264,6 +262,7 @@ def objective(trial):
         print(f"[DEBUG] Best validation accuracy: {best_val_accuracy:.4f}")
         
         # Очищаем память
+        del model
         clear_memory()
         
         return best_val_accuracy
@@ -272,30 +271,22 @@ def objective(trial):
         print(f"\n[ERROR] Error in trial {trial.number}: {str(e)}")
         return None
 
-def save_tuning_results(study, total_time, n_trials):
+def save_tuning_results(study, n_trials):
     """
     Сохранение результатов подбора гиперпараметров
     """
-    results_path = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', 'optuna_results.txt')
-    with open(results_path, 'w') as f:
-        f.write(f"Best trial:\n")
-        if study.best_trial.value is not None:
-            f.write(f"  Value: {study.best_trial.value:.4f}\n")
-        else:
-            f.write(f"  Value: Failed\n")
-        f.write(f"  Params: {study.best_trial.params}\n\n")
+    tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+    os.makedirs(tuning_dir, exist_ok=True)
+    
+    # Сохраняем результаты в файл
+    with open(os.path.join(tuning_dir, 'tuning_results.txt'), 'w') as f:
+        f.write(f"Best trial: {study.best_trial.number}\n")
+        f.write(f"Best value: {study.best_trial.value:.4f}\n")
+        f.write("\nBest parameters:\n")
+        for param, value in study.best_trial.params.items():
+            f.write(f"{param}: {value}\n")
         
-        f.write("All trials:\n")
-        for trial in study.trials:
-            f.write(f"Trial {trial.number}:\n")
-            if trial.value is not None:
-                f.write(f"  Value: {trial.value:.4f}\n")
-            else:
-                f.write(f"  Value: Failed\n")
-            f.write(f"  Params: {trial.params}\n\n")
-        
-        f.write(f"\nTotal time: {timedelta(seconds=int(total_time))}\n")
-        f.write(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}\n")
+        f.write(f"\nTotal trials: {n_trials}\n")
         
         # Добавляем статистику успешных trials
         successful_trials = sum(1 for t in study.trials if t.value is not None)
@@ -331,84 +322,34 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
+        sampler=optuna.samplers.TPESampler(n_startup_trials=3),  # Уменьшаем количество начальных trials
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
+            n_startup_trials=3,
+            n_warmup_steps=3,
             interval_steps=1
         )
     )
     
-    # Запуск оптимизации
+    # Запуск оптимизации с меньшим количеством trials
     start_time = time.time()
-    n_trials = Config.HYPERPARAM_TUNING['n_trials']
+    n_trials = min(Config.HYPERPARAM_TUNING['n_trials'], 5)  # Ограничиваем количество trials
     
-    print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
-    
-    # Создаем прогресс-бар для trials
-    pbar = tqdm(total=n_trials, desc="Hyperparameter Tuning", position=0)
-    
-    def objective_with_progress(trial):
-        try:
-            result = objective(trial)
-            pbar.update(1)
-            
-            # Безопасное получение лучшего значения
-            try:
-                best_value = study.best_value if study.best_value is not None else float('-inf')
-                best_value_str = f"{best_value:.4f}" if best_value != float('-inf') else "N/A"
-            except:
-                best_value_str = "N/A"
-            
-            pbar.set_postfix({
-                'trial': trial.number + 1,
-                'best_val_acc': best_value_str
-            })
-            
-            return result
-        except Exception as e:
-            pbar.update(1)
-            print(f"\nError in trial {trial.number + 1}: {str(e)}")
-            return float('-inf')
-    
-    try:
-        study.optimize(objective_with_progress, n_trials=n_trials)
-    except Exception as e:
-        print(f"\nError during optimization: {str(e)}")
-    finally:
-        pbar.close()
-    
-    total_time = time.time() - start_time
-    
-    # Проверяем, есть ли успешные trials
-    successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
-    if not successful_trials:
-        print("\nNo successful trials completed. Check the error messages above.")
-        return None
+    print(f"Starting hyperparameter tuning with {n_trials} trials...")
+    study.optimize(objective, n_trials=n_trials)
     
     # Сохранение результатов
-    save_tuning_results(study, total_time, n_trials)
+    save_tuning_results(study, n_trials)
     
     # Визуализация результатов
-    try:
-        plot_tuning_results(study)
-    except Exception as e:
-        print(f"\nWarning: Could not create visualization plots: {str(e)}")
+    plot_tuning_results(study)
     
-    # Возвращаем и study, и лучшие параметры
-    return {
-        'study': study,
-        'best_params': study.best_params,
-        'best_value': study.best_value
-    }
+    # Возвращаем лучшие параметры
+    if study.best_trial is not None:
+        return {
+            'best_params': study.best_trial.params,
+            'best_value': study.best_trial.value
+        }
+    return None
 
 if __name__ == "__main__":
-    try:
-        result = tune_hyperparameters()
-        if result is not None:
-            print("\nBest parameters:", result['best_params'])
-            print("Best validation accuracy:", result['best_value'])
-        else:
-            print("\nFailed to find best parameters. Check the error messages above.")
-    except Exception as e:
-        print(f"\nError during hyperparameter tuning: {str(e)}") 
+    tune_hyperparameters() 
