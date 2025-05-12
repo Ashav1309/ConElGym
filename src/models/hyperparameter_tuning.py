@@ -25,6 +25,8 @@ import gc
 from tqdm.auto import tqdm
 from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
+import subprocess
+import sys
 
 def clear_memory():
     """Очистка памяти"""
@@ -196,115 +198,53 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     """
-    Функция для оптимизации гиперпараметров
+    Функция для оптимизации гиперпараметров (запуск в отдельном процессе)
     """
     print(f"\nTrial {trial.number + 1} started")
     
-    train_loader = None
-    val_loader = None
-    train_dataset = None
-    val_dataset = None
-    model = None
+    # Определение гиперпараметров для оптимизации
+    learning_rate = trial.suggest_float(
+        'learning_rate',
+        *Config.HYPERPARAM_TUNING['learning_rate_range'],
+        log=True
+    )
+    dropout_rate = trial.suggest_float(
+        'dropout_rate',
+        *Config.HYPERPARAM_TUNING['dropout_range']
+    )
+    lstm_units = trial.suggest_categorical(
+        'lstm_units',
+        Config.HYPERPARAM_TUNING['lstm_units']
+    )
+    
+    print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
+    
+    # Формируем команду для запуска отдельного процесса
+    cmd = [
+        sys.executable, 'run_single_trial.py',
+        '--learning_rate', str(learning_rate),
+        '--dropout_rate', str(dropout_rate),
+        '--lstm_units', str(lstm_units),
+        '--batch_size', str(Config.BATCH_SIZE),
+        '--sequence_length', str(Config.SEQUENCE_LENGTH),
+        '--max_sequences_per_video', '100'
+    ]
     try:
-        # Проверка доступной памяти GPU
-        if Config.DEVICE_CONFIG['use_gpu']:
-            try:
-                from tensorflow.python.client import device_lib
-                stats = tf.config.experimental.get_memory_info('GPU:0')
-                if stats['current'] / 1024**3 > Config.DEVICE_CONFIG['gpu_memory_limit'] / 1024:
-                    print("Not enough GPU memory. Skipping trial.")
-                    return float('-inf')
-            except Exception as e:
-                print(f"[DEBUG] Ошибка при проверке памяти GPU: {e}")
-                pass
-        
-        # Определение гиперпараметров для оптимизации
-        learning_rate = trial.suggest_float(
-            'learning_rate',
-            *Config.HYPERPARAM_TUNING['learning_rate_range'],
-            log=True
-        )
-        dropout_rate = trial.suggest_float(
-            'dropout_rate',
-            *Config.HYPERPARAM_TUNING['dropout_range']
-        )
-        lstm_units = trial.suggest_categorical(
-            'lstm_units',
-            Config.HYPERPARAM_TUNING['lstm_units']
-        )
-        
-        print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
-        
-        # Очищаем память перед созданием модели
-        clear_memory()
-        
-        # Создание и компиляция модели
-        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        model = create_and_compile_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units
-        )
-        print("[DEBUG] Модель успешно создана и скомпилирована")
-        
-        # Загрузка и подготовка данных
-        train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
-        print("[DEBUG] Данные успешно загружены и подготовлены")
-        
-        # Добавляем callbacks для раннего прерывания
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_accuracy',
-                patience=3,
-                restore_best_weights=True
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_accuracy',
-                factor=0.5,
-                patience=2,
-                min_lr=1e-6
-            )
-        ]
-        
-        # Обучение модели
-        print("[DEBUG] Старт обучения модели")
-        history = model.fit(
-            train_dataset,
-            validation_data=val_dataset,
-            epochs=Config.EPOCHS,
-            steps_per_epoch=Config.STEPS_PER_EPOCH,
-            validation_steps=Config.VALIDATION_STEPS,
-            callbacks=callbacks,
-            verbose=0
-        )
-        print("[DEBUG] Обучение модели завершено")
-        
-        best_val_accuracy = max(history.history['val_accuracy'])
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output = result.stdout.strip()
+        print(f"[DEBUG] Output from run_single_trial.py: {output}")
+        best_val_accuracy = float(output.splitlines()[-1])
         print(f"[DEBUG] Лучшая val_accuracy: {best_val_accuracy}")
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
-        
         return best_val_accuracy
-        
-    except tf.errors.ResourceExhaustedError:
-        print("GPU memory exhausted. Skipping trial.")
+    except subprocess.CalledProcessError as e:
+        print(f"[DEBUG] Ошибка при запуске run_single_trial.py: {e}")
+        print(f"[DEBUG] stdout: {e.stdout}")
+        print(f"[DEBUG] stderr: {e.stderr}")
         return float('-inf')
     except Exception as e:
-        import traceback
-        print(f"[DEBUG] Error in trial: {str(e)}")
-        traceback.print_exc()
+        print(f"[DEBUG] Unexpected error: {e}")
         return float('-inf')
-    finally:
-        # Явно удаляем все объекты, связанные с данными и моделью
-        del model
-        del train_loader
-        del val_loader
-        del train_dataset
-        del val_dataset
-        clear_memory()
-        import gc
-        gc.collect()
 
 def save_tuning_results(study, total_time, n_trials):
     """
