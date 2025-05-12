@@ -206,7 +206,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                                 
                                 # Преобразуем в one-hot если нужно
                                 if one_hot:
-                                    labels = tf.keras.utils.to_categorical(labels, num_classes=2)
+                                    labels = tf.keras.utils.to_categorical(labels.argmax(axis=1), num_classes=2)
                                 
                                 # Очищаем память после создания последовательности
                                 frames_array = np.array(frames)
