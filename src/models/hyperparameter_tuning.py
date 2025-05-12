@@ -356,30 +356,57 @@ def tune_hyperparameters():
         try:
             result = objective(trial)
             pbar.update(1)
+            
+            # Безопасное получение лучшего значения
+            try:
+                best_value = study.best_value if study.best_value is not None else float('-inf')
+                best_value_str = f"{best_value:.4f}" if best_value != float('-inf') else "N/A"
+            except:
+                best_value_str = "N/A"
+            
             pbar.set_postfix({
                 'trial': trial.number + 1,
-                'best_val_acc': f"{study.best_value:.4f}" if study.best_value is not None else "N/A"
+                'best_val_acc': best_value_str
             })
+            
             return result
         except Exception as e:
             pbar.update(1)
-            raise e
+            print(f"\nError in trial {trial.number + 1}: {str(e)}")
+            return float('-inf')
     
     try:
         study.optimize(objective_with_progress, n_trials=n_trials)
+    except Exception as e:
+        print(f"\nError during optimization: {str(e)}")
     finally:
         pbar.close()
     
     total_time = time.time() - start_time
     
+    # Проверяем, есть ли успешные trials
+    successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
+    if not successful_trials:
+        print("\nNo successful trials completed. Check the error messages above.")
+        return None
+    
     # Сохранение результатов
     save_tuning_results(study, total_time, n_trials)
     
     # Визуализация результатов
-    plot_tuning_results(study)
+    try:
+        plot_tuning_results(study)
+    except Exception as e:
+        print(f"\nWarning: Could not create visualization plots: {str(e)}")
     
     return study.best_params
 
 if __name__ == "__main__":
-    best_params = tune_hyperparameters()
-    print("Best parameters:", best_params) 
+    try:
+        best_params = tune_hyperparameters()
+        if best_params is not None:
+            print("\nBest parameters:", best_params)
+        else:
+            print("\nFailed to find best parameters. Check the error messages above.")
+    except Exception as e:
+        print(f"\nError during hyperparameter tuning: {str(e)}") 
