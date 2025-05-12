@@ -60,7 +60,7 @@ def clear_memory():
                 
                 print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
-                for var in tf.keras.backend.get_session().graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
+                for var in tf.global_variables():
                     del var
                 print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
@@ -138,7 +138,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             
             # Получаем список видео и аннотаций
             video_paths = loader.video_paths
-            annotation_paths = loader.annotation_paths
+            annotation_paths = loader.labels
             
             while True:  # Бесконечный цикл для infinite_loop
                 for video_path, annotation_path in zip(video_paths, annotation_paths):
@@ -146,10 +146,12 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                         print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
                         
                         # Загружаем аннотацию
-                        with open(annotation_path, 'r') as f:
-                            annotation = json.load(f)
-                        start_frame = annotation['start_frame']
-                        end_frame = annotation['end_frame']
+                        if annotation_path and os.path.exists(annotation_path):
+                            with open(annotation_path, 'r') as f:
+                                annotation = json.load(f)
+                            annotations = annotation.get('annotations', [])
+                        else:
+                            annotations = []
                         
                         # Открываем видео
                         cap = cv2.VideoCapture(video_path)
@@ -158,11 +160,23 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                         # Определяем границы для последовательностей
                         sequence_count = 0
                         while sequence_count < max_sequences_per_video:
-                            # Выбираем случайную начальную позицию в пределах аннотации
-                            if end_frame - start_frame <= sequence_length:
-                                start_pos = start_frame
+                            # Выбираем случайную начальную позицию
+                            if annotations:
+                                # Если есть аннотации, выбираем случайную из них
+                                ann = np.random.choice(annotations)
+                                start_frame = ann['start_frame']
+                                end_frame = ann['end_frame']
+                                
+                                if end_frame - start_frame <= sequence_length:
+                                    start_pos = start_frame
+                                else:
+                                    start_pos = np.random.randint(start_frame, end_frame - sequence_length)
                             else:
-                                start_pos = np.random.randint(start_frame, end_frame - sequence_length)
+                                # Если нет аннотаций, выбираем случайную позицию
+                                if total_frames <= sequence_length:
+                                    start_pos = 0
+                                else:
+                                    start_pos = np.random.randint(0, total_frames - sequence_length)
                             
                             # Загружаем только нужные кадры
                             frames = []
@@ -181,9 +195,13 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                                 labels = np.zeros((sequence_length, 2))
                                 for i in range(sequence_length):
                                     frame_idx = start_pos + i
-                                    if start_frame <= frame_idx <= end_frame:
-                                        labels[i, 1] = 1  # Элемент присутствует
-                                    else:
+                                    is_annotated = False
+                                    for ann in annotations:
+                                        if ann['start_frame'] <= frame_idx <= ann['end_frame']:
+                                            labels[i, 1] = 1  # Элемент присутствует
+                                            is_annotated = True
+                                            break
+                                    if not is_annotated:
                                         labels[i, 0] = 1  # Элемент отсутствует
                                 
                                 # Преобразуем в one-hot если нужно
