@@ -39,9 +39,11 @@ class VideoDataLoader:
                     base = os.path.splitext(file_name)[0]
                     ann_path = os.path.join(annotation_dir, base + '.json')
                     if os.path.exists(ann_path):
-                        print(f"[DEBUG] Найдена аннотация для {file_name}: {ann_path}")
+                        # print(f"[DEBUG] Найдена аннотация для {file_name}: {ann_path}")
+                        pass
                     else:
                         print(f"[DEBUG] Аннотация для {file_name} не найдена!")
+                        pass
                     self.labels.append(ann_path if os.path.exists(ann_path) else None)
             if not infinite_loop:
                 break
