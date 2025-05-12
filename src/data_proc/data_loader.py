@@ -27,16 +27,22 @@ class VideoDataLoader:
     
     def _load_data(self, infinite_loop=False):
         """
-        Загрузка путей к видео и меток.
+        Загрузка путей к видео (без классов, без подкаталогов) и соответствующих аннотаций.
         """
+        annotation_dir = os.path.join(self.data_path, 'annotations')
+        print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
         while True:
-            for class_name in os.listdir(self.data_path):
-                class_path = os.path.join(self.data_path, class_name)
-                if os.path.isdir(class_path):
-                    for video_name in os.listdir(class_path):
-                        if video_name.endswith('.mp4'):
-                            self.video_paths.append(os.path.join(class_path, video_name))
-                            self.labels.append(1 if class_name == 'correct' else 0)
+            for file_name in os.listdir(self.data_path):
+                file_path = os.path.join(self.data_path, file_name)
+                if file_name.endswith('.mp4') and os.path.isfile(file_path):
+                    self.video_paths.append(file_path)
+                    base = os.path.splitext(file_name)[0]
+                    ann_path = os.path.join(annotation_dir, base + '.json')
+                    if os.path.exists(ann_path):
+                        print(f"[DEBUG] Найдена аннотация для {file_name}: {ann_path}")
+                    else:
+                        print(f"[DEBUG] Аннотация для {file_name} не найдена!")
+                    self.labels.append(ann_path if os.path.exists(ann_path) else None)
             if not infinite_loop:
                 break
     
@@ -52,14 +58,14 @@ class VideoDataLoader:
             list: Список кадров
         """
         cache_key = f"{video_path}_{target_size}"
-        
         with self.cache_lock:
             if cache_key in self.cache:
+                print(f"[DEBUG] Видео из кэша: {video_path}")
                 return self.cache[cache_key]
         
         frames = []
         cap = cv2.VideoCapture(video_path)
-        
+        frame_idx = 0
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -74,42 +80,48 @@ class VideoDataLoader:
             # Нормализация
             frame = frame.astype(np.float32) / 255.0
             frames.append(frame)
+            frame_idx += 1
         
         cap.release()
+        print(f"[DEBUG] Загружено {len(frames)} кадров из {video_path}")
         
         with self.cache_lock:
             self.cache[cache_key] = frames
         
         return frames
     
-    def create_sequences(self, frames, labels, sequence_length, target_size=None, one_hot=False):
+    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False):
         """
-        Создание последовательностей кадров.
-        
-        Args:
-            frames (list): Список кадров
-            labels (list): Список меток
-            sequence_length (int): Длина последовательности
-            target_size (tuple): Размер изображения (ширина, высота)
-            one_hot (bool): Использовать one-hot encoding для меток
-            
-        Returns:
-            tuple: (последовательности, метки последовательностей)
+        Создание последовательностей кадров и меток на основе аннотации.
         """
+        print(f"[DEBUG] Создание последовательностей: frames={len(frames)}, annotation={annotation_path}")
+        labels = [0] * len(frames)
+        if annotation_path and os.path.exists(annotation_path):
+            try:
+                with open(annotation_path, 'r') as f:
+                    ann = json.load(f)
+                    start = ann.get('start_frame', 0)
+                    end = ann.get('end_frame', 0)
+                    print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
+                    for i in range(start, end + 1):
+                        if 0 <= i < len(labels):
+                            labels[i] = 1
+            except Exception as e:
+                print(f"[DEBUG] Ошибка чтения аннотации {annotation_path}: {e}")
+        else:
+            print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
         sequences = []
         sequence_labels = []
-        
         for i in range(len(frames) - sequence_length + 1):
             sequence = frames[i:i + sequence_length]
+            seq_labels = labels[i:i + sequence_length]
             sequences.append(sequence)
-            
             if one_hot:
-                label = np.zeros(Config.NUM_CLASSES)
-                label[labels[i]] = 1
-                sequence_labels.append(label)
+                # Для задачи сегментации последовательности: one-hot для каждого кадра
+                sequence_labels.append([[1,0] if l==0 else [0,1] for l in seq_labels])
             else:
-                sequence_labels.append(labels[i])
-        
+                sequence_labels.append(seq_labels)
+        print(f"[DEBUG] Сформировано {len(sequences)} последовательностей")
         return np.array(sequences), np.array(sequence_labels)
     
     def preload_video(self, video_path, target_size):
@@ -143,18 +155,16 @@ class VideoDataLoader:
                 print(f"[DEBUG] batch_indices: {batch_indices}")
                 for idx in batch_indices:
                     frames = self.load_video(self.video_paths[idx], target_size)
-                    print(f"[DEBUG] Загружено {len(frames)} кадров из {self.video_paths[idx]}")
-                    if len(frames) >= sequence_length:
-                        batch_frames.extend(frames)
-                        batch_labels.extend([self.labels[idx]] * len(frames))
+                    annotation_path = self.labels[idx]
+                    seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot)
+                    print(f"[DEBUG] sequences: {seqs.shape if hasattr(seqs, 'shape') else type(seqs)}")
+                    if len(seqs) > 0:
+                        batch_frames.extend(seqs)
+                        batch_labels.extend(seq_labels)
                 print(f"[DEBUG] batch_frames: {len(batch_frames)}")
                 if len(batch_frames) > 0:
-                    sequences, sequence_labels = self.create_sequences(
-                        batch_frames, batch_labels, sequence_length, target_size, one_hot
-                    )
-                    print(f"[DEBUG] sequences: {sequences.shape if hasattr(sequences, 'shape') else type(sequences)}")
-                    if len(sequences) > 0:
-                        yield sequences, sequence_labels
+                    print(f"[DEBUG] batch_labels shape: {np.array(batch_labels).shape}")
+                    yield np.array(batch_frames), np.array(batch_labels)
             if not infinite_loop:
                 break
     
