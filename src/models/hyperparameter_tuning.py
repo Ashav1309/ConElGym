@@ -24,6 +24,7 @@ import time
 import gc
 from tqdm.auto import tqdm
 from tqdm.keras import TqdmCallback
+from tensorflow.keras.metrics import Precision, Recall
 
 def clear_memory():
     """Очистка памяти"""
@@ -112,6 +113,16 @@ def create_data_pipeline(generator, batch_size):
     dataset = dataset.map(reshape_data, num_parallel_calls=1)
     return dataset
 
+def f1_score_element(y_true, y_pred):
+    y_true = tf.argmax(y_true, axis=-1)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    true_positives = tf.reduce_sum(tf.cast((y_true == 1) & (y_pred == 1), tf.float32))
+    predicted_positives = tf.reduce_sum(tf.cast(y_pred == 1, tf.float32))
+    possible_positives = tf.reduce_sum(tf.cast(y_true == 1, tf.float32))
+    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
+    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
+    return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+
 def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units):
     """
     Создание и компиляция модели с заданными параметрами
@@ -130,7 +141,12 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=['accuracy']
+        metrics=[
+            'accuracy',
+            Precision(class_id=1, name='precision_element'),
+            Recall(class_id=1, name='recall_element'),
+            f1_score_element
+        ]
     )
     
     return model
@@ -244,6 +260,7 @@ def objective(trial):
         ]
         
         # Обучение модели
+        print("[DEBUG] Старт обучения модели")
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,

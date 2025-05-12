@@ -14,6 +14,7 @@ import numpy as np
 import gc
 from tqdm.auto import tqdm
 from tqdm.keras import TqdmCallback
+from tensorflow.keras.metrics import Precision, Recall
 
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
@@ -165,6 +166,16 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
     plt.savefig(os.path.join(save_path, 'confusion_matrix.png'))
     plt.close()
 
+def f1_score_element(y_true, y_pred):
+    y_true = tf.argmax(y_true, axis=-1)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    true_positives = tf.reduce_sum(tf.cast((y_true == 1) & (y_pred == 1), tf.float32))
+    predicted_positives = tf.reduce_sum(tf.cast(y_pred == 1, tf.float32))
+    possible_positives = tf.reduce_sum(tf.cast(y_true == 1, tf.float32))
+    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
+    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
+    return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+
 def train():
     # Очищаем память перед началом обучения
     clear_memory()
@@ -189,7 +200,12 @@ def train():
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=['accuracy']
+        metrics=[
+            'accuracy',
+            Precision(class_id=1, name='precision_element'),
+            Recall(class_id=1, name='recall_element'),
+            f1_score_element
+        ]
     )
     
     # Callbacks

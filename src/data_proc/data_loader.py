@@ -90,7 +90,7 @@ class VideoDataLoader:
         
         return frames
     
-    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False):
+    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=100):
         """
         Создание последовательностей кадров и меток на основе аннотации.
         """
@@ -116,7 +116,8 @@ class VideoDataLoader:
             print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
         sequences = []
         sequence_labels = []
-        for i in range(len(frames) - sequence_length + 1):
+        max_seq = min(len(frames) - sequence_length + 1, max_sequences_per_video)
+        for i in range(max_seq):
             sequence = frames[i:i + sequence_length]
             seq_labels = labels[i:i + sequence_length]
             sequences.append(sequence)
@@ -124,7 +125,7 @@ class VideoDataLoader:
                 sequence_labels.append([[1,0] if l==0 else [0,1] for l in seq_labels])
             else:
                 sequence_labels.append(seq_labels)
-        print(f"[DEBUG] Сформировано {len(sequences)} последовательностей")
+        print(f"[DEBUG] Сформировано {len(sequences)} последовательностей (ограничение: {max_sequences_per_video})")
         return np.array(sequences), np.array(sequence_labels)
     
     def preload_video(self, video_path, target_size):
@@ -133,17 +134,16 @@ class VideoDataLoader:
         """
         self.load_video(video_path, target_size)
     
-    def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False):
+    def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=100):
         print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
-            # print(f"[DEBUG] Индексы для батча: {indices}")
             batch_frames = []
             batch_labels = []
             for idx in indices:
                 frames = self.load_video(self.video_paths[idx], target_size)
                 annotation_path = self.labels[idx]
-                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot)
+                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
                 print(f"[DEBUG] sequences: {seqs.shape if hasattr(seqs, 'shape') else type(seqs)}")
                 for s, l in zip(seqs, seq_labels):
                     batch_frames.append(s)
@@ -154,7 +154,6 @@ class VideoDataLoader:
                         yield np.array(batch_frames), np.array(batch_labels)
                         batch_frames = []
                         batch_labels = []
-            # Если остались невыданные последовательности
             if len(batch_frames) > 0:
                 print(f"[DEBUG] batch_frames (остаток): {len(batch_frames)}")
                 print(f"[DEBUG] batch_labels shape (остаток): {np.array(batch_labels).shape}")
@@ -162,7 +161,7 @@ class VideoDataLoader:
             if not infinite_loop:
                 break
     
-    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False):
+    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=100):
         """
         Загрузка данных для обучения.
         
@@ -176,4 +175,4 @@ class VideoDataLoader:
         Returns:
             generator: Генератор данных
         """
-        return self.data_generator(sequence_length, batch_size, target_size, one_hot, infinite_loop) 
+        return self.data_generator(sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video) 
