@@ -1,5 +1,6 @@
 import tensorflow as tf
 import os
+import sys
 from src.models.hyperparameter_tuning import tune_hyperparameters
 
 # Настройка переменных окружения для GPU
@@ -51,17 +52,25 @@ if gpus:
 else:
     print("\nNo GPU devices found")
 
-if __name__ == "__main__":
+def main():
     try:
-        study = tune_hyperparameters()
-        if study.best_trial.value is not None:
-            print("\nЛучшие параметры:")
-            print(f"Learning rate: {study.best_trial.params['learning_rate']:.6f}")
-            print(f"Dropout rate: {study.best_trial.params['dropout_rate']:.4f}")
-            print(f"LSTM units: {study.best_trial.params['lstm_units']}")
-            print(f"Validation accuracy: {study.best_trial.value:.4f}")
+        result = tune_hyperparameters()
+        if result is not None:
+            print("\nBest parameters:", result['best_params'])
+            print("Best validation accuracy:", result['best_value'])
+            
+            # Сохраняем лучшие параметры в файл
+            with open('best_params.txt', 'w') as f:
+                f.write("Best parameters:\n")
+                for param, value in result['best_params'].items():
+                    f.write(f"{param}: {value}\n")
+                f.write(f"\nBest validation accuracy: {result['best_value']:.4f}\n")
         else:
-            print("\nНе удалось найти лучшие параметры. Все испытания завершились с ошибкой.")
+            print("\nFailed to find best parameters. Check the error messages above.")
+            sys.exit(1)
     except Exception as e:
-        print(f"Ошибка при подборе гиперпараметров: {e}")
-        raise 
+        print(f"\nError during hyperparameter tuning: {str(e)}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main() 

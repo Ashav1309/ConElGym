@@ -28,6 +28,7 @@ from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
 import subprocess
 import sys
+from src.data.data_loader import load_data
 
 def clear_memory():
     """Очистка памяти"""
@@ -130,6 +131,13 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     """
     clear_memory()  # Очищаем память перед созданием модели
     
+    print(f"[DEBUG] Creating model with parameters:")
+    print(f"  - Learning rate: {learning_rate}")
+    print(f"  - Dropout rate: {dropout_rate}")
+    print(f"  - LSTM units: {lstm_units}")
+    print(f"  - Input shape: {input_shape}")
+    print(f"  - Number of classes: {num_classes}")
+    
     model = create_model(
         input_shape=input_shape,
         num_classes=num_classes,
@@ -199,82 +207,71 @@ def load_and_prepare_data(batch_size):
     return train_dataset, val_dataset
 
 def objective(trial):
-    """
-    Функция для оптимизации гиперпараметров
-    """
-    print(f"\nTrial {trial.number + 1} started")
+    # Очищаем память перед каждым испытанием
+    clear_memory()
     
-    # Определение гиперпараметров для оптимизации
-    learning_rate = trial.suggest_float(
-        'learning_rate',
-        *Config.HYPERPARAM_TUNING['learning_rate_range'],
-        log=True
-    )
-    dropout_rate = trial.suggest_float(
-        'dropout_rate',
-        *Config.HYPERPARAM_TUNING['dropout_range']
-    )
-    lstm_units = trial.suggest_categorical(
-        'lstm_units',
-        Config.HYPERPARAM_TUNING['lstm_units']
-    )
+    # Определяем пространство поиска
+    params = {
+        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+        'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
+        'lstm_units': trial.suggest_int('lstm_units', 32, 128),
+        'batch_size': trial.suggest_int('batch_size', 16, 64)
+    }
     
-    print(f"Parameters: learning_rate={learning_rate:.6f}, dropout_rate={dropout_rate:.2f}, lstm_units={lstm_units}")
+    print(f"\n[DEBUG] Trial {trial.number} parameters:")
+    for param, value in params.items():
+        print(f"  - {param}: {value}")
     
     try:
-        # Очистка памяти перед началом триала
-        clear_memory()
+        # Загружаем данные
+        print("\n[DEBUG] Loading data...")
+        train_dataset, val_dataset = load_and_prepare_data(params['batch_size'])
+        print("[DEBUG] Data loaded successfully")
         
-        # Загрузка данных
-        train_dataset, val_dataset = load_and_prepare_data(Config.BATCH_SIZE)
-        
-        # Создание и компиляция модели
+        # Создаем и компилируем модель
+        print("\n[DEBUG] Creating and compiling model...")
+        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
         model = create_and_compile_model(
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-            num_classes=2,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            learning_rate=params['learning_rate'],
+            dropout_rate=params['dropout_rate'],
+            lstm_units=params['lstm_units']
+        )
+        print("[DEBUG] Model created and compiled successfully")
+        
+        # Используем раннюю остановку
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy',
+            patience=5,
+            restore_best_weights=True
         )
         
-        # Обучение модели
+        # Обучаем модель
+        print("\n[DEBUG] Starting model training...")
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=Config.HYPERPARAM_TUNING['epochs_per_trial'],
-            steps_per_epoch=Config.HYPERPARAM_TUNING['steps_per_epoch'],
-            validation_steps=Config.HYPERPARAM_TUNING['validation_steps'],
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(
-                    monitor='val_accuracy',
-                    patience=2,  # Уменьшаем patience
-                    restore_best_weights=True
-                ),
-                tf.keras.callbacks.ReduceLROnPlateau(
-                    monitor='val_accuracy',
-                    factor=0.5,
-                    patience=1,  # Уменьшаем patience
-                    min_lr=1e-6
-                ),
-                TqdmCallback(verbose=0)
-            ],
+            epochs=Config.EPOCHS,
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_steps=Config.VALIDATION_STEPS,
+            callbacks=[early_stopping],
             verbose=0
         )
+        print("[DEBUG] Model training completed")
         
-        # Получаем лучшую точность на валидации
+        # Получаем лучшую точность на валидационном наборе
         best_val_accuracy = max(history.history['val_accuracy'])
-        print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
+        print(f"[DEBUG] Best validation accuracy: {best_val_accuracy:.4f}")
         
-        # Очистка памяти после триала
-        del model
+        # Очищаем память
         clear_memory()
         
         return best_val_accuracy
         
     except Exception as e:
-        print(f"Error in trial {trial.number + 1}: {str(e)}")
-        clear_memory()  # Очищаем память даже в случае ошибки
-        return float('-inf')
+        print(f"\n[ERROR] Error in trial {trial.number}: {str(e)}")
+        return None
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -399,13 +396,19 @@ def tune_hyperparameters():
     except Exception as e:
         print(f"\nWarning: Could not create visualization plots: {str(e)}")
     
-    return study.best_params
+    # Возвращаем и study, и лучшие параметры
+    return {
+        'study': study,
+        'best_params': study.best_params,
+        'best_value': study.best_value
+    }
 
 if __name__ == "__main__":
     try:
-        best_params = tune_hyperparameters()
-        if best_params is not None:
-            print("\nBest parameters:", best_params)
+        result = tune_hyperparameters()
+        if result is not None:
+            print("\nBest parameters:", result['best_params'])
+            print("Best validation accuracy:", result['best_value'])
         else:
             print("\nFailed to find best parameters. Check the error messages above.")
     except Exception as e:
