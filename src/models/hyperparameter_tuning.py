@@ -60,7 +60,7 @@ def clear_memory():
                 
                 print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
-                for var in tf.keras.backend.get_uid():
+                for var in tf.keras.backend.get_session().graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
                     del var
                 print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
@@ -137,11 +137,11 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             clear_memory()
             
             # Получаем список видео и аннотаций
-            video_files = loader.video_files
-            annotation_files = loader.annotation_files
+            video_paths = loader.video_paths
+            annotation_paths = loader.annotation_paths
             
             while True:  # Бесконечный цикл для infinite_loop
-                for video_path, annotation_path in zip(video_files, annotation_files):
+                for video_path, annotation_path in zip(video_paths, annotation_paths):
                     try:
                         print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
                         
@@ -434,7 +434,8 @@ def objective(trial):
         except Exception as cleanup_error:
             print(f"[DEBUG] ✗ Ошибка при очистке после ошибки: {str(cleanup_error)}")
         
-        return None
+        # Возвращаем очень плохое значение вместо None
+        return float('-inf')
 
 def save_tuning_results(study, n_trials):
     """
@@ -523,7 +524,11 @@ def tune_hyperparameters():
     successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
     if not successful_trials:
         print("\nNo successful trials completed. Check the error messages above.")
-        return None
+        return {
+            'study': study,
+            'best_params': None,
+            'best_value': float('-inf')
+        }
     
     # Сохранение результатов
     save_tuning_results(study, total_time, n_trials)
