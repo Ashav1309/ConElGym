@@ -29,46 +29,59 @@ import sys
 
 def clear_memory():
     """Очистка памяти"""
-    print("[DEBUG] Начало очистки памяти...")
+    print("\n[DEBUG] ===== Начало очистки памяти =====")
     
     try:
+        print("[DEBUG] 1. Очистка TensorFlow сессии...")
         # Очищаем все сессии TensorFlow
         tf.keras.backend.clear_session()
-        print("[DEBUG] TensorFlow сессия очищена")
+        print("[DEBUG] ✓ TensorFlow сессия очищена")
         
+        print("[DEBUG] 2. Запуск garbage collector...")
         # Очистка Python garbage collector
         gc.collect()
-        print("[DEBUG] Garbage collector выполнен")
+        print("[DEBUG] ✓ Garbage collector выполнен")
         
         # Очистка CUDA кэша если используется GPU
         if Config.DEVICE_CONFIG['use_gpu']:
+            print("[DEBUG] 3. Очистка GPU памяти...")
             try:
+                print("[DEBUG] 3.1. Сброс статистики памяти GPU...")
                 # Пробуем очистить CUDA кэш через TensorFlow
                 tf.config.experimental.reset_memory_stats('GPU:0')
-                print("[DEBUG] CUDA кэш очищен")
+                print("[DEBUG] ✓ Статистика памяти GPU сброшена")
                 
+                print("[DEBUG] 3.2. Очистка CUDA кэша...")
                 # Принудительно очищаем CUDA кэш
                 tf.keras.backend.clear_session()
+                print("[DEBUG] ✓ CUDA кэш очищен")
                 
+                print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
-                for var in tf.global_variables():
+                for var in tf.keras.backend.get_uid():
                     del var
-                print("[DEBUG] TensorFlow переменные очищены")
+                print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
+                print("[DEBUG] 3.4. Финальная очистка сессии...")
                 # Очищаем все операции
                 tf.keras.backend.clear_session()
+                print("[DEBUG] ✓ Финальная очистка сессии выполнена")
                 
             except Exception as e:
-                print(f"[DEBUG] Ошибка при очистке CUDA: {str(e)}")
+                print(f"[DEBUG] ✗ Ошибка при очистке GPU: {str(e)}")
         
+        print("[DEBUG] 4. Финальная очистка...")
         # Дополнительная очистка
         gc.collect()
-        print("[DEBUG] Дополнительная очистка выполнена")
+        print("[DEBUG] ✓ Финальная очистка выполнена")
         
     except Exception as e:
-        print(f"[DEBUG] Ошибка при очистке памяти: {str(e)}")
+        print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
     
-    print("[DEBUG] Очистка памяти завершена")
+    print("[DEBUG] ===== Очистка памяти завершена =====\n")
 
 def setup_device():
     """Настройка устройства (CPU/GPU)"""
@@ -268,7 +281,7 @@ def load_and_prepare_data(batch_size):
         raise
 
 def objective(trial):
-    print(f"\n[DEBUG] Начало trial {trial.number}")
+    print(f"\n[DEBUG] ===== Начало trial {trial.number} =====")
     # Очищаем память перед каждым испытанием
     clear_memory()
     
@@ -286,12 +299,12 @@ def objective(trial):
     
     try:
         # Загружаем данные
-        print("\n[DEBUG] Loading data...")
+        print("\n[DEBUG] 1. Загрузка данных...")
         train_dataset, val_dataset = load_and_prepare_data(params['batch_size'])
-        print("[DEBUG] Data loaded successfully")
+        print("[DEBUG] ✓ Данные загружены успешно")
         
         # Создаем и компилируем модель
-        print("\n[DEBUG] Creating and compiling model...")
+        print("\n[DEBUG] 2. Создание и компиляция модели...")
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
         model = create_and_compile_model(
             input_shape=input_shape,
@@ -300,7 +313,7 @@ def objective(trial):
             dropout_rate=params['dropout_rate'],
             lstm_units=params['lstm_units']
         )
-        print("[DEBUG] Model created and compiled successfully")
+        print("[DEBUG] ✓ Модель создана и скомпилирована")
         
         # Используем раннюю остановку
         early_stopping = tf.keras.callbacks.EarlyStopping(
@@ -310,7 +323,7 @@ def objective(trial):
         )
         
         # Обучаем модель
-        print("\n[DEBUG] Starting model training...")
+        print("\n[DEBUG] 3. Начало обучения модели...")
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
@@ -320,29 +333,49 @@ def objective(trial):
             callbacks=[early_stopping],
             verbose=0
         )
-        print("[DEBUG] Model training completed")
+        print("[DEBUG] ✓ Обучение завершено")
         
         # Получаем лучшую точность на валидационном наборе
         best_val_accuracy = max(history.history['val_accuracy'])
-        print(f"[DEBUG] Best validation accuracy: {best_val_accuracy:.4f}")
+        print(f"[DEBUG] ✓ Лучшая точность на валидации: {best_val_accuracy:.4f}")
         
         # Очищаем память
-        print("[DEBUG] Cleaning up after training...")
+        print("\n[DEBUG] 4. Очистка после обучения...")
+        print("[DEBUG] 4.1. Удаление модели...")
         del model
+        print("[DEBUG] 4.2. Удаление истории обучения...")
         del history
+        print("[DEBUG] 4.3. Удаление датасетов...")
         del train_dataset
         del val_dataset
+        print("[DEBUG] 4.4. Финальная очистка памяти...")
         clear_memory()
-        print("[DEBUG] Cleanup completed")
+        print("[DEBUG] ✓ Очистка завершена")
         
+        print(f"\n[DEBUG] ===== Trial {trial.number} успешно завершен =====")
         return best_val_accuracy
         
     except Exception as e:
-        print(f"\n[ERROR] Error in trial {trial.number}: {str(e)}")
-        print(f"[DEBUG] Stack trace:", flush=True)
+        print(f"\n[DEBUG] ✗ Ошибка в trial {trial.number}: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        clear_memory()
+        
+        # Очищаем память в случае ошибки
+        print("\n[DEBUG] Очистка памяти после ошибки...")
+        try:
+            if 'model' in locals():
+                del model
+            if 'history' in locals():
+                del history
+            if 'train_dataset' in locals():
+                del train_dataset
+            if 'val_dataset' in locals():
+                del val_dataset
+            clear_memory()
+        except Exception as cleanup_error:
+            print(f"[DEBUG] ✗ Ошибка при очистке после ошибки: {str(cleanup_error)}")
+        
         return None
 
 def save_tuning_results(study, n_trials):
