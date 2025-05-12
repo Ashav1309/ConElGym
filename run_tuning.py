@@ -53,8 +53,15 @@ else:
 
 if __name__ == "__main__":
     try:
-        best_params = tune_hyperparameters()
-        print("Best parameters:", best_params)
+        study = tune_hyperparameters()
+        if study.best_trial.value is not None:
+            print("\nЛучшие параметры:")
+            print(f"Learning rate: {study.best_trial.params['learning_rate']:.6f}")
+            print(f"Dropout rate: {study.best_trial.params['dropout_rate']:.4f}")
+            print(f"LSTM units: {study.best_trial.params['lstm_units']}")
+            print(f"Validation accuracy: {study.best_trial.value:.4f}")
+        else:
+            print("\nНе удалось найти лучшие параметры. Все испытания завершились с ошибкой.")
     except Exception as e:
-        print(f"Error during hyperparameter tuning: {e}")
+        print(f"Ошибка при подборе гиперпараметров: {e}")
         raise 

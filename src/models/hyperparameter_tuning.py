@@ -80,15 +80,25 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(generator, batch_size):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video):
     """
     Создает оптимизированный pipeline данных
     """
     print(f"Creating data pipeline with batch_size={batch_size}")
     print(f"Expected input shape: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
+    def generator():
+        return loader.data_generator(
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            target_size=target_size,
+            one_hot=one_hot,
+            infinite_loop=infinite_loop,
+            max_sequences_per_video=max_sequences_per_video
+        )
+    
     dataset = tf.data.Dataset.from_generator(
-        lambda: generator,
+        generator,
         output_signature=(
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
@@ -151,23 +161,29 @@ def load_and_prepare_data(batch_size):
     
     target_size = Config.INPUT_SIZE
     
-    train_generator = train_loader.load_data(
-        Config.SEQUENCE_LENGTH, 
-        batch_size, 
+    # Создание оптимизированных pipeline данных
+    train_dataset = create_data_pipeline(
+        loader=train_loader,
+        sequence_length=Config.SEQUENCE_LENGTH,
+        batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=True
+        infinite_loop=True,
+        max_sequences_per_video=100
     )
-    val_generator = val_loader.load_data(
-        Config.SEQUENCE_LENGTH, 
-        batch_size, 
+    
+    val_dataset = create_data_pipeline(
+        loader=val_loader,
+        sequence_length=Config.SEQUENCE_LENGTH,
+        batch_size=batch_size,
         target_size=target_size,
         one_hot=True,
-        infinite_loop=True
+        infinite_loop=True,
+        max_sequences_per_video=100
     )
     
     # Проверяем размеры данных
-    sample_batch = next(train_generator)
+    sample_batch = next(iter(train_dataset))
     print(f"[DEBUG] sample_batch type: {type(sample_batch)}")
     print(f"[DEBUG] sample_batch[0] shape: {getattr(sample_batch[0], 'shape', 'None')}")
     print(f"[DEBUG] sample_batch[1] shape: {getattr(sample_batch[1], 'shape', 'None')}")
@@ -175,9 +191,6 @@ def load_and_prepare_data(batch_size):
     
     if sample_batch[0].shape[2:] != (*Config.INPUT_SIZE, 3):
         raise ValueError(f"Неверный размер изображения. Получено: {sample_batch[0].shape[2:]}, ожидалось: {(*Config.INPUT_SIZE, 3)}")
-    
-    train_dataset = create_data_pipeline(train_generator, batch_size)
-    val_dataset = create_data_pipeline(val_generator, batch_size)
     
     return train_dataset, val_dataset
 
@@ -379,15 +392,13 @@ def tune_hyperparameters():
     
     total_time = time.time() - start_time
     
-    print(f"\nHyperparameter tuning completed!")
-    print(f"Total time: {timedelta(seconds=int(total_time))}")
-    print(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}")
-    
-    # Сохранение и визуализация результатов
+    # Сохранение результатов
     save_tuning_results(study, total_time, n_trials)
+    
+    # Визуализация результатов
     plot_tuning_results(study)
     
-    return study.best_trial.params
+    return study
 
 if __name__ == "__main__":
     best_params = tune_hyperparameters()

@@ -15,6 +15,8 @@ import gc
 from tqdm.auto import tqdm
 from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
+import json
+import re
 
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
@@ -57,12 +59,22 @@ def clear_memory():
         except:
             pass
 
-def create_data_pipeline(generator, batch_size):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video):
     """
     Создает оптимизированный pipeline данных с использованием tf.data.Dataset
     """
+    def generator():
+        return loader.data_generator(
+            sequence_length=sequence_length,
+            batch_size=batch_size,
+            target_size=target_size,
+            one_hot=one_hot,
+            infinite_loop=infinite_loop,
+            max_sequences_per_video=max_sequences_per_video
+        )
+    
     dataset = tf.data.Dataset.from_generator(
-        lambda: generator,
+        generator,
         output_signature=(
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
@@ -169,25 +181,63 @@ def f1_score_element(y_true, y_pred):
     recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
     return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
 
+def load_best_params():
+    """
+    Загрузка лучших параметров из файла optuna_results.txt
+    """
+    results_path = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', 'optuna_results.txt')
+    if not os.path.exists(results_path):
+        print("Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию.")
+        return {
+            'learning_rate': Config.LEARNING_RATE,
+            'dropout_rate': 0.5,
+            'lstm_units': 32
+        }
+    
+    try:
+        with open(results_path, 'r') as f:
+            content = f.read()
+            # Ищем параметры в формате {'param': value, ...}
+            params_match = re.search(r"Params: ({.*})", content)
+            if params_match:
+                params_str = params_match.group(1)
+                # Заменяем одинарные кавычки на двойные для корректного JSON
+                params_str = params_str.replace("'", '"')
+                params = json.loads(params_str)
+                print(f"Загружены лучшие параметры: {params}")
+                return params
+    except Exception as e:
+        print(f"Ошибка при загрузке параметров: {e}")
+    
+    print("Не удалось загрузить параметры. Используем параметры по умолчанию.")
+    return {
+        'learning_rate': Config.LEARNING_RATE,
+        'dropout_rate': 0.5,
+        'lstm_units': 32
+    }
+
 def train():
     # Очищаем память перед началом обучения
     clear_memory()
+    
+    # Загружаем лучшие параметры
+    best_params = load_best_params()
     
     # Создание директорий
     os.makedirs(Config.MODEL_SAVE_PATH, exist_ok=True)
     os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'plots'), exist_ok=True)
     
-    # Создание модели
+    # Создание модели с лучшими параметрами
     input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
     model = create_model(
         input_shape=input_shape,
         num_classes=Config.NUM_CLASSES,
-        dropout_rate=0.5,
-        lstm_units=32  # Увеличиваем количество LSTM units
+        dropout_rate=best_params['dropout_rate'],
+        lstm_units=best_params['lstm_units']
     )
     
-    # Компиляция модели с mixed precision
-    optimizer = tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE)
+    # Компиляция модели с mixed precision и лучшим learning rate
+    optimizer = tf.keras.optimizers.Adam(learning_rate=best_params['learning_rate'])
     optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
     model.compile(
@@ -231,25 +281,26 @@ def train():
         train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
         
-        # Создание генераторов данных
-        train_generator = train_loader.load_data(
-            Config.SEQUENCE_LENGTH, 
-            Config.BATCH_SIZE, 
+        # Создание оптимизированных pipeline данных
+        train_dataset = create_data_pipeline(
+            loader=train_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=Config.BATCH_SIZE,
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=True
-        )
-        val_generator = val_loader.load_data(
-            Config.SEQUENCE_LENGTH, 
-            Config.BATCH_SIZE, 
-            target_size=Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True
+            infinite_loop=True,
+            max_sequences_per_video=100
         )
         
-        # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(train_generator, Config.BATCH_SIZE)
-        val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
+        val_dataset = create_data_pipeline(
+            loader=val_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=Config.BATCH_SIZE,
+            target_size=Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=100
+        )
         
         # Обучение
         history = model.fit(
@@ -266,7 +317,7 @@ def train():
         plot_path = os.path.join(Config.MODEL_SAVE_PATH, 'plots')
         
         # Графики потерь и точности
-        plt.figure(figsize=(12, 4))
+        plt.figure(figsize=(12, 5))
         
         plt.subplot(1, 2, 1)
         plt.plot(history.history['loss'], label='Training Loss')
@@ -298,7 +349,7 @@ def train():
             target_size=Config.INPUT_SIZE, 
             one_hot=True
         )
-        val_dataset = create_data_pipeline(val_generator, Config.BATCH_SIZE)
+        val_dataset = create_data_pipeline(val_generator, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True, 100)
         y_true = []
         y_pred = []
         
@@ -311,16 +362,24 @@ def train():
                 y_pred.extend(np.round(pred))
                 pbar.update(1)
         
-        plot_confusion_matrix(np.array(y_true), np.array(y_pred), plot_path)
+        # Сохраняем параметры модели
+        model_params = {
+            'best_params': best_params,
+            'input_shape': input_shape,
+            'num_classes': Config.NUM_CLASSES,
+            'batch_size': Config.BATCH_SIZE,
+            'sequence_length': Config.SEQUENCE_LENGTH
+        }
         
-        return history
+        with open(os.path.join(Config.MODEL_SAVE_PATH, 'model_params.json'), 'w') as f:
+            json.dump(model_params, f, indent=4)
+        
+        return model, history
         
     except Exception as e:
-        print(f"Error during training: {str(e)}")
-        clear_memory()
-        raise e
+        print(f"Ошибка при обучении модели: {e}")
+        raise
     finally:
-        # Очищаем память после обучения
         clear_memory()
 
 if __name__ == "__main__":
