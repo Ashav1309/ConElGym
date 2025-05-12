@@ -1,4 +1,6 @@
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+print('[DEBUG] CUDA отключена, используется только CPU', flush=True)
 os.environ['OMP_NUM_THREADS'] = '2'
 os.environ['TF_NUM_INTRAOP_THREADS'] = '2'
 os.environ['TF_NUM_INTEROP_THREADS'] = '2'

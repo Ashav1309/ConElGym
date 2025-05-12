@@ -38,7 +38,7 @@ class Config:
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
         'use_gpu': True,  # Включаем GPU
-        'gpu_memory_limit': 4096,  # Увеличиваем лимит памяти GPU до 4 ГБ
+        'gpu_memory_limit': 8192,  # Увеличиваем лимит памяти GPU до 8 ГБ
         'cpu_threads': 4,  # Количество потоков CPU
         'allow_gpu_memory_growth': True,  # Разрешаем динамический рост памяти GPU
         'per_process_gpu_memory_fraction': 0.8,  # Используем 80% доступной памяти GPU
