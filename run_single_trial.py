@@ -1,10 +1,14 @@
+import time
+print('[DEBUG] run_single_trial.py: старт', flush=True)
 import argparse
 import json
 import os
+print('[DEBUG] Импорт tensorflow...', flush=True)
+import tensorflow as tf
+print('[DEBUG] TensorFlow импортирован', flush=True)
 from src.models.model import create_model
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
-import tensorflow as tf
 from tensorflow.keras.metrics import Precision, Recall
 import gc
 
@@ -23,6 +27,7 @@ def f1_score_element(y_true, y_pred):
     return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
 
 def main():
+    print('[DEBUG] Парсинг аргументов...', flush=True)
     parser = argparse.ArgumentParser()
     parser.add_argument('--learning_rate', type=float, required=True)
     parser.add_argument('--dropout_rate', type=float, required=True)
@@ -31,10 +36,12 @@ def main():
     parser.add_argument('--sequence_length', type=int, default=Config.SEQUENCE_LENGTH)
     parser.add_argument('--max_sequences_per_video', type=int, default=100)
     args = parser.parse_args()
+    print(f'[DEBUG] Аргументы: {args}', flush=True)
 
+    print('[DEBUG] clear_memory()', flush=True)
     clear_memory()
 
-    # Создание модели
+    print('[DEBUG] Создание модели...', flush=True)
     input_shape = (args.sequence_length, *Config.INPUT_SIZE, 3)
     model = create_model(
         input_shape=input_shape,
@@ -42,6 +49,7 @@ def main():
         dropout_rate=args.dropout_rate,
         lstm_units=args.lstm_units
     )
+    print('[DEBUG] Модель создана', flush=True)
     optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
     optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     model.compile(
@@ -54,10 +62,12 @@ def main():
             f1_score_element
         ]
     )
+    print('[DEBUG] Модель скомпилирована', flush=True)
 
-    # Загрузка данных
+    print('[DEBUG] Загрузка данных...', flush=True)
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+    print('[DEBUG] VideoDataLoader создан', flush=True)
     train_dataset = train_loader.data_generator(
         sequence_length=args.sequence_length,
         batch_size=args.batch_size,
@@ -74,6 +84,7 @@ def main():
         infinite_loop=True,
         max_sequences_per_video=args.max_sequences_per_video
     )
+    print('[DEBUG] Генераторы данных созданы', flush=True)
     train_dataset = tf.data.Dataset.from_generator(
         lambda: train_dataset,
         output_signature=(
@@ -88,6 +99,7 @@ def main():
             tf.TensorSpec(shape=(args.sequence_length, 2), dtype=tf.float32)
         )
     ).batch(args.batch_size).prefetch(1)
+    print('[DEBUG] tf.data.Dataset создан', flush=True)
 
     # Callbacks
     callbacks = [
@@ -104,7 +116,7 @@ def main():
         )
     ]
 
-    # Обучение
+    print('[DEBUG] Старт fit()', flush=True)
     history = model.fit(
         train_dataset,
         validation_data=val_dataset,
@@ -114,9 +126,13 @@ def main():
         callbacks=callbacks,
         verbose=0
     )
+    print('[DEBUG] fit() завершён', flush=True)
     best_val_accuracy = max(history.history['val_accuracy'])
+    print(f'[DEBUG] best_val_accuracy={best_val_accuracy}', flush=True)
     print(best_val_accuracy)
+    print('[DEBUG] clear_memory() после fit', flush=True)
     clear_memory()
+    print('[DEBUG] Конец run_single_trial.py', flush=True)
 
 if __name__ == '__main__':
     main() 
