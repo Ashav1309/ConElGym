@@ -1,3 +1,9 @@
+import os
+os.environ['OMP_NUM_THREADS'] = '2'
+os.environ['TF_NUM_INTRAOP_THREADS'] = '2'
+os.environ['TF_NUM_INTEROP_THREADS'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+print('[DEBUG] Ограничены потоки TensorFlow/OMP', flush=True)
 import time
 print('[DEBUG] run_single_trial.py: старт', flush=True)
 import argparse
