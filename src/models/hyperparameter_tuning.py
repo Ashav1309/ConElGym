@@ -178,7 +178,7 @@ def load_and_prepare_data(batch_size):
         target_size=target_size,
         one_hot=True,
         infinite_loop=True,  # Для обучения используем бесконечный цикл
-        max_sequences_per_video=10
+        max_sequences_per_video=5  # Уменьшаем количество последовательностей
     )
     
     val_dataset = create_data_pipeline(
@@ -188,7 +188,7 @@ def load_and_prepare_data(batch_size):
         target_size=target_size,
         one_hot=True,
         infinite_loop=False,  # Для валидации не используем бесконечный цикл
-        max_sequences_per_video=10
+        max_sequences_per_video=5  # Уменьшаем количество последовательностей
     )
     
     # Проверяем размеры данных
@@ -211,8 +211,8 @@ def objective(trial):
     params = {
         'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
         'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-        'lstm_units': trial.suggest_int('lstm_units', 32, 64),  # Уменьшаем максимальное количество LSTM юнитов
-        'batch_size': trial.suggest_int('batch_size', 8, 32)    # Уменьшаем размер батча
+        'lstm_units': trial.suggest_int('lstm_units', 16, 32),  # Уменьшаем максимальное количество LSTM юнитов
+        'batch_size': trial.suggest_int('batch_size', 4, 16)    # Уменьшаем размер батча
     }
     
     print(f"\n[DEBUG] Trial {trial.number} parameters:")
@@ -240,7 +240,7 @@ def objective(trial):
         # Используем раннюю остановку с меньшим patience
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor='val_accuracy',
-            patience=3,  # Уменьшаем patience
+            patience=2,  # Уменьшаем patience
             restore_best_weights=True
         )
         
@@ -249,9 +249,9 @@ def objective(trial):
         history = model.fit(
             train_dataset,
             validation_data=val_dataset,
-            epochs=min(Config.EPOCHS, 10),  # Ограничиваем количество эпох
-            steps_per_epoch=min(Config.STEPS_PER_EPOCH, 50),  # Ограничиваем количество шагов
-            validation_steps=min(Config.VALIDATION_STEPS, 20),  # Ограничиваем количество шагов валидации
+            epochs=min(Config.EPOCHS, 5),  # Ограничиваем количество эпох
+            steps_per_epoch=min(Config.STEPS_PER_EPOCH, 20),  # Ограничиваем количество шагов
+            validation_steps=min(Config.VALIDATION_STEPS, 10),  # Ограничиваем количество шагов валидации
             callbacks=[early_stopping],
             verbose=0
         )
@@ -322,17 +322,17 @@ def tune_hyperparameters():
     # Создание study с оптимизированными настройками
     study = optuna.create_study(
         direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
+        sampler=optuna.samplers.TPESampler(n_startup_trials=3),  # Уменьшаем количество начальных trials
         pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
+            n_startup_trials=3,
+            n_warmup_steps=3,
             interval_steps=1
         )
     )
     
     # Запуск оптимизации
     start_time = time.time()
-    n_trials = Config.HYPERPARAM_TUNING['n_trials']
+    n_trials = min(Config.HYPERPARAM_TUNING['n_trials'], 3)  # Ограничиваем количество trials
     
     print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
     
