@@ -75,7 +75,7 @@ class VideoDataLoader:
             if target_size:
                 # cv2.resize ожидает размеры в формате (ширина, высота)
                 frame = cv2.resize(frame, (target_size[1], target_size[0]))
-                print(f"Resized frame shape: {frame.shape}")  # Отладочная информация
+                # print(f"Resized frame shape: {frame.shape}")  # Отладочная информация
             
             # Нормализация
             frame = frame.astype(np.float32) / 255.0
@@ -137,7 +137,7 @@ class VideoDataLoader:
         print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
-            print(f"[DEBUG] Индексы для батча: {indices}")
+            # print(f"[DEBUG] Индексы для батча: {indices}")
             batch_frames = []
             batch_labels = []
             for idx in indices:

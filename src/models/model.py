@@ -66,17 +66,15 @@ class TemporalAttention(tf.keras.layers.Layer):
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
     """
-    Создание модели для анализа видео.
-    
+    Создание модели для анализа видео (sequence labeling).
     Args:
         input_shape (tuple): Размерность входных данных (sequence_length, height, width, channels)
-        num_classes (int): Количество классов для классификации
+        num_classes (int): Количество классов для классификации (2: фон/элемент)
         dropout_rate (float): Коэффициент dropout
         lstm_units (int): Количество нейронов в LSTM слое
     """
     # Входной слой
     inputs = Input(shape=input_shape)
-    
     # MobileNetV3Small как backbone
     base_model = MobileNetV3Small(
         include_top=False,
@@ -85,33 +83,23 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
         include_preprocessing=True
     )
     base_model.trainable = False
-    
     # Применяем MobileNetV3 к каждому кадру в последовательности
     x = TimeDistributed(base_model)(inputs)
-    
     # Пространственное внимание для каждого кадра
     spatial_attention = TimeDistributed(SpatialAttention())(x)
     x = Multiply()([x, spatial_attention])
-    
     # Подготовка для LSTM
     x = TimeDistributed(GlobalAveragePooling2D())(x)
-    
     # BiLSTM слои
     x = Bidirectional(LSTM(lstm_units * 2, return_sequences=True))(x)
     x = Dropout(dropout_rate)(x)
     x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-    
-    # Временное внимание
-    x = TemporalAttention(lstm_units)(x)
-    
-    # Глобальное усреднение по временной оси
-    x = GlobalAveragePooling1D()(x)
-    
-    # Выходные слои
-    x = Dense(lstm_units // 2, activation='relu')(x)
+    # Временное внимание (опционально, если нужно)
+    # x = TemporalAttention(lstm_units)(x)
+    # Вместо GlobalAveragePooling1D и Dense — TimeDistributed(Dense)
+    x = TimeDistributed(Dense(lstm_units // 2, activation='relu'))(x)
     x = Dropout(dropout_rate / 2)(x)
-    outputs = Dense(num_classes, activation='softmax', dtype='float32')(x)  # Изменено на softmax для многоклассовой классификации
-    
+    outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
     return Model(inputs=inputs, outputs=outputs)
 
 if __name__ == "__main__":
