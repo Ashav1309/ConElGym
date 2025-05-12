@@ -131,40 +131,31 @@ class VideoDataLoader:
         self.load_video(video_path, target_size)
     
     def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False):
-        """
-        Генератор данных для обучения с оптимизированной загрузкой.
-        
-        Args:
-            sequence_length (int): Длина последовательности
-            batch_size (int): Размер батча
-            target_size (tuple): Размер изображения (ширина, высота)
-            one_hot (bool): Использовать one-hot encoding для меток
-            infinite_loop (bool): Бесконечный цикл генерации данных
-            
-        Yields:
-            tuple: (X_batch, y_batch)
-        """
         print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
             print(f"[DEBUG] Индексы для батча: {indices}")
-            for i in range(0, len(indices), batch_size):
-                batch_indices = indices[i:i + batch_size]
-                batch_frames = []
-                batch_labels = []
-                print(f"[DEBUG] batch_indices: {batch_indices}")
-                for idx in batch_indices:
-                    frames = self.load_video(self.video_paths[idx], target_size)
-                    annotation_path = self.labels[idx]
-                    seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot)
-                    print(f"[DEBUG] sequences: {seqs.shape if hasattr(seqs, 'shape') else type(seqs)}")
-                    if len(seqs) > 0:
-                        batch_frames.extend(seqs)
-                        batch_labels.extend(seq_labels)
-                print(f"[DEBUG] batch_frames: {len(batch_frames)}")
-                if len(batch_frames) > 0:
-                    print(f"[DEBUG] batch_labels shape: {np.array(batch_labels).shape}")
-                    yield np.array(batch_frames), np.array(batch_labels)
+            batch_frames = []
+            batch_labels = []
+            for idx in indices:
+                frames = self.load_video(self.video_paths[idx], target_size)
+                annotation_path = self.labels[idx]
+                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot)
+                print(f"[DEBUG] sequences: {seqs.shape if hasattr(seqs, 'shape') else type(seqs)}")
+                for s, l in zip(seqs, seq_labels):
+                    batch_frames.append(s)
+                    batch_labels.append(l)
+                    if len(batch_frames) == batch_size:
+                        print(f"[DEBUG] batch_frames: {len(batch_frames)}")
+                        print(f"[DEBUG] batch_labels shape: {np.array(batch_labels).shape}")
+                        yield np.array(batch_frames), np.array(batch_labels)
+                        batch_frames = []
+                        batch_labels = []
+            # Если остались невыданные последовательности
+            if len(batch_frames) > 0:
+                print(f"[DEBUG] batch_frames (остаток): {len(batch_frames)}")
+                print(f"[DEBUG] batch_labels shape (остаток): {np.array(batch_labels).shape}")
+                yield np.array(batch_frames), np.array(batch_labels)
             if not infinite_loop:
                 break
     
