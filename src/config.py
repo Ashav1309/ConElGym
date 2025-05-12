@@ -51,8 +51,8 @@ class Config:
     MEMORY_OPTIMIZATION = {
         'clear_memory_after_trial': True,  # Очищать память после каждого испытания
         'use_mixed_precision': True,  # Включаем mixed precision для GPU
-        'cache_dataset': False,  # Отключаем кэширование датасета
-        'prefetch_buffer_size': 2,  # Увеличиваем размер буфера предзагрузки
+        'cache_dataset': True,  # Включаем кэширование датасета
+        'prefetch_buffer_size': 4,  # Увеличиваем размер буфера предзагрузки
         'allow_memory_growth': True,  # Разрешаем динамический рост памяти
     }
     

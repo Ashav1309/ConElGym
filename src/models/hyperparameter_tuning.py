@@ -56,8 +56,8 @@ def setup_device():
                 return False
             
             # Настройка памяти GPU
-            # for gpu in gpus:
-                # tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
             
             # Включаем mixed precision если нужно
             if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
@@ -113,7 +113,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         dataset = dataset.cache()
     
     dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(1)
+    dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
     
     return dataset
 
@@ -141,6 +141,10 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    
+    # Включаем mixed precision если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
     model.compile(
         optimizer=optimizer,
@@ -245,6 +249,12 @@ def objective(trial):
                     monitor='val_accuracy',
                     patience=3,
                     restore_best_weights=True
+                ),
+                tf.keras.callbacks.ReduceLROnPlateau(
+                    monitor='val_accuracy',
+                    factor=0.5,
+                    patience=2,
+                    min_lr=1e-6
                 ),
                 TqdmCallback(verbose=0)
             ],
