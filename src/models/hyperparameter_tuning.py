@@ -118,6 +118,9 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     def generator():
         print("[DEBUG] Запуск генератора данных...")
         try:
+            # Очищаем память перед созданием генератора
+            clear_memory()
+            
             gen = loader.data_generator(
                 sequence_length=sequence_length,
                 batch_size=batch_size,
@@ -142,8 +145,14 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         except Exception as e:
             print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
             raise
+        finally:
+            # Очищаем память после завершения генератора
+            clear_memory()
     
     try:
+        # Очищаем память перед созданием dataset
+        clear_memory()
+        
         dataset = tf.data.Dataset.from_generator(
             generator,
             output_signature=(
@@ -216,35 +225,47 @@ def load_and_prepare_data(batch_size):
     """
     Загрузка и подготовка данных для обучения
     """
+    print("[DEBUG] Начало загрузки данных...")
     clear_memory()  # Очищаем память перед загрузкой данных
     
-    train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-    val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
-    
-    target_size = Config.INPUT_SIZE
-    
-    # Создание оптимизированных pipeline данных
-    train_dataset = create_data_pipeline(
-        loader=train_loader,
-        sequence_length=Config.SEQUENCE_LENGTH,
-        batch_size=batch_size,
-        target_size=target_size,
-        one_hot=True,
-        infinite_loop=True,
-        max_sequences_per_video=10
-    )
-    
-    val_dataset = create_data_pipeline(
-        loader=val_loader,
-        sequence_length=Config.SEQUENCE_LENGTH,
-        batch_size=batch_size,
-        target_size=target_size,
-        one_hot=True,
-        infinite_loop=False,
-        max_sequences_per_video=10
-    )
-    
-    return train_dataset, val_dataset
+    try:
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        print("[DEBUG] VideoDataLoader создан успешно")
+        
+        target_size = Config.INPUT_SIZE
+        
+        # Создание оптимизированных pipeline данных
+        train_dataset = create_data_pipeline(
+            loader=train_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=batch_size,
+            target_size=target_size,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=10
+        )
+        print("[DEBUG] Train dataset создан успешно")
+        
+        # Очищаем память между созданием train и val datasets
+        clear_memory()
+        
+        val_dataset = create_data_pipeline(
+            loader=val_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=batch_size,
+            target_size=target_size,
+            one_hot=True,
+            infinite_loop=False,
+            max_sequences_per_video=10
+        )
+        print("[DEBUG] Val dataset создан успешно")
+        
+        return train_dataset, val_dataset
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при загрузке данных: {str(e)}")
+        clear_memory()
+        raise
 
 def objective(trial):
     print(f"\n[DEBUG] Начало trial {trial.number}")
