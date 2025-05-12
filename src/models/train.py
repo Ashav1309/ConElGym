@@ -65,23 +65,16 @@ def create_data_pipeline(generator, batch_size):
         lambda: generator,
         output_signature=(
             tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, Config.NUM_CLASSES), dtype=tf.float32)
+            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
         )
     )
     
     # Оптимизация загрузки данных
     if Config.MEMORY_OPTIMIZATION['cache_dataset']:
         dataset = dataset.cache()
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
     dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(1)
     
-    # Исправление размерности данных
-    def reshape_data(x, y):
-        x = tf.squeeze(x, axis=1)
-        y = tf.squeeze(y, axis=1)
-        return x, y
-    
-    dataset = dataset.map(reshape_data, num_parallel_calls=tf.data.AUTOTUNE)
     return dataset
 
 class OverfittingMonitor(Callback):

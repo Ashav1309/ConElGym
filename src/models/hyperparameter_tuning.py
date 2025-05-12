@@ -102,15 +102,6 @@ def create_data_pipeline(generator, batch_size):
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(1)
     
-    # Исправление размерности данных
-    def reshape_data(x, y):
-        print(f"Input shape before reshape: {x.shape}")  # Отладочная информация
-        x = tf.squeeze(x, axis=1)
-        y = tf.squeeze(y, axis=1)
-        print(f"Input shape after reshape: {x.shape}")  # Отладочная информация
-        return x, y
-    
-    dataset = dataset.map(reshape_data, num_parallel_calls=1)
     return dataset
 
 def f1_score_element(y_true, y_pred):
