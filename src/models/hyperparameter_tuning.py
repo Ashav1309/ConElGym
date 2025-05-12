@@ -28,7 +28,6 @@ from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
 import subprocess
 import sys
-from src.data.data_loader import load_data
 
 def clear_memory():
     """Очистка памяти"""
