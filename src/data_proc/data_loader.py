@@ -100,12 +100,16 @@ class VideoDataLoader:
             try:
                 with open(annotation_path, 'r') as f:
                     ann = json.load(f)
-                    start = ann.get('start_frame', 0)
-                    end = ann.get('end_frame', 0)
-                    print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
-                    for i in range(start, end + 1):
-                        if 0 <= i < len(labels):
-                            labels[i] = 1
+                    if "annotations" in ann and len(ann["annotations"]) > 0:
+                        for elem in ann["annotations"]:
+                            start = elem.get('start_frame', 0)
+                            end = elem.get('end_frame', 0)
+                            print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
+                            for i in range(start, end + 1):
+                                if 0 <= i < len(labels):
+                                    labels[i] = 1
+                    else:
+                        print(f"[DEBUG] Нет элементов в annotations для {annotation_path}")
             except Exception as e:
                 print(f"[DEBUG] Ошибка чтения аннотации {annotation_path}: {e}")
         else:
@@ -117,7 +121,6 @@ class VideoDataLoader:
             seq_labels = labels[i:i + sequence_length]
             sequences.append(sequence)
             if one_hot:
-                # Для задачи сегментации последовательности: one-hot для каждого кадра
                 sequence_labels.append([[1,0] if l==0 else [0,1] for l in seq_labels])
             else:
                 sequence_labels.append(seq_labels)
