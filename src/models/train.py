@@ -76,8 +76,8 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     dataset = tf.data.Dataset.from_generator(
         generator,
         output_signature=(
-            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
+            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
         )
     )
     
