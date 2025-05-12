@@ -200,6 +200,11 @@ def objective(trial):
     """
     print(f"\nTrial {trial.number + 1} started")
     
+    train_loader = None
+    val_loader = None
+    train_dataset = None
+    val_dataset = None
+    model = None
     try:
         # Проверка доступной памяти GPU
         if Config.DEVICE_CONFIG['use_gpu']:
@@ -280,22 +285,26 @@ def objective(trial):
         print(f"[DEBUG] Лучшая val_accuracy: {best_val_accuracy}")
         print(f"Trial {trial.number + 1} finished with validation accuracy: {best_val_accuracy:.4f}")
         
-        # Очищаем память после обучения
-        del model
-        clear_memory()
-        
         return best_val_accuracy
         
     except tf.errors.ResourceExhaustedError:
         print("GPU memory exhausted. Skipping trial.")
-        clear_memory()
         return float('-inf')
     except Exception as e:
         import traceback
         print(f"[DEBUG] Error in trial: {str(e)}")
         traceback.print_exc()
-        clear_memory()
         return float('-inf')
+    finally:
+        # Явно удаляем все объекты, связанные с данными и моделью
+        del model
+        del train_loader
+        del val_loader
+        del train_dataset
+        del val_dataset
+        clear_memory()
+        import gc
+        gc.collect()
 
 def save_tuning_results(study, total_time, n_trials):
     """
