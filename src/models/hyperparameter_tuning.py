@@ -171,7 +171,7 @@ def load_and_prepare_data(batch_size):
         target_size=target_size,
         one_hot=True,
         infinite_loop=True,
-        max_sequences_per_video=100
+        max_sequences_per_video=10
     )
     
     val_dataset = create_data_pipeline(
@@ -181,7 +181,7 @@ def load_and_prepare_data(batch_size):
         target_size=target_size,
         one_hot=True,
         infinite_loop=True,
-        max_sequences_per_video=100
+        max_sequences_per_video=10
     )
     
     # Проверяем размеры данных
@@ -227,7 +227,7 @@ def objective(trial):
         '--lstm_units', str(lstm_units),
         '--batch_size', str(Config.BATCH_SIZE),
         '--sequence_length', str(Config.SEQUENCE_LENGTH),
-        '--max_sequences_per_video', '100'
+        '--max_sequences_per_video', '10'
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)

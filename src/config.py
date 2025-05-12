@@ -4,14 +4,14 @@ class Config:
     NUM_CLASSES = 2  # Начало и конец элемента
     
     # Параметры обучения
-    BATCH_SIZE = 4  # Увеличиваем размер батча
+    BATCH_SIZE = 2
     EPOCHS = 10  # Уменьшаем количество эпох для подбора гиперпараметров
     LEARNING_RATE = 0.001
     STEPS_PER_EPOCH = 10  # Уменьшаем количество шагов
     VALIDATION_STEPS = 5  # Уменьшаем количество шагов валидации
     
     # Параметры данных
-    SEQUENCE_LENGTH = 16  # Увеличиваем длину последовательности
+    SEQUENCE_LENGTH = 8
     TARGET_SIZE = (224, 224)
     INPUT_SIZE = (224, 224)  # Размер входного изображения для MobileNetV3
     

@@ -92,7 +92,7 @@ class VideoDataLoader:
         
         return frames
     
-    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=100):
+    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=10):
         """
         Создание последовательностей кадров и меток на основе аннотации.
         """
@@ -136,7 +136,7 @@ class VideoDataLoader:
         """
         self.load_video(video_path, target_size)
     
-    def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=100):
+    def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
@@ -149,7 +149,7 @@ class VideoDataLoader:
             if not infinite_loop:
                 break
     
-    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=100):
+    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         """
         Загрузка данных для обучения.
         

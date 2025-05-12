@@ -40,7 +40,7 @@ def main():
     parser.add_argument('--lstm_units', type=int, required=True)
     parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)
     parser.add_argument('--sequence_length', type=int, default=Config.SEQUENCE_LENGTH)
-    parser.add_argument('--max_sequences_per_video', type=int, default=100)
+    parser.add_argument('--max_sequences_per_video', type=int, default=10)
     args = parser.parse_args()
     print(f'[DEBUG] Аргументы: {args}', flush=True)
 

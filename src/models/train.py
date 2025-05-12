@@ -289,7 +289,7 @@ def train():
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
-            max_sequences_per_video=100
+            max_sequences_per_video=10
         )
         
         val_dataset = create_data_pipeline(
@@ -299,7 +299,7 @@ def train():
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
-            max_sequences_per_video=100
+            max_sequences_per_video=10
         )
         
         # Обучение
