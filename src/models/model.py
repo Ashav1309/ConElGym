@@ -249,14 +249,11 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
             # Временное внимание
             x = TemporalAttention(units=128)(x)
             
-            # Изменяем размерность перед нормализацией
-            x = Reshape((-1, 128))(x)
-            
             # Нормализация
             x = LayerNormalization(axis=-1)(x)
             
             # Финальный слой классификации
-            outputs = Dense(num_classes, activation='softmax', dtype='float32')(x)
+            outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
             
             return Model(inputs=inputs, outputs=outputs)
             
