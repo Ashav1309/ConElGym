@@ -14,7 +14,7 @@ import logging
 import gc
 from tensorflow.keras.optimizers import Adam
 import traceback
-from tensorflow.keras.metrics import Precision, Recall, f1_score
+from tensorflow.keras.metrics import Precision, Recall, F1Score
 
 logger = logging.getLogger(__name__)
 
