@@ -5,7 +5,8 @@ from tensorflow.keras.layers import (
     GlobalAveragePooling2D, Reshape,
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
-    GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU
+    GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU,
+    Layer
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
