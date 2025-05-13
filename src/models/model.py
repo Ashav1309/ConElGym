@@ -244,11 +244,9 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 
                 # Преобразуем последовательность в батч изображений
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
-                x = Reshape((sequence_length * height, width, channels))(inputs)
-                print(f"[DEBUG] После первого Reshape: {x.shape}")
                 
                 # Начальный слой
-                x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
+                x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(inputs)
                 print(f"[DEBUG] После начального Conv2D: {x.shape}")
                 x = BatchNormalization()(x)
                 x = ReLU()(x)
@@ -263,21 +261,9 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                     )(x)
                     print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
                 
-                # Вычисляем новые размерности после сверток
-                # После 4 UIB блоков с stride=2 размерность уменьшается в 16 раз
-                new_height = height // 16  # 224 -> 14
-                new_width = width // 16    # 224 -> 14
-                print(f"[DEBUG] Рассчитанные новые размерности: new_height={new_height}, new_width={new_width}")
-                print(f"[DEBUG] Текущая форма тензора перед финальным Reshape: {x.shape}")
-                
-                # Восстанавливаем размерность последовательности
-                # Учитываем, что текущая форма (None, 56, 7, 512)
-                # Нужно преобразовать в (sequence_length, new_height, new_width, filters)
-                x = Reshape((sequence_length, -1, config['blocks'][-1]['filters']))(x)
-                print(f"[DEBUG] После финального Reshape: {x.shape}")
-                
                 # Временная обработка
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
+                print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
                 x = Bidirectional(LSTM(64, return_sequences=True))(x)
                 x = Dropout(dropout_rate)(x)
                 x = Bidirectional(LSTM(32))(x)
