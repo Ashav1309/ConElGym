@@ -290,8 +290,8 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=10
+            infinite_loop=True,  # Включаем бесконечный цикл для обучения
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
         )
         
         val_dataset = create_data_pipeline(
@@ -300,8 +300,8 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=10
+            infinite_loop=False,  # Отключаем бесконечный цикл для валидации
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
         )
         
         # Обучение
@@ -343,34 +343,14 @@ def train():
         plt.savefig(os.path.join(plot_path, 'final_training_plot.png'))
         plt.close()
         
-        # Матрица ошибок
-        print("\nВычисление матрицы ошибок...")
-        val_generator = val_loader.load_data(
-            Config.SEQUENCE_LENGTH, 
-            Config.BATCH_SIZE, 
-            target_size=Config.INPUT_SIZE, 
-            one_hot=True
-        )
-        val_dataset = create_data_pipeline(val_generator, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True, 100)
-        y_true = []
-        y_pred = []
-        
-        # Добавляем прогресс-бар для вычисления матрицы ошибок
-        with tqdm(total=Config.VALIDATION_STEPS, desc="Computing Confusion Matrix") as pbar:
-            for _ in range(Config.VALIDATION_STEPS):
-                X_val, y_val = next(val_generator)
-                pred = model.predict(X_val, verbose=0)
-                y_true.extend(y_val)
-                y_pred.extend(np.round(pred))
-                pbar.update(1)
-        
         # Сохраняем параметры модели
         model_params = {
             'best_params': best_params,
             'input_shape': input_shape,
             'num_classes': Config.NUM_CLASSES,
-            'batch_size': Config.BATCH_SIZE,
-            'sequence_length': Config.SEQUENCE_LENGTH
+            'batch_size': best_params['batch_size'],
+            'sequence_length': Config.SEQUENCE_LENGTH,
+            'max_sequences_per_video': Config.MAX_SEQUENCES_PER_VIDEO
         }
         
         with open(os.path.join(Config.MODEL_SAVE_PATH, 'model_params.json'), 'w') as f:

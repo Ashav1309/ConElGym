@@ -402,58 +402,28 @@ def objective(trial):
         print("\n[DEBUG] 3. Начало обучения модели...")
         history = model.fit(
             train_dataset,
+            epochs=Config.EPOCHS,
             validation_data=val_dataset,
-            epochs=min(Config.EPOCHS, 10),
-            steps_per_epoch=min(Config.STEPS_PER_EPOCH, 50),
-            validation_steps=min(Config.VALIDATION_STEPS, 20),
             callbacks=[early_stopping],
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_steps=Config.VALIDATION_STEPS,
             verbose=0
         )
         print("[DEBUG] ✓ Обучение завершено")
         
-        # Получаем лучшую точность на валидационном наборе
+        # Получаем лучшую точность валидации
         best_val_accuracy = max(history.history['val_accuracy'])
-        print(f"[DEBUG] ✓ Лучшая точность на валидации: {best_val_accuracy:.4f}")
+        print(f"[DEBUG] Лучшая точность валидации: {best_val_accuracy:.4f}")
         
-        # Очищаем память
-        print("\n[DEBUG] 4. Очистка после обучения...")
-        print("[DEBUG] 4.1. Удаление модели...")
-        del model
-        print("[DEBUG] 4.2. Удаление истории обучения...")
-        del history
-        print("[DEBUG] 4.3. Удаление датасетов...")
-        del train_dataset
-        del val_dataset
-        print("[DEBUG] 4.4. Финальная очистка памяти...")
+        # Очищаем память после обучения
         clear_memory()
-        print("[DEBUG] ✓ Очистка завершена")
         
-        print(f"\n[DEBUG] ===== Trial {trial.number} успешно завершен =====")
         return best_val_accuracy
         
     except Exception as e:
-        print(f"\n[DEBUG] ✗ Ошибка в trial {trial.number}: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        
-        # Очищаем память в случае ошибки
-        print("\n[DEBUG] Очистка памяти после ошибки...")
-        try:
-            if 'model' in locals():
-                del model
-            if 'history' in locals():
-                del history
-            if 'train_dataset' in locals():
-                del train_dataset
-            if 'val_dataset' in locals():
-                del val_dataset
-            clear_memory()
-        except Exception as cleanup_error:
-            print(f"[DEBUG] ✗ Ошибка при очистке после ошибки: {str(cleanup_error)}")
-        
-        # Возвращаем очень плохое значение вместо None
-        return float('-inf')
+        print(f"[DEBUG] Ошибка в trial {trial.number}: {str(e)}")
+        clear_memory()
+        raise
 
 def save_tuning_results(study, total_time, n_trials):
     """

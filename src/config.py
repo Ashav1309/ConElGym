@@ -5,13 +5,14 @@ class Config:
     
     # Параметры обучения
     EPOCHS = 10
-    STEPS_PER_EPOCH = 100  # Увеличиваем количество шагов в эпохе
-    VALIDATION_STEPS = 20  # Увеличиваем количество шагов валидации
+    STEPS_PER_EPOCH = 50  # Уменьшаем количество шагов
+    VALIDATION_STEPS = 10  # Уменьшаем количество шагов валидации
     
     # Параметры данных
     SEQUENCE_LENGTH = 8
     TARGET_SIZE = (224, 224)
     INPUT_SIZE = (224, 224)
+    MAX_SEQUENCES_PER_VIDEO = 10  # Добавляем константу для максимального количества последовательностей
     
     # Пути
     TRAIN_DATA_PATH = 'data/train'
@@ -28,18 +29,18 @@ class Config:
     # Настройки CPU/GPU
     DEVICE_CONFIG = {
         'use_gpu': True,
-        'gpu_memory_limit': 4096,  # Уменьшаем лимит памяти GPU
-        'cpu_threads': 2,  # Уменьшаем количество потоков CPU
+        'gpu_memory_limit': 4096,
+        'cpu_threads': 2,
         'allow_gpu_memory_growth': True,
-        'per_process_gpu_memory_fraction': 0.6,  # Уменьшаем долю используемой памяти GPU
+        'per_process_gpu_memory_fraction': 0.6,
     }
     
     # Настройки оптимизации памяти
     MEMORY_OPTIMIZATION = {
         'clear_memory_after_trial': True,
         'use_mixed_precision': True,
-        'cache_dataset': False,  # Отключаем кэширование датасета
-        'prefetch_buffer_size': 1,  # Минимальный размер буфера
+        'cache_dataset': False,
+        'prefetch_buffer_size': 1,
         'allow_memory_growth': True,
     }
     
@@ -55,6 +56,6 @@ class Config:
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
         'n_trials': 20,
-        'timeout': 3600,  # 1 час
+        'timeout': 3600,
         'n_jobs': 1
     } 

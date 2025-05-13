@@ -127,24 +127,45 @@ class VideoDataLoader:
     
     def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         logger.info(f"Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
+        
+        # Создаем список всех последовательностей заранее
+        all_sequences = []
+        all_labels = []
+        
+        for idx in range(len(self.video_paths)):
+            try:
+                # Проверка состояния сети
+                self.network_monitor.check_network_status()
+                
+                frames = self.load_video(self.video_paths[idx], target_size)
+                annotation_path = self.labels[idx]
+                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
+                
+                all_sequences.extend(seqs)
+                all_labels.extend(seq_labels)
+                
+                logger.info(f"Обработано видео {os.path.basename(self.video_paths[idx])}: добавлено {len(seqs)} последовательностей")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при обработке видео {self.video_paths[idx]}: {str(e)}")
+                continue
+        
+        # Преобразуем в numpy массивы
+        all_sequences = np.array(all_sequences)
+        all_labels = np.array(all_labels)
+        
+        logger.info(f"Всего создано {len(all_sequences)} последовательностей")
+        
+        # Создаем батчи
+        n_samples = len(all_sequences)
+        indices = np.arange(n_samples)
+        
         while True:
-            indices = np.random.permutation(len(self.video_paths))
-            for idx in indices:
-                try:
-                    # Проверка состояния сети
-                    self.network_monitor.check_network_status()
-                    
-                    frames = self.load_video(self.video_paths[idx], target_size)
-                    annotation_path = self.labels[idx]
-                    seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
-                    
-                    for s, l in zip(seqs, seq_labels):
-                        yield np.array(s), np.array(l)
-                        
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке видео {self.video_paths[idx]}: {str(e)}")
-                    continue
-                    
+            np.random.shuffle(indices)
+            for i in range(0, n_samples, batch_size):
+                batch_indices = indices[i:i + batch_size]
+                yield all_sequences[batch_indices], all_labels[batch_indices]
+                
             if not infinite_loop:
                 break
     
