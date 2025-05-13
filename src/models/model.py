@@ -174,23 +174,51 @@ class ModelTrainer:
         """
         def _train_operation():
             try:
-                history = self.model.fit(
-                    self.data_loader.data_generator(),
-                    epochs=epochs,
-                    batch_size=batch_size,
-                    callbacks=[
-                        tf.keras.callbacks.EarlyStopping(
-                            monitor='val_loss',
-                            patience=5,
-                            restore_best_weights=True
-                        ),
-                        tf.keras.callbacks.ModelCheckpoint(
-                            'best_model.h5',
-                            save_best_only=True
-                        )
-                    ]
-                )
-                return history
+                print("[DEBUG] Начало обучения модели...")
+                
+                # Получаем генератор данных
+                data_gen = self.data_loader.data_generator()
+                
+                # Обрабатываем первый батч для проверки размерностей
+                try:
+                    x_batch, y_batch = next(data_gen)
+                    print(f"[DEBUG] Размерность входных данных из генератора: {x_batch.shape}")
+                    
+                    # Проверяем и исправляем размерности
+                    if len(x_batch.shape) == 6:  # Если есть лишняя размерность
+                        print(f"[DEBUG] Обнаружена лишняя размерность в данных: {x_batch.shape}")
+                        x_batch = tf.squeeze(x_batch, axis=1)
+                        print(f"[DEBUG] Размерность после исправления: {x_batch.shape}")
+                    
+                    # Создаем новый генератор с исправленными размерностями
+                    def corrected_generator():
+                        for x, y in data_gen:
+                            if len(x.shape) == 6:
+                                x = tf.squeeze(x, axis=1)
+                            yield x, y
+                    
+                    history = self.model.fit(
+                        corrected_generator(),
+                        epochs=epochs,
+                        batch_size=batch_size,
+                        callbacks=[
+                            tf.keras.callbacks.EarlyStopping(
+                                monitor='val_loss',
+                                patience=5,
+                                restore_best_weights=True
+                            ),
+                            tf.keras.callbacks.ModelCheckpoint(
+                                'best_model.h5',
+                                save_best_only=True
+                            )
+                        ]
+                    )
+                    return history
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке данных: {str(e)}")
+                    print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+                    raise
                 
             except tf.errors.ResourceExhaustedError as e:
                 logger.error(f"Недостаточно памяти GPU: {str(e)}")
@@ -201,6 +229,7 @@ class ModelTrainer:
                 
             except Exception as e:
                 logger.error(f"Ошибка при обучении: {str(e)}")
+                print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
                 raise
                 
         return self.network_handler.handle_network_operation(_train_operation)
