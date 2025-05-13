@@ -243,28 +243,36 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 channels = input_shape[3]
                 
                 # Преобразуем последовательность в батч изображений
+                print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
                 x = Reshape((sequence_length * height, width, channels))(inputs)
+                print(f"[DEBUG] После первого Reshape: {x.shape}")
                 
                 # Начальный слой
                 x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
+                print(f"[DEBUG] После начального Conv2D: {x.shape}")
                 x = BatchNormalization()(x)
                 x = ReLU()(x)
                 
                 # UIB блоки
-                for block in config['blocks']:
+                for i, block in enumerate(config['blocks']):
                     x = UniversalInvertedBottleneck(
                         filters=block['filters'],
                         expansion=block['expansion'],
                         stride=block['stride'],
                         se_ratio=se_ratio
                     )(x)
+                    print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
                 
                 # Вычисляем новые размерности после сверток
                 new_height = height // 16  # После 4 блоков с stride=2
                 new_width = width // 16
+                print(f"[DEBUG] Рассчитанные новые размерности: new_height={new_height}, new_width={new_width}")
+                print(f"[DEBUG] Текущая форма тензора перед финальным Reshape: {x.shape}")
                 
                 # Восстанавливаем размерность последовательности
-                x = Reshape((sequence_length, new_height, new_width, config['blocks'][-1]['filters']))(x)
+                target_shape = (sequence_length, new_height, new_width, config['blocks'][-1]['filters'])
+                print(f"[DEBUG] Целевая форма для Reshape: {target_shape}")
+                x = Reshape(target_shape)(x)
                 
                 # Временная обработка
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
