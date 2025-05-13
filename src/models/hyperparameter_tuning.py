@@ -140,6 +140,9 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             video_paths = loader.video_paths
             annotation_paths = loader.labels
             
+            # Множество для отслеживания обработанных видео
+            processed_videos = set()
+            
             while True:  # Бесконечный цикл для infinite_loop
                 # Перемешиваем видео для каждой эпохи
                 indices = np.arange(len(video_paths))
@@ -147,7 +150,14 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                 shuffled_video_paths = [video_paths[i] for i in indices]
                 shuffled_annotation_paths = [annotation_paths[i] for i in indices]
                 
+                # Сбрасываем множество обработанных видео в начале каждой эпохи
+                processed_videos.clear()
+                
                 for video_path, annotation_path in zip(shuffled_video_paths, shuffled_annotation_paths):
+                    # Пропускаем видео, если оно уже было обработано в этой эпохе
+                    if video_path in processed_videos:
+                        continue
+                        
                     try:
                         print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
                         
@@ -229,6 +239,9 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                         
                         # Закрываем видео
                         cap.release()
+                        
+                        # Добавляем видео в множество обработанных
+                        processed_videos.add(video_path)
                         
                     except Exception as e:
                         print(f"[DEBUG] Ошибка при обработке видео {video_path}: {str(e)}")
