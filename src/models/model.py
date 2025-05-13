@@ -14,6 +14,7 @@ import logging
 import gc
 from tensorflow.keras.optimizers import Adam
 import traceback
+from tensorflow.keras.metrics import Precision, Recall, f1_score
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +397,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     try:
         # Временно используем только MobileNetV3
         print("[DEBUG] Создание MobileNetV3...")
-        model = create_mobilenetv3_model(
+        model, class_weights = create_mobilenetv3_model(
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=dropout_rate,
@@ -404,7 +405,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         )
         
         print("[DEBUG] Модель успешно создана")
-        return model
+        return model, class_weights
         
     except Exception as e:
         print(f"[ERROR] Ошибка при создании модели: {str(e)}")
@@ -425,65 +426,74 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
         
-        # Проверяем и устанавливаем значение по умолчанию для lstm_units
         if lstm_units is None:
             lstm_units = 64
             print(f"[DEBUG] lstm_units установлен по умолчанию: {lstm_units}")
         
         def _create_model_operation():
             try:
-                # Входной слой
                 inputs = Input(shape=input_shape)
                 print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
                 
-                # Добавляем слой Reshape для корректировки размерности
                 x = Reshape(input_shape)(inputs)
                 print(f"[DEBUG] Форма после Reshape: {x.shape}")
                 
-                # Базовый MobileNetV3 с оптимизацией памяти
+                # Уменьшаем размер модели и добавляем регуляризацию
                 base_model = MobileNetV3Small(
                     input_shape=input_shape[1:],
                     include_top=False,
                     weights='imagenet',
-                    alpha=0.75  # Уменьшаем размер модели
+                    alpha=0.5  # Уменьшаем размер модели
                 )
                 
-                # Замораживаем веса базовой модели
                 base_model.trainable = False
                 
-                # Обработка последовательности с оптимизацией памяти
                 x = TimeDistributed(base_model)(x)
                 print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
                 
-                # Используем GlobalAveragePooling2D для уменьшения размерности
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
                 print(f"[DEBUG] Форма после GlobalAveragePooling2D: {x.shape}")
                 
-                # LSTM для временной последовательности с оптимизацией памяти
-                x = Bidirectional(LSTM(lstm_units, return_sequences=True, 
-                                     recurrent_dropout=0.1,  # Добавляем dropout для LSTM
-                                     unroll=True))(x)  # Разворачиваем LSTM для экономии памяти
+                # Добавляем дополнительную регуляризацию
+                x = TimeDistributed(Dropout(0.3))(x)
+                
+                # Уменьшаем количество LSTM юнитов
+                x = Bidirectional(LSTM(32, return_sequences=True, 
+                                     recurrent_dropout=0.2,
+                                     unroll=True))(x)
                 x = Dropout(dropout_rate)(x)
                 
-                # Выходной слой с сохранением временной размерности
+                # Добавляем дополнительный Dense слой
+                x = TimeDistributed(Dense(64, activation='relu'))(x)
+                x = TimeDistributed(Dropout(0.3))(x)
+                
                 outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
                 
                 model = Model(inputs=inputs, outputs=outputs)
                 
-                # Используем оптимизатор с градиентным клиппингом
+                # Используем оптимизатор с меньшим learning rate
                 optimizer = Adam(
-                    learning_rate=0.001,
-                    clipnorm=1.0  # Ограничиваем норму градиентов
+                    learning_rate=0.0001,  # Уменьшаем learning rate
+                    clipnorm=1.0
                 )
+                
+                # Добавляем веса классов для решения проблемы дисбаланса
+                class_weights = {
+                    0: 1.0,  # Нормальный вес для фонового класса
+                    1: 10.0  # Увеличиваем вес для классов начала и конца
+                }
                 
                 model.compile(
                     optimizer=optimizer,
                     loss='categorical_crossentropy',
-                    metrics=['accuracy']
+                    metrics=['accuracy', 
+                            Precision(class_id=1, name='precision_element'),
+                            Recall(class_id=1, name='recall_element'),
+                            f1_score_element]
                 )
                 
                 print("[DEBUG] MobileNetV3 успешно создана")
-                return model
+                return model, class_weights
                 
             except Exception as e:
                 print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
@@ -500,7 +510,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
 if __name__ == "__main__":
     try:
         # Инициализация компонентов
-        model = create_model(
+        model, class_weights = create_model(
             input_shape=(16, 224, 224, 3),  # 16 кадров, размер 224x224, 3 канала
             num_classes=2,  # Начало и конец элемента
             model_type='v3'

@@ -242,34 +242,46 @@ class VideoDataLoader:
     def data_generator(self):
         """Генератор данных с оптимизацией памяти"""
         try:
-            while True:
-                for video_path in self.video_paths:
-                    try:
-                        # Загружаем видео
-                        frames = self.load_video(video_path)
-                        
-                        # Получаем аннотации
-                        annotations = self.labels[self.video_paths.index(video_path)]
-                        
-                        # Создаем последовательности
-                        sequences, labels = self.create_sequences(frames, annotations)
-                        
-                        # Очищаем память после обработки видео
-                        del frames
-                        gc.collect()
-                        
-                        # Возвращаем последовательности по одной
-                        for i in range(len(sequences)):
-                            yield sequences[i], labels[i]
-                            
-                            # Очищаем память после каждой последовательности
-                            if i % 10 == 0:
-                                gc.collect()
-                            
-                    except Exception as e:
-                        print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
-                        continue
+            # Создаем копию списка видео для текущей эпохи
+            current_videos = self.video_paths.copy()
+            
+            while current_videos:  # Пока есть необработанные видео
+                # Берем случайное видео из оставшихся
+                video_idx = np.random.randint(0, len(current_videos))
+                video_path = current_videos.pop(video_idx)
+                
+                try:
+                    print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
+                    # Загружаем видео
+                    frames = self.load_video(video_path)
                     
+                    # Получаем аннотации
+                    annotations = self.labels[self.video_paths.index(video_path)]
+                    
+                    # Создаем последовательности
+                    sequences, labels = self.create_sequences(frames, annotations)
+                    
+                    # Очищаем память после обработки видео
+                    del frames
+                    gc.collect()
+                    
+                    # Перемешиваем последовательности
+                    indices = np.random.permutation(len(sequences))
+                    sequences = sequences[indices]
+                    labels = labels[indices]
+                    
+                    # Возвращаем последовательности
+                    for i in range(len(sequences)):
+                        yield sequences[i], labels[i]
+                        
+                        # Очищаем память после каждой последовательности
+                        if i % 10 == 0:
+                            gc.collect()
+                        
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                    continue
+                
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
             raise

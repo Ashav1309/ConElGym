@@ -279,7 +279,7 @@ def objective(trial):
         
         # Создание модели
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        model = create_and_compile_model(
+        model, class_weights = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
             learning_rate=learning_rate,
@@ -294,6 +294,7 @@ def objective(trial):
             train_dataset,
             validation_data=val_dataset,
             epochs=Config.EPOCHS,
+            class_weight=class_weights,  # Добавляем веса классов
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
