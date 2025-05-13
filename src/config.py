@@ -2,18 +2,18 @@ class Config:
     # Параметры модели
     INPUT_SHAPE = (224, 224, 3)
     NUM_CLASSES = 2  # Начало и конец элемента
-    MODEL_TYPE = 'v3'  # 'v3' для MobileNetV3 или 'v4' для MobileNetV4
+    MODEL_TYPE = 'v4'  # Используем только v4 для тестирования
     
     # Параметры обучения
     EPOCHS = 10
-    STEPS_PER_EPOCH = 50  # Уменьшаем количество шагов
-    VALIDATION_STEPS = 10  # Уменьшаем количество шагов валидации
+    STEPS_PER_EPOCH = 50
+    VALIDATION_STEPS = 10
     
     # Параметры данных
     SEQUENCE_LENGTH = 8
     TARGET_SIZE = (224, 224)
     INPUT_SIZE = (224, 224)
-    MAX_SEQUENCES_PER_VIDEO = 10  # Добавляем константу для максимального количества последовательностей
+    MAX_SEQUENCES_PER_VIDEO = 10
     
     # Пути
     TRAIN_DATA_PATH = 'data/train'
@@ -56,7 +56,7 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 10,
+        'n_trials': 1,  # Только один trial для тестирования
         'timeout': 3600,
         'n_jobs': 1
     }
@@ -66,14 +66,14 @@ class Config:
         'v3': {
             'lstm_units': 64,
             'dropout_rate': 0.5,
-            'model_type': 'small'  # Добавляем тип модели для v3
+            'model_type': 'small'
         },
         'v4': {
             'dropout_rate': 0.5,
-            'model_type': 'small',  # Фиксируем только small версию
-            'expansion_factor': 4,  # Коэффициент расширения для UIB блоков
-            'se_ratio': 0.25,  # Коэффициент для Squeeze-and-Excitation
-            'initial_filters': 32,  # Начальное количество фильтров
+            'model_type': 'small',
+            'expansion_factor': 4,
+            'se_ratio': 0.25,
+            'initial_filters': 32,
             'blocks': [
                 {'filters': 64, 'expansion': 4, 'stride': 2},
                 {'filters': 128, 'expansion': 4, 'stride': 2},
