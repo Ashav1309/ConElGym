@@ -175,6 +175,8 @@ class VideoDataLoader:
                             start_frame = annotation['start_frame']
                             end_frame = annotation['end_frame']
                             
+                            print(f"[DEBUG] Аннотация: начало кадра {start_frame}, конец кадра {end_frame}")
+                            
                             # Устанавливаем метки для кадров в пределах аннотации
                             for frame_idx in range(start_frame, end_frame + 1):
                                 if frame_idx < len(frame_labels):
@@ -256,17 +258,13 @@ class VideoDataLoader:
                         del frames
                         gc.collect()
                         
-                        # Возвращаем последовательности батчами
-                        for i in range(0, len(sequences), self.batch_size):
-                            batch_sequences = sequences[i:i + self.batch_size]
-                            batch_labels = labels[i:i + self.batch_size]
+                        # Возвращаем последовательности по одной
+                        for i in range(len(sequences)):
+                            yield sequences[i], labels[i]
                             
-                            yield batch_sequences, batch_labels
-                            
-                            # Очищаем память после каждого батча
-                            del batch_sequences
-                            del batch_labels
-                            gc.collect()
+                            # Очищаем память после каждой последовательности
+                            if i % 10 == 0:
+                                gc.collect()
                             
                     except Exception as e:
                         print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
