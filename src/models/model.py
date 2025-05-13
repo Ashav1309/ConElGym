@@ -5,7 +5,7 @@ from tensorflow.keras.layers import (
     GlobalAveragePooling2D, Reshape,
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
-    GlobalAveragePooling1D, LayerNormalization, Add
+    GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
@@ -135,47 +135,38 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5):
             
             # Блоки MobileNetV4
             for filters in [64, 128, 256]:
-                # Основной блок
                 residual = x
-                
                 # Depthwise separable convolution
-                x = TimeDistributed(Conv2D(filters, (3, 3), padding='same', groups=filters))(x)
+                x = TimeDistributed(DepthwiseConv2D((3, 3), padding='same'))(x)
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(Activation('relu'))(x)
-                
                 # Pointwise convolution
-                x = TimeDistributed(Conv2D(filters, (1, 1)))(x)
+                x = TimeDistributed(Conv2D(filters, (1, 1), padding='same'))(x)
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(Activation('relu'))(x)
-                
                 # Добавляем residual connection если размерности совпадают
                 if residual.shape[-1] == filters:
                     x = TimeDistributed(Add())([x, residual])
-                
-                # Применяем dropout
                 x = TimeDistributed(Dropout(dropout_rate))(x)
-            
+            # Пространственное внимание
+            x = TimeDistributed(SpatialAttention())(x)
             # Глобальное среднее объединение
             x = TimeDistributed(GlobalAveragePooling2D())(x)
-            
+            # Временное внимание
+            x = TemporalAttention(units=128)(x)
             # Нормализация
             x = LayerNormalization()(x)
-            
             # Финальный слой классификации
             outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
-            
             return Model(inputs=inputs, outputs=outputs)
-            
         except tf.errors.ResourceExhaustedError as e:
             logger.error(f"Недостаточно ресурсов GPU: {str(e)}")
             tf.keras.backend.clear_session()
             gc.collect()
             raise
-            
         except Exception as e:
             logger.error(f"Ошибка при создании модели: {str(e)}")
             raise
-            
     return network_handler.handle_network_operation(_create_model_operation)
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3'):
