@@ -294,22 +294,48 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         expansion_factor: коэффициент расширения для UIB блоков (только для v4)
         se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
     """
-    if model_type == 'v4':
-        return create_mobilenetv4_model(
-            input_shape=input_shape,
-            num_classes=num_classes,
-            dropout_rate=dropout_rate,
-            model_type=model_size,
-            expansion_factor=expansion_factor,
-            se_ratio=se_ratio
-        )
+    print(f"\n[DEBUG] ===== Создание модели =====")
+    print(f"[DEBUG] Параметры:")
+    print(f"  - model_type: {model_type}")
+    print(f"  - model_size: {model_size}")
+    print(f"  - input_shape: {input_shape}")
+    print(f"  - num_classes: {num_classes}")
+    print(f"  - dropout_rate: {dropout_rate}")
+    if model_type == 'v3':
+        print(f"  - lstm_units: {lstm_units}")
     else:
-        return create_mobilenetv3_model(
-            input_shape=input_shape,
-            num_classes=num_classes,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units
-        )
+        print(f"  - expansion_factor: {expansion_factor}")
+        print(f"  - se_ratio: {se_ratio}")
+    
+    try:
+        if model_type == 'v4':
+            print("[DEBUG] Создание MobileNetV4...")
+            model = create_mobilenetv4_model(
+                input_shape=input_shape,
+                num_classes=num_classes,
+                dropout_rate=dropout_rate,
+                model_type=model_size,
+                expansion_factor=expansion_factor,
+                se_ratio=se_ratio
+            )
+        else:
+            print("[DEBUG] Создание MobileNetV3...")
+            model = create_mobilenetv3_model(
+                input_shape=input_shape,
+                num_classes=num_classes,
+                dropout_rate=dropout_rate,
+                lstm_units=lstm_units
+            )
+        
+        print("[DEBUG] Модель успешно создана")
+        return model
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании модели: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
     """
