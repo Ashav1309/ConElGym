@@ -255,7 +255,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             raise
         finally:
             # Очищаем память после завершения генератора
-            clear_memory()
+            # clear_memory()
     
     try:
         # Очищаем память перед созданием dataset
