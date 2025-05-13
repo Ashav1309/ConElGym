@@ -264,15 +264,17 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                     print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
                 
                 # Вычисляем новые размерности после сверток
-                new_height = height // 16  # После 4 блоков с stride=2
-                new_width = width // 16
+                # После 4 UIB блоков с stride=2 размерность уменьшается в 16 раз
+                new_height = height // 16  # 224 -> 14
+                new_width = width // 16    # 224 -> 14
                 print(f"[DEBUG] Рассчитанные новые размерности: new_height={new_height}, new_width={new_width}")
                 print(f"[DEBUG] Текущая форма тензора перед финальным Reshape: {x.shape}")
                 
                 # Восстанавливаем размерность последовательности
-                target_shape = (sequence_length, new_height, new_width, config['blocks'][-1]['filters'])
-                print(f"[DEBUG] Целевая форма для Reshape: {target_shape}")
-                x = Reshape(target_shape)(x)
+                # Учитываем, что текущая форма (None, 56, 7, 512)
+                # Нужно преобразовать в (sequence_length, new_height, new_width, filters)
+                x = Reshape((sequence_length, -1, config['blocks'][-1]['filters']))(x)
+                print(f"[DEBUG] После финального Reshape: {x.shape}")
                 
                 # Временная обработка
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
