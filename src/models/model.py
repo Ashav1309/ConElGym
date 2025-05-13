@@ -117,6 +117,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5):
     """
     Создание модели на основе MobileNetV4
     """
+    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
     network_handler = NetworkErrorHandler()
     network_monitor = NetworkMonitor()
     
@@ -154,7 +155,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5):
             x = TimeDistributed(GlobalAveragePooling2D())(x)
             # Временное внимание
             x = TemporalAttention(units=128)(x)
-            # Нормализация
+            # Нормализация (до TimeDistributed(Dense))
             x = LayerNormalization()(x)
             # Финальный слой классификации
             outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
@@ -188,6 +189,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
     """
     Создание модели на основе MobileNetV3 (текущая реализация)
     """
+    print(f"[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
     network_handler = NetworkErrorHandler()
     network_monitor = NetworkMonitor()
     
