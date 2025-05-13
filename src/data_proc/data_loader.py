@@ -149,7 +149,6 @@ class VideoDataLoader:
             np.random.shuffle(video_files)
         
         # Создаем словарь для отслеживания обработанных видео
-        # Используем словарь вместо множества, так как он сохраняется между вызовами
         if not hasattr(self, '_processed_videos'):
             self._processed_videos = {}
         
@@ -199,8 +198,13 @@ class VideoDataLoader:
                     print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
                     continue
             
-            # Если все видео обработаны, очищаем словарь и начинаем заново
+            # Если все видео обработаны, очищаем словарь и память
             self._processed_videos.clear()
+            print("[DEBUG] ===== Начало очистки памяти =====")
+            tf.keras.backend.clear_session()
+            gc.collect()
+            print("[DEBUG] ===== Очистка памяти завершена =====")
+            
             if shuffle:
                 np.random.shuffle(video_files)
     
