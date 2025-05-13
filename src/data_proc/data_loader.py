@@ -125,16 +125,14 @@ class VideoDataLoader:
                 if not ret:
                     break
                 
-                # Обрабатываем каждый N-й кадр для экономии памяти
-                if frame_count % 2 == 0:  # Берем каждый второй кадр
-                    # Изменяем размер кадра сразу при загрузке
-                    frame = cv2.resize(frame, (224, 224))
-                    frames.append(frame)
-                    
-                    # Очищаем память каждые 100 кадров
-                    if len(frames) % 100 == 0:
-                        gc.collect()
-                    
+                # Изменяем размер кадра сразу при загрузке
+                frame = cv2.resize(frame, (224, 224))
+                frames.append(frame)
+                
+                # Очищаем память каждые 50 кадров
+                if len(frames) % 50 == 0:
+                    gc.collect()
+                
                 frame_count += 1
             
             cap.release()
