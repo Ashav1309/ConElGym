@@ -5,12 +5,13 @@ from tensorflow.keras.layers import (
     GlobalAveragePooling2D, Reshape,
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
-    GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D
+    GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import logging
 import gc
+from tensorflow.keras.optimizers import Adam
 
 logger = logging.getLogger(__name__)
 
@@ -69,88 +70,94 @@ class TemporalAttention(tf.keras.layers.Layer):
         # Возвращаем только context_vector
         return context_vector
 
-class UniversalInvertedBottleneck(tf.keras.layers.Layer):
-    def __init__(self, filters, expansion_factor=6, kernel_size=3, stride=1, se_ratio=0.25):
-        super(UniversalInvertedBottleneck, self).__init__()
+class UniversalInvertedBottleneck(Layer):
+    def __init__(self, filters, expansion=4, stride=1, se_ratio=0.25, **kwargs):
+        super(UniversalInvertedBottleneck, self).__init__(**kwargs)
         self.filters = filters
-        self.expansion_factor = expansion_factor
-        self.kernel_size = kernel_size
+        self.expansion = expansion
         self.stride = stride
         self.se_ratio = se_ratio
         
     def build(self, input_shape):
-        expanded_filters = int(input_shape[-1] * self.expansion_factor)
+        self.expanded_filters = int(input_shape[-1] * self.expansion)
         
-        # Pointwise expansion
-        self.expand_conv = Conv2D(expanded_filters, (1, 1), padding='same')
+        # Расширяющий слой
+        self.expand_conv = Conv2D(
+            self.expanded_filters,
+            kernel_size=1,
+            padding='same',
+            use_bias=False
+        )
         self.expand_bn = BatchNormalization()
-        self.expand_act = Activation('relu')
+        self.expand_activation = ReLU()
         
-        # Depthwise convolution
+        # Depthwise слой
         self.depthwise_conv = DepthwiseConv2D(
-            (self.kernel_size, self.kernel_size),
-            strides=(self.stride, self.stride),
-            padding='same'
+            kernel_size=3,
+            strides=self.stride,
+            padding='same',
+            use_bias=False
         )
         self.depthwise_bn = BatchNormalization()
-        self.depthwise_act = Activation('relu')
+        self.depthwise_activation = ReLU()
         
         # Squeeze-and-Excitation
         self.se_reduce = Conv2D(
-            max(1, int(expanded_filters * self.se_ratio)),
-            (1, 1),
+            max(1, int(self.expanded_filters * self.se_ratio)),
+            kernel_size=1,
+            activation='relu',
             padding='same'
         )
-        self.se_expand = Conv2D(expanded_filters, (1, 1), padding='same')
+        self.se_expand = Conv2D(
+            self.expanded_filters,
+            kernel_size=1,
+            activation='sigmoid',
+            padding='same'
+        )
         
-        # Pointwise projection
-        self.project_conv = Conv2D(self.filters, (1, 1), padding='same')
+        # Проецирующий слой
+        self.project_conv = Conv2D(
+            self.filters,
+            kernel_size=1,
+            padding='same',
+            use_bias=False
+        )
         self.project_bn = BatchNormalization()
         
-        super(UniversalInvertedBottleneck, self).build(input_shape)
-        
-    def compute_output_shape(self, input_shape):
-        """
-        Вычисляет выходную форму слоя
-        Args:
-            input_shape: Входная форма (batch_size, height, width, channels)
-        Returns:
-            Выходная форма (batch_size, height/stride, width/stride, filters)
-        """
-        height = input_shape[1]
-        width = input_shape[2]
-        
-        # Применяем stride к размерам
-        if self.stride > 1:
-            height = height // self.stride
-            width = width // self.stride
-            
-        return (input_shape[0], height, width, self.filters)
+        # Skip connection
+        self.use_residual = self.stride == 1 and input_shape[-1] == self.filters
         
     def call(self, inputs):
         x = self.expand_conv(inputs)
         x = self.expand_bn(x)
-        x = self.expand_act(x)
+        x = self.expand_activation(x)
         
         x = self.depthwise_conv(x)
         x = self.depthwise_bn(x)
-        x = self.depthwise_act(x)
+        x = self.depthwise_activation(x)
         
         # Squeeze-and-Excitation
-        se = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+        se = GlobalAveragePooling2D()(x)
         se = self.se_reduce(se)
-        se = tf.nn.relu(se)
         se = self.se_expand(se)
-        se = tf.sigmoid(se)
-        x = x * se
+        x = Multiply()([x, se])
         
         x = self.project_conv(x)
         x = self.project_bn(x)
         
-        if self.stride == 1 and inputs.shape[-1] == self.filters:
-            x = x + inputs
+        if self.use_residual:
+            x = Add()([x, inputs])
             
         return x
+        
+    def compute_output_shape(self, input_shape):
+        if self.stride > 1:
+            height = input_shape[1] // self.stride
+            width = input_shape[2] // self.stride
+        else:
+            height = input_shape[1]
+            width = input_shape[2]
+        return (input_shape[0], height, width, self.filters)
 
 class ModelTrainer:
     def __init__(self, model, data_loader):
@@ -198,70 +205,80 @@ class ModelTrainer:
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     """
-    Создание модели MobileNetV4
+    Создает модель MobileNetV4 с правильной обработкой размерностей.
+    
     Args:
-        input_shape: форма входных данных
-        num_classes: количество классов
-        dropout_rate: коэффициент dropout
-        model_type: тип модели (используется только 'small')
-        expansion_factor: коэффициент расширения для UIB блоков
-        se_ratio: коэффициент для Squeeze-and-Excitation
+        input_shape: Форма входных данных (sequence_length, height, width, channels)
+        num_classes: Количество классов
+        dropout_rate: Коэффициент dropout
+        model_type: Тип модели (small, medium, large)
+        expansion_factor: Фактор расширения для UIB блоков
+        se_ratio: Коэффициент для Squeeze-and-Excitation блоков
     """
-    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
-    
-    # Конфигурация для модели small
-    config = {
-        'initial_filters': 32,
-        'blocks': [
-            {'filters': 64, 'expansion': 4, 'stride': 2},
-            {'filters': 128, 'expansion': 4, 'stride': 2},
-            {'filters': 256, 'expansion': 4, 'stride': 2},
-            {'filters': 512, 'expansion': 4, 'stride': 2},
-        ]
-    }
-    
-    network_handler = NetworkErrorHandler()
-    
-    def _create_model_operation():
-        try:
+    try:
+        print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
+        
+        # Конфигурация для small модели
+        config = {
+            'initial_filters': 32,
+            'blocks': [
+                {'filters': 64, 'expansion': 4, 'stride': 2},
+                {'filters': 128, 'expansion': 4, 'stride': 2},
+                {'filters': 256, 'expansion': 4, 'stride': 2},
+                {'filters': 512, 'expansion': 4, 'stride': 2},
+            ]
+        }
+        
+        def _create_model_operation():
+            # Входной слой
             inputs = Input(shape=input_shape)
+            x = inputs
             
             # Начальный слой
-            x = TimeDistributed(Conv2D(config['initial_filters'], (3, 3), strides=(2, 2), padding='same'))(inputs)
-            x = TimeDistributed(BatchNormalization())(x)
-            x = TimeDistributed(Activation('relu'))(x)
+            x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
+            x = BatchNormalization()(x)
+            x = ReLU()(x)
             
             # UIB блоки
-            for block_config in config['blocks']:
-                x = TimeDistributed(UniversalInvertedBottleneck(
-                    filters=block_config['filters'],
-                    expansion_factor=block_config['expansion'],
-                    stride=block_config['stride']
-                ))(x)
-                x = TimeDistributed(Dropout(dropout_rate))(x)
-            
-            # Пространственное внимание
-            x = TimeDistributed(SpatialAttention())(x)
-            
-            # Глобальное среднее объединение
-            x = TimeDistributed(GlobalAveragePooling2D())(x)
+            for block in config['blocks']:
+                x = UniversalInvertedBottleneck(
+                    filters=block['filters'],
+                    expansion=block['expansion'],
+                    stride=block['stride'],
+                    se_ratio=se_ratio
+                )(x)
             
             # Временное внимание
-            x = TemporalAttention(units=128)(x)
+            x = TemporalAttention()(x)
             
-            # Нормализация
+            # Пространственное внимание
+            x = SpatialAttention()(x)
+            
+            # Глобальное среднее объединение
+            x = GlobalAveragePooling2D()(x)
+            
+            # Нормализация и классификация
             x = LayerNormalization(axis=-1)(x)
+            x = Dropout(dropout_rate)(x)
+            x = Dense(num_classes, activation='softmax')(x)
             
-            # Финальный слой классификации
-            outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
-            
-            return Model(inputs=inputs, outputs=outputs)
-            
-        except Exception as e:
-            logger.error(f"Ошибка при создании модели: {str(e)}")
-            raise
-            
-    return network_handler.handle_network_operation(_create_model_operation)
+            return Model(inputs=inputs, outputs=x)
+        
+        # Создание модели
+        model = _create_model_operation()
+        
+        # Компиляция модели
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        
+        return model
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании модели MobileNetV4: {str(e)}")
+        raise
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25):
     """
