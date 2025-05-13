@@ -368,25 +368,22 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     print(f"\n[DEBUG] ===== Начало trial {trial.number} =====")
-    # Очищаем память перед каждым испытанием
+    
+    # Очищаем память перед каждым trial
     clear_memory()
     
-    # Определяем тип модели для текущего trial
+    # Определяем параметры для подбора
     model_type = trial.suggest_categorical('model_type', ['v3', 'v4'])
-    
-    # Определяем пространство поиска в зависимости от типа модели
     params = {
-        'model_type': model_type,
-        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True),
         'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
         'batch_size': trial.suggest_int('batch_size', 8, 32)
     }
     
-    # Добавляем специфичные параметры для каждой модели
+    # Добавляем специфичные параметры для каждого типа модели
     if model_type == 'v3':
-        params['lstm_units'] = trial.suggest_int('lstm_units', 32, 64)
+        params['lstm_units'] = trial.suggest_int('lstm_units', 32, 128)
     else:  # v4
-        params['model_size'] = 'small'  # Фиксируем только small версию
         params['expansion_factor'] = trial.suggest_int('expansion_factor', 4, 6)
         params['se_ratio'] = trial.suggest_float('se_ratio', 0.1, 0.3)
     
@@ -404,25 +401,16 @@ def objective(trial):
         print("\n[DEBUG] 2. Создание и компиляция модели...")
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
         
-        if model_type == 'v3':
-            model = create_model(
-                input_shape=input_shape,
-                num_classes=Config.NUM_CLASSES,
-                dropout_rate=params['dropout_rate'],
-                lstm_units=params['lstm_units'],
-                model_type=model_type,
-                model_size='small'  # Фиксируем только small версию
-            )
-        else:  # v4
-            model = create_model(
-                input_shape=input_shape,
-                num_classes=Config.NUM_CLASSES,
-                dropout_rate=params['dropout_rate'],
-                model_type=model_type,
-                model_size='small',  # Фиксируем только small версию
-                expansion_factor=params['expansion_factor'],
-                se_ratio=params['se_ratio']
-            )
+        model = create_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=params['dropout_rate'],
+            lstm_units=params.get('lstm_units'),
+            model_type=model_type,
+            model_size='small',  # Фиксируем только small версию
+            expansion_factor=params.get('expansion_factor'),
+            se_ratio=params.get('se_ratio')
+        )
         
         optimizer = tf.keras.optimizers.Adam(learning_rate=params['learning_rate'])
         if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
@@ -438,17 +426,15 @@ def objective(trial):
                 f1_score_element
             ]
         )
-        print("[DEBUG] ✓ Модель создана и скомпилирована")
         
-        # Используем раннюю остановку
+        # Обучение модели
+        print("\n[DEBUG] 3. Обучение модели...")
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor='val_accuracy',
             patience=3,
             restore_best_weights=True
         )
         
-        # Обучаем модель
-        print("\n[DEBUG] 3. Начало обучения модели...")
         history = model.fit(
             train_dataset,
             epochs=Config.EPOCHS,
@@ -459,7 +445,7 @@ def objective(trial):
             verbose=0
         )
         
-        # Возвращаем лучшую валидационную точность
+        # Получаем лучшую валидационную точность
         best_val_accuracy = max(history.history['val_accuracy'])
         print(f"[DEBUG] ✓ Обучение завершено. Лучшая валидационная точность: {best_val_accuracy:.4f}")
         

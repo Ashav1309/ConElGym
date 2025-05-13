@@ -178,7 +178,7 @@ class ModelTrainer:
                 
         return self.network_handler.handle_network_operation(_train_operation)
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small'):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     """
     Создание модели MobileNetV4
     Args:
@@ -186,6 +186,8 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         num_classes: количество классов
         dropout_rate: коэффициент dropout
         model_type: тип модели ('small', 'medium', 'large')
+        expansion_factor: коэффициент расширения для UIB блоков (только для v4)
+        se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
     """
     print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, model_type={model_type}")
     
@@ -263,7 +265,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
             
     return network_handler.handle_network_operation(_create_model_operation)
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3'):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25):
     """
     Создание модели с выбором типа архитектуры
     Args:
@@ -272,11 +274,26 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях
         model_type: тип модели ('v3' или 'v4')
+        model_size: размер модели ('small', 'medium', 'large')
+        expansion_factor: коэффициент расширения для UIB блоков (только для v4)
+        se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
     """
     if model_type == 'v4':
-        return create_mobilenetv4_model(input_shape, num_classes, dropout_rate)
+        return create_mobilenetv4_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=dropout_rate,
+            model_type=model_size,
+            expansion_factor=expansion_factor,
+            se_ratio=se_ratio
+        )
     else:
-        return create_mobilenetv3_model(input_shape, num_classes, dropout_rate, lstm_units)
+        return create_mobilenetv3_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
+        )
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
     """
