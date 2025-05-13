@@ -259,8 +259,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                         se_ratio=se_ratio
                     )(x)
                 
+                # Вычисляем новые размерности после сверток
+                new_height = height // 16  # После 4 блоков с stride=2
+                new_width = width // 16
+                
                 # Восстанавливаем размерность последовательности
-                x = Reshape((sequence_length, height//16, width//16, config['blocks'][-1]['filters']))(x)
+                x = Reshape((sequence_length, new_height, new_width, config['blocks'][-1]['filters']))(x)
                 
                 # Временная обработка
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
