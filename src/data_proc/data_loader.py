@@ -89,219 +89,134 @@ class VideoDataLoader:
             traceback.print_exc()
             raise
     
-    def load_video(self, video_path, target_size=None):
-        """
-        Загрузка видео с обработкой сетевых ошибок
-        
-        Args:
-            video_path (str): Путь к видео файлу
-            target_size (tuple): Размер изображения (ширина, высота)
-            
-        Returns:
-            list: Список кадров видео
-            
-        Raises:
-            IOError: Если не удалось открыть видео
-            ValueError: Если видео имеет неподдерживаемый формат
-        """
-        def _load_video_operation():
-            frames = []
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise IOError(f"Не удалось открыть видео: {video_path}")
-            
-            try:
-                # Проверка формата видео
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                
-                if width == 0 or height == 0 or fps == 0 or frame_count == 0:
-                    raise ValueError(f"Неподдерживаемый формат видео: {video_path}")
-                
-                print(f"[DEBUG] Загрузка видео: {os.path.basename(video_path)}")
-                print(f"  - Размер: {width}x{height}")
-                print(f"  - FPS: {fps}")
-                print(f"  - Количество кадров: {frame_count}")
-                
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    
-                    if target_size:
-                        frame = cv2.resize(frame, target_size)
-                    frame = frame.astype(np.float32) / 255.0
-                    frames.append(frame)
-                
-                if len(frames) == 0:
-                    raise ValueError(f"Не удалось прочитать кадры из видео: {video_path}")
-                
-                print(f"[DEBUG] Загружено {len(frames)} кадров")
-                return frames
-                
-            finally:
-                cap.release()
-            
-        return self.network_handler.handle_network_operation(_load_video_operation)
-    
-    def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=10):
-        """
-        Создание последовательностей кадров и меток на основе аннотации.
-        
-        Args:
-            frames (list): Список кадров видео
-            annotation_path (str): Путь к файлу аннотации
-            sequence_length (int): Длина последовательности
-            one_hot (bool): Использовать one-hot encoding для меток
-            max_sequences_per_video (int): Максимальное количество последовательностей
-            
-        Returns:
-            tuple: (sequences, labels) - массивы последовательностей и меток
-            
-        Raises:
-            ValueError: Если входные данные некорректны
-        """
+    def load_video(self, video_path):
+        """Загрузка видео с оптимизацией памяти"""
         try:
-            # Валидация входных данных
-            if not isinstance(frames, (list, np.ndarray)):
-                raise ValueError(f"frames должен быть списком или numpy.ndarray, получен {type(frames)}")
+            print(f"[DEBUG] Загрузка видео: {os.path.basename(video_path)}")
+            cap = cv2.VideoCapture(video_path)
             
-            if len(frames) == 0:
-                raise ValueError("frames не может быть пустым")
+            if not cap.isOpened():
+                raise ValueError(f"Не удалось открыть видео: {video_path}")
             
-            if not isinstance(sequence_length, int) or sequence_length <= 0:
-                raise ValueError(f"sequence_length должен быть положительным целым числом, получено {sequence_length}")
+            # Получаем информацию о видео
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
-            if not isinstance(max_sequences_per_video, int) or max_sequences_per_video <= 0:
-                raise ValueError(f"max_sequences_per_video должен быть положительным целым числом, получено {max_sequences_per_video}")
+            print(f"  - Размер: {width}x{height}")
+            print(f"  - FPS: {fps}")
+            print(f"  - Количество кадров: {total_frames}")
             
-            print(f"[DEBUG] Создание последовательностей: frames={len(frames)}, annotation={annotation_path}")
+            # Очищаем память перед загрузкой кадров
+            gc.collect()
             
-            # Инициализация меток
-            labels = [0] * len(frames)
+            frames = []
+            frame_count = 0
             
-            # Загрузка аннотаций
-            if annotation_path and os.path.exists(annotation_path):
-                try:
-                    with open(annotation_path, 'r') as f:
-                        ann = json.load(f)
-                        if "annotations" in ann and len(ann["annotations"]) > 0:
-                            for elem in ann["annotations"]:
-                                start = elem.get('start_frame', 0)
-                                end = elem.get('end_frame', 0)
-                                print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
-                                for i in range(start, end + 1):
-                                    if 0 <= i < len(labels):
-                                        labels[i] = 1
-                        else:
-                            print(f"[DEBUG] Нет элементов в annotations для {annotation_path}")
-                except Exception as e:
-                    print(f"[ERROR] Ошибка чтения аннотации {annotation_path}: {str(e)}")
-                    print("[DEBUG] Stack trace:", flush=True)
-                    import traceback
-                    traceback.print_exc()
-            else:
-                print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Обрабатываем каждый N-й кадр для экономии памяти
+                if frame_count % 2 == 0:  # Берем каждый второй кадр
+                    # Изменяем размер кадра сразу при загрузке
+                    frame = cv2.resize(frame, (224, 224))
+                    frames.append(frame)
+                    
+                    # Очищаем память каждые 100 кадров
+                    if len(frames) % 100 == 0:
+                        gc.collect()
+                    
+                frame_count += 1
             
-            # Создание последовательностей
+            cap.release()
+            
+            # Преобразуем в numpy массив с оптимизированным типом данных
+            frames = np.array(frames, dtype=np.float32) / 255.0
+            
+            print(f"[DEBUG] Загружено {len(frames)} кадров")
+            return frames
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
+            raise
+    
+    def create_sequences(self, frames, annotations):
+        """Создание последовательностей с оптимизацией памяти"""
+        try:
             sequences = []
-            sequence_labels = []
-            max_seq = min(len(frames) - sequence_length + 1, max_sequences_per_video)
+            labels = []
             
-            for i in range(max_seq):
-                sequence = frames[i:i + sequence_length]
-                seq_labels = labels[i:i + sequence_length]
+            # Очищаем память перед созданием последовательностей
+            gc.collect()
+            
+            for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
+                sequence = frames[i:i + self.sequence_length]
+                sequence_labels = annotations[i:i + self.sequence_length]
+                
                 sequences.append(sequence)
+                labels.append(sequence_labels)
                 
-                if one_hot:
-                    # Преобразуем метки в one-hot формат
-                    one_hot_labels = np.zeros((sequence_length, 2))
-                    for j, label in enumerate(seq_labels):
-                        one_hot_labels[j, label] = 1
-                    sequence_labels.append(one_hot_labels)
-                else:
-                    sequence_labels.append(seq_labels)
-                
-            print(f"[DEBUG] Сформировано {len(sequences)} последовательностей (ограничение: {max_sequences_per_video})")
-            return np.array(sequences), np.array(sequence_labels)
+                # Очищаем память каждые 10 последовательностей
+                if len(sequences) % 10 == 0:
+                    gc.collect()
+            
+            # Преобразуем в numpy массивы с оптимизированным типом данных
+            sequences = np.array(sequences, dtype=np.float32)
+            labels = np.array(labels, dtype=np.float32)
+            
+            return sequences, labels
             
         except Exception as e:
             print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
             raise
     
     def preload_video(self, video_path, target_size):
         """
         Предварительная загрузка видео в отдельном потоке.
         """
-        self.load_video(video_path, target_size)
+        self.load_video(video_path)
     
-    def data_generator(self, batch_size=32, shuffle=True):
-        """
-        Создает tf.data.Dataset для обучения модели
-        Args:
-            batch_size: размер батча
-            shuffle: перемешивать ли данные
-        """
-        print("[DEBUG] Запуск генератора данных...")
-        
-        # Создаем списки для хранения всех последовательностей и меток
-        all_sequences = []
-        all_labels = []
-        
-        # Обрабатываем все видео один раз
-        for video_path in self.video_paths:
-            try:
-                print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
-                
-                # Загружаем видео
-                frames = self.load_video(video_path)
-                if frames is None or len(frames) == 0:
-                    continue
-                
-                # Получаем аннотации
-                annotation_path = self.labels[self.video_paths.index(video_path)]
-                if not os.path.exists(annotation_path):
-                    continue
-                
-                # Создаем последовательности
-                sequences, labels = self.create_sequences(
-                    frames,
-                    annotation_path,
-                    sequence_length=self.sequence_length,
-                    one_hot=True,
-                    max_sequences_per_video=self.max_sequences_per_video
-                )
-                
-                if len(sequences) > 0:
-                    all_sequences.extend(sequences)
-                    all_labels.extend(labels)
-                
-            except Exception as e:
-                print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
-                continue
-        
-        # Преобразуем в numpy массивы
-        all_sequences = np.array(all_sequences)
-        all_labels = np.array(all_labels)
-        
-        print(f"[DEBUG] Всего создано {len(all_sequences)} последовательностей")
-        
-        # Создаем tf.data.Dataset
-        dataset = tf.data.Dataset.from_tensor_slices((all_sequences, all_labels))
-        
-        if shuffle:
-            dataset = dataset.shuffle(buffer_size=len(all_sequences))
-        
-        # Разбиваем на батчи и оптимизируем производительность
-        dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
-        
-        return dataset
+    def data_generator(self):
+        """Генератор данных с оптимизацией памяти"""
+        try:
+            while True:
+                for video_path in self.video_paths:
+                    try:
+                        # Загружаем видео
+                        frames = self.load_video(video_path)
+                        
+                        # Получаем аннотации
+                        annotations = self.labels[self.video_paths.index(video_path)]
+                        
+                        # Создаем последовательности
+                        sequences, labels = self.create_sequences(frames, annotations)
+                        
+                        # Очищаем память после обработки видео
+                        del frames
+                        gc.collect()
+                        
+                        # Возвращаем последовательности батчами
+                        for i in range(0, len(sequences), self.batch_size):
+                            batch_sequences = sequences[i:i + self.batch_size]
+                            batch_labels = labels[i:i + self.batch_size]
+                            
+                            yield batch_sequences, batch_labels
+                            
+                            # Очищаем память после каждого батча
+                            del batch_sequences
+                            del batch_labels
+                            gc.collect()
+                            
+                    except Exception as e:
+                        print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                        continue
+                    
+        except Exception as e:
+            print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+            raise
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         """
@@ -317,4 +232,4 @@ class VideoDataLoader:
         Returns:
             generator: Генератор данных
         """
-        return self.data_generator(batch_size, True) 
+        return self.data_generator() 

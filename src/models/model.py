@@ -440,35 +440,45 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 x = Reshape(input_shape)(inputs)
                 print(f"[DEBUG] Форма после Reshape: {x.shape}")
                 
-                # Базовый MobileNetV3
+                # Базовый MobileNetV3 с оптимизацией памяти
                 base_model = MobileNetV3Small(
                     input_shape=input_shape[1:],
                     include_top=False,
-                    weights='imagenet'
+                    weights='imagenet',
+                    alpha=0.75  # Уменьшаем размер модели
                 )
                 
                 # Замораживаем веса базовой модели
                 base_model.trainable = False
                 
-                # Обработка последовательности
+                # Обработка последовательности с оптимизацией памяти
                 x = TimeDistributed(base_model)(x)
                 print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
                 
+                # Используем GlobalAveragePooling2D для уменьшения размерности
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
                 print(f"[DEBUG] Форма после GlobalAveragePooling2D: {x.shape}")
                 
-                # LSTM для временной последовательности
-                x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-                x = Dropout(dropout_rate)(x)
-                x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+                # LSTM для временной последовательности с оптимизацией памяти
+                x = Bidirectional(LSTM(lstm_units, return_sequences=True, 
+                                     recurrent_dropout=0.1,  # Добавляем dropout для LSTM
+                                     unroll=True))(x)  # Разворачиваем LSTM для экономии памяти
                 x = Dropout(dropout_rate)(x)
                 
                 # Выходной слой с сохранением временной размерности
                 outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
                 
                 model = Model(inputs=inputs, outputs=outputs)
+                
+                # Используем оптимизатор с градиентным клиппингом
+                optimizer = Adam(
+                    learning_rate=0.001,
+                    clipnorm=1.0,  # Ограничиваем градиенты
+                    clipvalue=0.5  # Ограничиваем значения градиентов
+                )
+                
                 model.compile(
-                    optimizer=Adam(learning_rate=0.001),
+                    optimizer=optimizer,
                     loss='categorical_crossentropy',
                     metrics=['accuracy']
                 )
