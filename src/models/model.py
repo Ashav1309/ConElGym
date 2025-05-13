@@ -246,19 +246,19 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
                 
                 # Начальный слой
-                x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(inputs)
+                x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(inputs)
                 print(f"[DEBUG] После начального Conv2D: {x.shape}")
-                x = BatchNormalization()(x)
-                x = ReLU()(x)
+                x = TimeDistributed(BatchNormalization())(x)
+                x = TimeDistributed(ReLU())(x)
                 
                 # UIB блоки
                 for i, block in enumerate(config['blocks']):
-                    x = UniversalInvertedBottleneck(
+                    x = TimeDistributed(UniversalInvertedBottleneck(
                         filters=block['filters'],
                         expansion=block['expansion'],
                         stride=block['stride'],
                         se_ratio=se_ratio
-                    )(x)
+                    ))(x)
                     print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
                 
                 # Временная обработка
