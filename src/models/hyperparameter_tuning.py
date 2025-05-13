@@ -131,7 +131,7 @@ def create_data_pipeline(batch_size, data_loader):
     print(f"  - batch_size: {batch_size}")
     print(f"  - sequence_length: {Config.SEQUENCE_LENGTH}")
     print(f"  - input_size: {Config.INPUT_SIZE}")
-    print(f"  - ожидаемая форма: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
+    print(f"  - ожидаемая форма: ({Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
     print("[DEBUG] Запуск генератора данных...")
     try:
@@ -139,8 +139,8 @@ def create_data_pipeline(batch_size, data_loader):
         dataset = tf.data.Dataset.from_generator(
             data_loader.data_generator,
             output_signature=(
-                tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
             )
         )
         
