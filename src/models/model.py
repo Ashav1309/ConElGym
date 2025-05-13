@@ -247,16 +247,20 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
                 print(f"[DEBUG] Форма входных данных до Reshape: {inputs.shape}")
                 
-                # Преобразуем входные данные в нужную форму
-                x = Reshape((sequence_length, height, width, channels))(inputs)
-                print(f"[DEBUG] После Reshape: {x.shape}")
-                print(f"[DEBUG] Тип данных после Reshape: {type(x)}")
+                # Проверяем и исправляем размерности входных данных
+                if len(inputs.shape) == 6:  # Если есть лишняя размерность
+                    print(f"[DEBUG] Обнаружена лишняя размерность в входных данных: {inputs.shape}")
+                    # Убираем лишнюю размерность
+                    x = tf.squeeze(inputs, axis=1)
+                    print(f"[DEBUG] После удаления лишней размерности: {x.shape}")
+                else:
+                    x = inputs
                 
                 # Проверяем размерности
                 if len(x.shape) != 5:
-                    print(f"[ERROR] Неверная размерность после Reshape: {x.shape}")
+                    print(f"[ERROR] Неверная размерность после обработки: {x.shape}")
                     print(f"[ERROR] Ожидаемая размерность: (batch_size, {sequence_length}, {height}, {width}, {channels})")
-                    raise ValueError(f"Неверная размерность после Reshape: {x.shape}")
+                    raise ValueError(f"Неверная размерность после обработки: {x.shape}")
                 
                 # Начальный слой
                 x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
