@@ -245,8 +245,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 # Преобразуем последовательность в батч изображений
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
                 
+                # Исправляем размерности входных данных
+                x = Reshape((sequence_length, height, width, channels))(inputs)
+                print(f"[DEBUG] После Reshape: {x.shape}")
+                
                 # Начальный слой
-                x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(inputs)
+                x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
                 print(f"[DEBUG] После начального Conv2D: {x.shape}")
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(ReLU())(x)
