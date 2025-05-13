@@ -4,9 +4,7 @@ class Config:
     NUM_CLASSES = 2  # Начало и конец элемента
     
     # Параметры обучения
-    BATCH_SIZE = 1  # Уменьшаем размер батча
     EPOCHS = 10
-    LEARNING_RATE = 0.001
     STEPS_PER_EPOCH = 10
     VALIDATION_STEPS = 5
     
@@ -45,23 +43,18 @@ class Config:
         'allow_memory_growth': True,
     }
     
-    # Параметры оптимизации гиперпараметров
-    HYPERPARAM_TUNING = {
-        'n_trials': 10,
-        'learning_rate_range': (1e-5, 1e-3),
-        'dropout_range': (0.2, 0.6),
-        'lstm_units': [16, 32],  # Уменьшаем варианты LSTM units
-        'epochs_per_trial': 3,  # Уменьшаем количество эпох
-        'steps_per_epoch': 5,  # Уменьшаем количество шагов
-        'validation_steps': 3,  # Уменьшаем количество шагов валидации
+    # Настройки предотвращения переобучения
+    OVERFITTING_PREVENTION = {
+        'early_stopping_patience': 5,
+        'reduce_lr_factor': 0.2,
+        'reduce_lr_patience': 3,
+        'min_lr': 1e-6,
+        'max_overfitting_threshold': 0.1
     }
     
-    # Параметры для предотвращения переобучения
-    OVERFITTING_PREVENTION = {
-        'early_stopping_patience': 10,  # Количество эпох без улучшения для early stopping
-        'reduce_lr_patience': 5,  # Количество эпох без улучшения для уменьшения learning rate
-        'reduce_lr_factor': 0.2,  # Фактор уменьшения learning rate
-        'min_lr': 1e-6,  # Минимальный learning rate
-        'validation_split': 0.2,  # Доля данных для валидации
-        'max_overfitting_threshold': 0.1,  # Максимально допустимая разница между train и val accuracy
+    # Настройки подбора гиперпараметров
+    HYPERPARAM_TUNING = {
+        'n_trials': 20,
+        'timeout': 3600,  # 1 час
+        'n_jobs': 1
     } 

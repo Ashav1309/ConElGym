@@ -60,7 +60,7 @@ def clear_memory():
                 
                 print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
-                for var in tf.global_variables():
+                for var in tf.compat.v1.global_variables():
                     del var
                 print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
@@ -455,9 +455,14 @@ def objective(trial):
         # Возвращаем очень плохое значение вместо None
         return float('-inf')
 
-def save_tuning_results(study, n_trials):
+def save_tuning_results(study, total_time, n_trials):
     """
     Сохранение результатов подбора гиперпараметров
+    
+    Args:
+        study: Объект study Optuna
+        total_time: Общее время выполнения
+        n_trials: Количество испытаний
     """
     tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
     os.makedirs(tuning_dir, exist_ok=True)
@@ -471,6 +476,8 @@ def save_tuning_results(study, n_trials):
             f.write(f"{param}: {value}\n")
         
         f.write(f"\nTotal trials: {n_trials}\n")
+        f.write(f"Total time: {timedelta(seconds=int(total_time))}\n")
+        f.write(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}\n")
         
         # Добавляем статистику успешных trials
         successful_trials = sum(1 for t in study.trials if t.value is not None)

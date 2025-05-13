@@ -191,7 +191,8 @@ def load_best_params():
         return {
             'learning_rate': Config.LEARNING_RATE,
             'dropout_rate': 0.5,
-            'lstm_units': 32
+            'lstm_units': 32,
+            'batch_size': Config.BATCH_SIZE
         }
     
     try:
@@ -213,7 +214,8 @@ def load_best_params():
     return {
         'learning_rate': Config.LEARNING_RATE,
         'dropout_rate': 0.5,
-        'lstm_units': 32
+        'lstm_units': 32,
+        'batch_size': Config.BATCH_SIZE
     }
 
 def train():
@@ -285,7 +287,7 @@ def train():
         train_dataset = create_data_pipeline(
             loader=train_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=Config.BATCH_SIZE,
+            batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
@@ -295,7 +297,7 @@ def train():
         val_dataset = create_data_pipeline(
             loader=val_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=Config.BATCH_SIZE,
+            batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
