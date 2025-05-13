@@ -267,8 +267,8 @@ def objective(trial):
         if not hasattr(objective, 'data_loader'):
             print("[DEBUG] Создание нового экземпляра VideoDataLoader")
             objective.data_loader = VideoDataLoader(
-                video_dir=Config.TRAIN_VIDEO_DIR,
-                annotation_dir=Config.TRAIN_ANNOTATION_DIR,
+                video_dir=Config.TRAIN_DATA_PATH,
+                annotation_dir=Config.TRAIN_ANNOTATION_PATH,
                 sequence_length=Config.SEQUENCE_LENGTH,
                 input_size=Config.INPUT_SIZE
             )
