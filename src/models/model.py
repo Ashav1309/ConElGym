@@ -436,6 +436,10 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 inputs = Input(shape=input_shape)
                 print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
                 
+                # Добавляем слой Reshape для корректировки размерности
+                x = Reshape(input_shape)(inputs)
+                print(f"[DEBUG] Форма после Reshape: {x.shape}")
+                
                 # Базовый MobileNetV3
                 base_model = MobileNetV3Small(
                     input_shape=input_shape[1:],
@@ -447,8 +451,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 base_model.trainable = False
                 
                 # Обработка последовательности
-                x = TimeDistributed(base_model)(inputs)
+                x = TimeDistributed(base_model)(x)
+                print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
+                
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
+                print(f"[DEBUG] Форма после GlobalAveragePooling2D: {x.shape}")
                 
                 # LSTM для временной последовательности
                 x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
