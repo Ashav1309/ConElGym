@@ -141,7 +141,13 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
             annotation_paths = loader.labels
             
             while True:  # Бесконечный цикл для infinite_loop
-                for video_path, annotation_path in zip(video_paths, annotation_paths):
+                # Перемешиваем видео для каждой эпохи
+                indices = np.arange(len(video_paths))
+                np.random.shuffle(indices)
+                shuffled_video_paths = [video_paths[i] for i in indices]
+                shuffled_annotation_paths = [annotation_paths[i] for i in indices]
+                
+                for video_path, annotation_path in zip(shuffled_video_paths, shuffled_annotation_paths):
                     try:
                         print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
                         
@@ -254,6 +260,11 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         # Оптимизация загрузки данных
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+        
+        # Добавляем .repeat() для бесконечного цикла
+        if infinite_loop:
+            dataset = dataset.repeat()
+            
         print("[DEBUG] Pipeline данных оптимизирован")
         
         return dataset
