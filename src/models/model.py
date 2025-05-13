@@ -427,9 +427,18 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         traceback.print_exc()
         raise
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, positive_class_weight=200.0):
+    """
+    Создание MobileNetV3 с возможностью задания веса положительного класса.
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        dropout_rate: коэффициент dropout
+        lstm_units: количество юнитов в LSTM слоях
+        positive_class_weight: вес положительного класса (default=200.0)
+    """
     try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}, positive_class_weight={positive_class_weight}")
         
         if lstm_units is None:
             lstm_units = 64
@@ -443,90 +452,56 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 x = Reshape(input_shape)(inputs)
                 print(f"[DEBUG] Форма после Reshape: {x.shape}")
                 
-                # Используем поддерживаемое значение alpha=0.75
                 base_model = MobileNetV3Small(
                     input_shape=input_shape[1:],
                     include_top=False,
                     weights='imagenet',
                     alpha=0.75
                 )
-                
-                # Размораживаем последние слои для тонкой настройки
-                for layer in base_model.layers[-20:]:  # Увеличиваем количество размороженных слоев
+                for layer in base_model.layers[-20:]:
                     layer.trainable = True
-                
                 x = TimeDistributed(base_model)(x)
                 print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
-                
                 x = TimeDistributed(GlobalAveragePooling2D())(x)
                 print(f"[DEBUG] Форма после GlobalAveragePooling2D: {x.shape}")
-                
-                # Добавляем дополнительную регуляризацию
                 x = TimeDistributed(Dropout(0.3))(x)
-                
-                # Улучшаем LSTM слои
-                x = Bidirectional(LSTM(64, return_sequences=True, 
-                                     recurrent_dropout=0.2,
-                                     unroll=True))(x)
+                x = Bidirectional(LSTM(64, return_sequences=True, recurrent_dropout=0.2, unroll=True))(x)
                 x = Dropout(dropout_rate)(x)
-                
-                x = Bidirectional(LSTM(32, return_sequences=True,
-                                     recurrent_dropout=0.2,
-                                     unroll=True))(x)
+                x = Bidirectional(LSTM(32, return_sequences=True, recurrent_dropout=0.2, unroll=True))(x)
                 x = Dropout(dropout_rate)(x)
-                
-                # Добавляем дополнительный Dense слой с batch normalization
                 x = TimeDistributed(Dense(128))(x)
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(Activation('relu'))(x)
                 x = TimeDistributed(Dropout(0.3))(x)
-                
                 x = TimeDistributed(Dense(64))(x)
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(Activation('relu'))(x)
                 x = TimeDistributed(Dropout(0.3))(x)
-                
                 outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
-                
                 model = Model(inputs=inputs, outputs=outputs)
-                
-                # Используем оптимизатор с меньшим learning rate и градиентным клиппингом
                 optimizer = Adam(
-                    learning_rate=0.00005,  # Уменьшаем learning rate
+                    learning_rate=0.00005,
                     clipnorm=1.0,
                     beta_1=0.9,
                     beta_2=0.999,
                     epsilon=1e-07
                 )
-                
-                # Увеличиваем веса для положительного класса
                 class_weights = {
-                    0: 1.0,  # Нормальный вес для фонового класса
-                    1: 50.0  # Значительно увеличиваем вес для классов начала и конца
+                    0: 1.0,
+                    1: positive_class_weight
                 }
-                
-                # Добавляем метрики с порогами для лучшего определения положительных классов
                 model.compile(
                     optimizer=optimizer,
                     loss='categorical_crossentropy',
-                    metrics=[
-                        'accuracy',
-                        Precision(thresholds=0.3, class_id=1, name='precision_element'),  # Уменьшаем порог
-                        Recall(thresholds=0.3, class_id=1, name='recall_element'),  # Уменьшаем порог
-                        f1_score_element
-                    ]
+                    metrics=['accuracy']
                 )
-                
                 print("[DEBUG] MobileNetV3 успешно создана")
                 return model, class_weights
-                
             except Exception as e:
                 print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
                 print(f"[ERROR] Stack trace: {traceback.format_exc()}")
                 raise
-                
         return _create_model_operation()
-        
     except Exception as e:
         print(f"[ERROR] Критическая ошибка при инициализации MobileNetV3: {str(e)}")
         print(f"[ERROR] Stack trace: {traceback.format_exc()}")

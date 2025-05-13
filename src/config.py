@@ -11,9 +11,9 @@ class Config:
     SE_RATIO = 0.25  # Коэффициент для Squeeze-and-Excitation
     
     # Параметры обучения
-    EPOCHS = 10
-    STEPS_PER_EPOCH = 50
-    VALIDATION_STEPS = 10
+    EPOCHS = 20
+    STEPS_PER_EPOCH = 100
+    VALIDATION_STEPS = 20
     
     # Параметры данных
     SEQUENCE_LENGTH = 8
@@ -66,7 +66,7 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 1,  # Только один trial для тестирования
+        'n_trials': 10,  # Количество триалов для Optuna (оптимально для поиска)
         'timeout': 3600,
         'n_jobs': 1
     }
