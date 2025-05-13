@@ -460,11 +460,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 # LSTM для временной последовательности
                 x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
                 x = Dropout(dropout_rate)(x)
-                x = Bidirectional(LSTM(lstm_units))(x)
+                x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
                 x = Dropout(dropout_rate)(x)
                 
-                # Выходной слой
-                outputs = Dense(num_classes, activation='softmax')(x)
+                # Выходной слой с сохранением временной размерности
+                outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
                 
                 model = Model(inputs=inputs, outputs=outputs)
                 model.compile(
