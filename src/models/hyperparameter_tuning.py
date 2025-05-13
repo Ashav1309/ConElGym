@@ -132,7 +132,7 @@ def create_data_pipeline(batch_size, data_loader):
         data_loader: экземпляр VideoDataLoader
     """
     print(f"[DEBUG] Создание pipeline данных: batch_size={batch_size}")
-    print(f"[DEBUG] Ожидаемая форма входных данных: (None, {Config.SEQUENCE_LENGTH}, {Config.IMAGE_SIZE[0]}, {Config.IMAGE_SIZE[1]}, 3)")
+    print(f"[DEBUG] Ожидаемая форма входных данных: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
     # Создаем tf.data.Dataset
     dataset = data_loader.data_generator(batch_size=batch_size, shuffle=True)
@@ -268,7 +268,7 @@ def objective(trial):
         
         print("[DEBUG] 2. Создание и компиляция модели...")
         model = create_model(
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.IMAGE_SIZE, 3),
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
