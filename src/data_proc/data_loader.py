@@ -34,12 +34,13 @@ class VideoDataLoader:
         # Инициализация параметров из конфигурации
         self.sequence_length = Config.SEQUENCE_LENGTH
         self.max_sequences_per_video = Config.MAX_SEQUENCES_PER_VIDEO
+        self.batch_size = 32  # Добавляем размер батча по умолчанию
         
         self._load_data()
     
     def _load_data(self, infinite_loop=False):
         """
-        Загрузка путей к видео (без классов, без подкаталогов) и соответствующих аннотаций.
+        Загрузка путей к видео и соответствующих аннотаций.
         
         Args:
             infinite_loop (bool): Бесконечный цикл загрузки данных
@@ -52,7 +53,12 @@ class VideoDataLoader:
             if not os.path.exists(self.data_path):
                 raise FileNotFoundError(f"Директория с данными не найдена: {self.data_path}")
             
-            annotation_dir = os.path.join(self.data_path, 'annotations')
+            # Определяем путь к аннотациям в зависимости от типа данных (train/valid)
+            if 'train' in self.data_path:
+                annotation_dir = Config.TRAIN_ANNOTATION_PATH
+            else:
+                annotation_dir = Config.VALID_ANNOTATION_PATH
+            
             if not os.path.exists(annotation_dir):
                 print(f"[DEBUG] Создание директории для аннотаций: {annotation_dir}")
                 os.makedirs(annotation_dir, exist_ok=True)
@@ -161,8 +167,29 @@ class VideoDataLoader:
                 try:
                     with open(annotations, 'r') as f:
                         ann_data = json.load(f)
-                        # Преобразуем аннотации в numpy массив
-                        annotations = np.array(ann_data['labels'], dtype=np.float32)
+                        # Создаем массив меток для каждого кадра
+                        frame_labels = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+                        
+                        # Обрабатываем каждую аннотацию
+                        for annotation in ann_data['annotations']:
+                            start_frame = annotation['start_frame']
+                            end_frame = annotation['end_frame']
+                            
+                            # Устанавливаем метки для кадров в пределах аннотации
+                            for frame_idx in range(start_frame, end_frame + 1):
+                                if frame_idx < len(frame_labels):
+                                    # [1, 0] для начала элемента
+                                    if frame_idx == start_frame:
+                                        frame_labels[frame_idx] = [1, 0]
+                                    # [0, 1] для конца элемента
+                                    elif frame_idx == end_frame:
+                                        frame_labels[frame_idx] = [0, 1]
+                                    # [0, 0] для промежуточных кадров
+                                    else:
+                                        frame_labels[frame_idx] = [0, 0]
+                        
+                        annotations = frame_labels
+                        print(f"[DEBUG] Загружены аннотации формы: {annotations.shape}")
                 except Exception as e:
                     print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
                     print("[WARNING] Создаем пустые метки")

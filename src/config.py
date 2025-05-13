@@ -22,11 +22,13 @@ class Config:
     MAX_SEQUENCES_PER_VIDEO = 10
     
     # Пути
-    TRAIN_DATA_PATH = 'data/train'
-    VALID_DATA_PATH = 'data/valid'
-    TRAIN_ANNOTATION_PATH = 'data/train/annotations'
-    VALID_ANNOTATION_PATH = 'data/valid/annotations'
-    MODEL_SAVE_PATH = 'src/models/saved'
+    DATA_DIR = 'data'
+    TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
+    VALID_DATA_PATH = os.path.join(DATA_DIR, 'valid')
+    TRAIN_ANNOTATION_PATH = os.path.join(DATA_DIR, 'train', 'annotations')
+    VALID_ANNOTATION_PATH = os.path.join(DATA_DIR, 'valid', 'annotations')
+    MODEL_SAVE_PATH = 'models'
+    LOG_DIR = 'logs'
     
     # Аугментация
     AUGMENTATION = True
