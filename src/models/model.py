@@ -452,7 +452,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 )
                 
                 # Размораживаем последние слои для тонкой настройки
-                for layer in base_model.layers[-10:]:
+                for layer in base_model.layers[-20:]:  # Увеличиваем количество размороженных слоев
                     layer.trainable = True
                 
                 x = TimeDistributed(base_model)(x)
@@ -464,13 +464,23 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 # Добавляем дополнительную регуляризацию
                 x = TimeDistributed(Dropout(0.3))(x)
                 
-                # Уменьшаем количество LSTM юнитов и добавляем регуляризацию
-                x = Bidirectional(LSTM(32, return_sequences=True, 
+                # Улучшаем LSTM слои
+                x = Bidirectional(LSTM(64, return_sequences=True, 
+                                     recurrent_dropout=0.2,
+                                     unroll=True))(x)
+                x = Dropout(dropout_rate)(x)
+                
+                x = Bidirectional(LSTM(32, return_sequences=True,
                                      recurrent_dropout=0.2,
                                      unroll=True))(x)
                 x = Dropout(dropout_rate)(x)
                 
                 # Добавляем дополнительный Dense слой с batch normalization
+                x = TimeDistributed(Dense(128))(x)
+                x = TimeDistributed(BatchNormalization())(x)
+                x = TimeDistributed(Activation('relu'))(x)
+                x = TimeDistributed(Dropout(0.3))(x)
+                
                 x = TimeDistributed(Dense(64))(x)
                 x = TimeDistributed(BatchNormalization())(x)
                 x = TimeDistributed(Activation('relu'))(x)
@@ -482,7 +492,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 
                 # Используем оптимизатор с меньшим learning rate и градиентным клиппингом
                 optimizer = Adam(
-                    learning_rate=0.0001,
+                    learning_rate=0.00005,  # Уменьшаем learning rate
                     clipnorm=1.0,
                     beta_1=0.9,
                     beta_2=0.999,
@@ -492,7 +502,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 # Увеличиваем веса для положительного класса
                 class_weights = {
                     0: 1.0,  # Нормальный вес для фонового класса
-                    1: 20.0  # Значительно увеличиваем вес для классов начала и конца
+                    1: 50.0  # Значительно увеличиваем вес для классов начала и конца
                 }
                 
                 # Добавляем метрики с порогами для лучшего определения положительных классов
@@ -501,8 +511,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                     loss='categorical_crossentropy',
                     metrics=[
                         'accuracy',
-                        Precision(thresholds=0.5, class_id=1, name='precision_element'),
-                        Recall(thresholds=0.5, class_id=1, name='recall_element'),
+                        Precision(thresholds=0.3, class_id=1, name='precision_element'),  # Уменьшаем порог
+                        Recall(thresholds=0.3, class_id=1, name='recall_element'),  # Уменьшаем порог
                         f1_score_element
                     ]
                 )
