@@ -184,17 +184,22 @@ class ModelTrainer:
                     x_batch, y_batch = next(data_gen)
                     print(f"[DEBUG] Размерность входных данных из генератора: {x_batch.shape}")
                     
-                    # Проверяем и исправляем размерности
-                    if len(x_batch.shape) == 6:  # Если есть лишняя размерность
-                        print(f"[DEBUG] Обнаружена лишняя размерность в данных: {x_batch.shape}")
-                        x_batch = tf.squeeze(x_batch, axis=1)
-                        print(f"[DEBUG] Размерность после исправления: {x_batch.shape}")
+                    # Функция для корректировки размерностей
+                    def correct_dimensions(x):
+                        # Удаляем оси с размером 1, кроме оси батча и последовательности
+                        shape = list(x.shape)
+                        if len(shape) == 6:  # Если есть лишняя размерность
+                            print(f"[DEBUG] Обнаружена лишняя размерность в данных: {shape}")
+                            # Удаляем ось с размером 1
+                            shape = [s for i, s in enumerate(shape) if i != 1 or s != 1]
+                            x = tf.reshape(x, shape)
+                            print(f"[DEBUG] Размерность после исправления: {x.shape}")
+                        return x
                     
                     # Создаем новый генератор с исправленными размерностями
                     def corrected_generator():
                         for x, y in data_gen:
-                            if len(x.shape) == 6:
-                                x = tf.squeeze(x, axis=1)
+                            x = correct_dimensions(x)
                             yield x, y
                     
                     history = self.model.fit(
@@ -222,7 +227,6 @@ class ModelTrainer:
                 
             except tf.errors.ResourceExhaustedError as e:
                 logger.error(f"Недостаточно памяти GPU: {str(e)}")
-                # Попытка освободить память
                 tf.keras.backend.clear_session()
                 gc.collect()
                 raise
@@ -235,11 +239,14 @@ class ModelTrainer:
         return self.network_handler.handle_network_operation(_train_operation)
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
-    """
-    Создает модель MobileNetV4 с правильной обработкой размерностей.
-    """
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
+        
+        # Проверяем и корректируем input_shape
+        if len(input_shape) == 5:  # Если есть лишняя размерность
+            print(f"[DEBUG] Обнаружена лишняя размерность в input_shape: {input_shape}")
+            input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+            print(f"[DEBUG] Исправленный input_shape: {input_shape}")
         
         # Конфигурация для small модели
         config = {
@@ -260,6 +267,10 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 inputs = Input(shape=input_shape)
                 print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
                 
+                # Добавляем слой Reshape для гарантии правильной формы
+                x = Reshape(input_shape)(inputs)
+                print(f"[DEBUG] Форма после Reshape: {x.shape}")
+                
                 # Обработка последовательности кадров
                 sequence_length = input_shape[0]
                 height = input_shape[1]
@@ -267,28 +278,11 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 channels = input_shape[3]
                 
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
-                print(f"[DEBUG] Форма входных данных до обработки: {inputs.shape}")
-                
-                # Проверяем и исправляем размерности входных данных
-                if len(inputs.shape) == 6:  # Если есть лишняя размерность
-                    print(f"[DEBUG] Обнаружена лишняя размерность в входных данных: {inputs.shape}")
-                    # Убираем лишнюю размерность
-                    x = tf.squeeze(inputs, axis=1)
-                    print(f"[DEBUG] После удаления лишней размерности: {x.shape}")
-                else:
-                    x = inputs
-                
-                # Проверяем размерности
-                if len(x.shape) != 5:
-                    print(f"[ERROR] Неверная размерность после обработки: {x.shape}")
-                    print(f"[ERROR] Ожидаемая размерность: (batch_size, {sequence_length}, {height}, {width}, {channels})")
-                    raise ValueError(f"Неверная размерность после обработки: {x.shape}")
                 
                 try:
                     # Начальный слой
                     x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
                     print(f"[DEBUG] После начального Conv2D: {x.shape}")
-                    print(f"[DEBUG] Тип данных после Conv2D: {type(x)}")
                     
                     x = TimeDistributed(BatchNormalization())(x)
                     x = TimeDistributed(ReLU())(x)
