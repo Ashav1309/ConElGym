@@ -186,21 +186,51 @@ class ModelTrainer:
                     
                     # Функция для корректировки размерностей
                     def correct_dimensions(x):
-                        # Удаляем оси с размером 1, кроме оси батча и последовательности
-                        shape = list(x.shape)
-                        if len(shape) == 6:  # Если есть лишняя размерность
-                            print(f"[DEBUG] Обнаружена лишняя размерность в данных: {shape}")
-                            # Удаляем ось с размером 1
-                            shape = [s for i, s in enumerate(shape) if i != 1 or s != 1]
-                            x = tf.reshape(x, shape)
-                            print(f"[DEBUG] Размерность после исправления: {x.shape}")
+                        # Преобразуем в тензор, если это еще не тензор
+                        if not isinstance(x, tf.Tensor):
+                            x = tf.convert_to_tensor(x)
+                        
+                        # Получаем текущую форму
+                        shape = x.shape.as_list()
+                        print(f"[DEBUG] Текущая форма данных: {shape}")
+                        
+                        # Проверяем количество измерений
+                        if len(shape) == 6:
+                            print(f"[DEBUG] Обнаружена лишняя размерность: {shape}")
+                            # Находим ось с размером 1
+                            squeeze_axis = [i for i, s in enumerate(shape) if s == 1]
+                            if squeeze_axis:
+                                print(f"[DEBUG] Удаляем оси: {squeeze_axis}")
+                                x = tf.squeeze(x, axis=squeeze_axis)
+                            else:
+                                # Если нет осей с размером 1, используем reshape
+                                target_shape = [shape[0], shape[2], shape[3], shape[4], shape[5]]
+                                print(f"[DEBUG] Преобразуем в форму: {target_shape}")
+                                x = tf.reshape(x, target_shape)
+                        
+                        print(f"[DEBUG] Итоговая форма: {x.shape}")
                         return x
                     
                     # Создаем новый генератор с исправленными размерностями
                     def corrected_generator():
                         for x, y in data_gen:
-                            x = correct_dimensions(x)
-                            yield x, y
+                            try:
+                                x = correct_dimensions(x)
+                                # Проверяем форму после коррекции
+                                if len(x.shape) != 5:
+                                    print(f"[ERROR] Неверная размерность после коррекции: {x.shape}")
+                                    print(f"[ERROR] Ожидаемая размерность: (batch_size, sequence_length, height, width, channels)")
+                                    raise ValueError(f"Неверная размерность после коррекции: {x.shape}")
+                                yield x, y
+                            except Exception as e:
+                                print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
+                                print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+                                raise
+                    
+                    # Проверяем первый батч после коррекции
+                    test_gen = corrected_generator()
+                    test_x, test_y = next(test_gen)
+                    print(f"[DEBUG] Размерность после коррекции: {test_x.shape}")
                     
                     history = self.model.fit(
                         corrected_generator(),
