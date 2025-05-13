@@ -3,6 +3,9 @@ class Config:
     INPUT_SHAPE = (224, 224, 3)
     NUM_CLASSES = 2  # Начало и конец элемента
     MODEL_TYPE = 'v4'  # Используем только v4 для тестирования
+    MODEL_SIZE = 'small'  # Размер модели (small, medium, large)
+    EXPANSION_FACTOR = 4  # Фактор расширения для UIB блоков
+    SE_RATIO = 0.25  # Коэффициент для Squeeze-and-Excitation
     
     # Параметры обучения
     EPOCHS = 10
@@ -18,6 +21,8 @@ class Config:
     # Пути
     TRAIN_DATA_PATH = 'data/train'
     VALID_DATA_PATH = 'data/valid'
+    TRAIN_ANNOTATION_PATH = 'data/train/annotations'
+    VALID_ANNOTATION_PATH = 'data/valid/annotations'
     MODEL_SAVE_PATH = 'src/models/saved'
     
     # Аугментация
