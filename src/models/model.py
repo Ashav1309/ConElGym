@@ -235,7 +235,15 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
             try:
                 # Входной слой
                 inputs = Input(shape=input_shape)
-                x = inputs
+                
+                # Обработка последовательности кадров
+                sequence_length = input_shape[0]
+                height = input_shape[1]
+                width = input_shape[2]
+                channels = input_shape[3]
+                
+                # Преобразуем последовательность в батч изображений
+                x = Reshape((sequence_length * height, width, channels))(inputs)
                 
                 # Начальный слой
                 x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
@@ -251,9 +259,17 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                         se_ratio=se_ratio
                     )(x)
                 
-                # Выходные слои
-                x = GlobalAveragePooling2D()(x)
+                # Восстанавливаем размерность последовательности
+                x = Reshape((sequence_length, height//16, width//16, config['blocks'][-1]['filters']))(x)
+                
+                # Временная обработка
+                x = TimeDistributed(GlobalAveragePooling2D())(x)
+                x = Bidirectional(LSTM(64, return_sequences=True))(x)
                 x = Dropout(dropout_rate)(x)
+                x = Bidirectional(LSTM(32))(x)
+                x = Dropout(dropout_rate)(x)
+                
+                # Выходной слой
                 outputs = Dense(num_classes, activation='softmax')(x)
                 
                 model = Model(inputs=inputs, outputs=outputs)
