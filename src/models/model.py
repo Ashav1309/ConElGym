@@ -379,43 +379,29 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         num_classes: количество классов
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях
-        model_type: тип модели ('v3' или 'v4')
+        model_type: тип модели ('v3' или 'v4') - временно используется только v3
         model_size: размер модели ('small', 'medium', 'large')
         expansion_factor: коэффициент расширения для UIB блоков (только для v4)
         se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
     """
     print(f"\n[DEBUG] ===== Создание модели =====")
     print(f"[DEBUG] Параметры:")
-    print(f"  - model_type: {model_type}")
+    print(f"  - model_type: {model_type} (временно используется только v3)")
     print(f"  - model_size: {model_size}")
     print(f"  - input_shape: {input_shape}")
     print(f"  - num_classes: {num_classes}")
     print(f"  - dropout_rate: {dropout_rate}")
-    if model_type == 'v3':
-        print(f"  - lstm_units: {lstm_units}")
-    else:
-        print(f"  - expansion_factor: {expansion_factor}")
-        print(f"  - se_ratio: {se_ratio}")
+    print(f"  - lstm_units: {lstm_units}")
     
     try:
-        if model_type == 'v4':
-            print("[DEBUG] Создание MobileNetV4...")
-            model = create_mobilenetv4_model(
-                input_shape=input_shape,
-                num_classes=num_classes,
-                dropout_rate=dropout_rate,
-                model_type=model_size,
-                expansion_factor=expansion_factor,
-                se_ratio=se_ratio
-            )
-        else:
-            print("[DEBUG] Создание MobileNetV3...")
-            model = create_mobilenetv3_model(
-                input_shape=input_shape,
-                num_classes=num_classes,
-                dropout_rate=dropout_rate,
-                lstm_units=lstm_units
-            )
+        # Временно используем только MobileNetV3
+        print("[DEBUG] Создание MobileNetV3...")
+        model = create_mobilenetv3_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
+        )
         
         print("[DEBUG] Модель успешно создана")
         return model
