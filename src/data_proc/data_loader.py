@@ -8,6 +8,10 @@ from src.config import Config
 import tensorflow as tf
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+import logging
+
+logger = logging.getLogger(__name__)
 
 class VideoDataLoader:
     def __init__(self, data_path):
@@ -20,10 +24,12 @@ class VideoDataLoader:
         self.data_path = data_path
         self.video_paths = []
         self.labels = []
-        self._load_data()
+        self.network_handler = NetworkErrorHandler()
+        self.network_monitor = NetworkMonitor()
         self.cache = {}
         self.cache_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._load_data()
     
     def _load_data(self, infinite_loop=False):
         """
@@ -50,47 +56,30 @@ class VideoDataLoader:
     
     def load_video(self, video_path, target_size=None):
         """
-        Загрузка видео и извлечение кадров с кэшированием.
-        
-        Args:
-            video_path (str): Путь к видео файлу
-            target_size (tuple): Размер изображения (ширина, высота)
-            
-        Returns:
-            list: Список кадров
+        Загрузка видео с обработкой сетевых ошибок
         """
-        cache_key = f"{video_path}_{target_size}"
-        with self.cache_lock:
-            if cache_key in self.cache:
-                print(f"[DEBUG] Видео из кэша: {video_path}")
-                return self.cache[cache_key]
-        
-        frames = []
-        cap = cv2.VideoCapture(video_path)
-        frame_idx = 0
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Изменение размера изображения, если указано
-            if target_size:
-                # cv2.resize ожидает размеры в формате (ширина, высота)
-                frame = cv2.resize(frame, (target_size[1], target_size[0]))
-                # print(f"Resized frame shape: {frame.shape}")  # Отладочная информация
-            
-            # Нормализация
-            frame = frame.astype(np.float32) / 255.0
-            frames.append(frame)
-            frame_idx += 1
-        
-        cap.release()
-        print(f"[DEBUG] Загружено {len(frames)} кадров из {video_path}")
-        
-        with self.cache_lock:
-            self.cache[cache_key] = frames
-        
-        return frames
+        def _load_video_operation():
+            frames = []
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise IOError(f"Не удалось открыть видео: {video_path}")
+                
+            try:
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
+                    if target_size:
+                        frame = cv2.resize(frame, target_size)
+                    frame = frame.astype(np.float32) / 255.0
+                    frames.append(frame)
+                    
+                return frames
+            finally:
+                cap.release()
+                
+        return self.network_handler.handle_network_operation(_load_video_operation)
     
     def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=10):
         """
@@ -137,15 +126,25 @@ class VideoDataLoader:
         self.load_video(video_path, target_size)
     
     def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
-        print(f"[DEBUG] Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
+        logger.info(f"Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
         while True:
             indices = np.random.permutation(len(self.video_paths))
             for idx in indices:
-                frames = self.load_video(self.video_paths[idx], target_size)
-                annotation_path = self.labels[idx]
-                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
-                for s, l in zip(seqs, seq_labels):
-                    yield np.array(s), np.array(l)
+                try:
+                    # Проверка состояния сети
+                    self.network_monitor.check_network_status()
+                    
+                    frames = self.load_video(self.video_paths[idx], target_size)
+                    annotation_path = self.labels[idx]
+                    seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
+                    
+                    for s, l in zip(seqs, seq_labels):
+                        yield np.array(s), np.array(l)
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке видео {self.video_paths[idx]}: {str(e)}")
+                    continue
+                    
             if not infinite_loop:
                 break
     
