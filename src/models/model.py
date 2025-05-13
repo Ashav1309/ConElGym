@@ -473,8 +473,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 # Используем оптимизатор с градиентным клиппингом
                 optimizer = Adam(
                     learning_rate=0.001,
-                    clipnorm=1.0,  # Ограничиваем градиенты
-                    clipvalue=0.5  # Ограничиваем значения градиентов
+                    clipnorm=1.0  # Ограничиваем норму градиентов
                 )
                 
                 model.compile(
