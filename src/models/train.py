@@ -290,7 +290,7 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=True,
+            infinite_loop=False,
             max_sequences_per_video=10
         )
         
@@ -300,7 +300,7 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=True,
+            infinite_loop=False,
             max_sequences_per_video=10
         )
         

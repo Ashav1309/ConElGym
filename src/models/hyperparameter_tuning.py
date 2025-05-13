@@ -331,7 +331,7 @@ def load_and_prepare_data(batch_size):
             batch_size=batch_size,
             target_size=target_size,
             one_hot=True,
-            infinite_loop=True,
+            infinite_loop=False,
             max_sequences_per_video=10
         )
         print("[DEBUG] Train dataset создан успешно")

@@ -5,8 +5,8 @@ class Config:
     
     # Параметры обучения
     EPOCHS = 10
-    STEPS_PER_EPOCH = 10
-    VALIDATION_STEPS = 5
+    STEPS_PER_EPOCH = 100  # Увеличиваем количество шагов в эпохе
+    VALIDATION_STEPS = 20  # Увеличиваем количество шагов валидации
     
     # Параметры данных
     SEQUENCE_LENGTH = 8

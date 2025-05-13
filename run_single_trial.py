@@ -84,7 +84,7 @@ def main():
         batch_size=args.batch_size,
         target_size=Config.INPUT_SIZE,
         one_hot=True,
-        infinite_loop=True,
+        infinite_loop=False,
         max_sequences_per_video=args.max_sequences_per_video
     )
     val_dataset = val_loader.data_generator(
@@ -92,7 +92,7 @@ def main():
         batch_size=args.batch_size,
         target_size=Config.INPUT_SIZE,
         one_hot=True,
-        infinite_loop=True,
+        infinite_loop=False,
         max_sequences_per_video=args.max_sequences_per_video
     )
     print('[DEBUG] Генераторы данных созданы', flush=True)
