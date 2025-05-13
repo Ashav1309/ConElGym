@@ -109,6 +109,24 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
         
         super(UniversalInvertedBottleneck, self).build(input_shape)
         
+    def compute_output_shape(self, input_shape):
+        """
+        Вычисляет выходную форму слоя
+        Args:
+            input_shape: Входная форма (batch_size, height, width, channels)
+        Returns:
+            Выходная форма (batch_size, height/stride, width/stride, filters)
+        """
+        height = input_shape[1]
+        width = input_shape[2]
+        
+        # Применяем stride к размерам
+        if self.stride > 1:
+            height = height // self.stride
+            width = width // self.stride
+            
+        return (input_shape[0], height, width, self.filters)
+        
     def call(self, inputs):
         x = self.expand_conv(inputs)
         x = self.expand_bn(x)
