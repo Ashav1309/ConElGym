@@ -105,17 +105,25 @@ class VideoDataLoader:
                 print(f"[DEBUG] Ошибка чтения аннотации {annotation_path}: {e}")
         else:
             print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
+            
         sequences = []
         sequence_labels = []
         max_seq = min(len(frames) - sequence_length + 1, max_sequences_per_video)
+        
         for i in range(max_seq):
             sequence = frames[i:i + sequence_length]
             seq_labels = labels[i:i + sequence_length]
             sequences.append(sequence)
+            
             if one_hot:
-                sequence_labels.append([[1,0] if l==0 else [0,1] for l in seq_labels])
+                # Преобразуем метки в one-hot формат
+                one_hot_labels = np.zeros((sequence_length, 2))
+                for j, label in enumerate(seq_labels):
+                    one_hot_labels[j, label] = 1
+                sequence_labels.append(one_hot_labels)
             else:
                 sequence_labels.append(seq_labels)
+                
         print(f"[DEBUG] Сформировано {len(sequences)} последовательностей (ограничение: {max_sequences_per_video})")
         return np.array(sequences), np.array(sequence_labels)
     

@@ -203,44 +203,23 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         input_shape: форма входных данных
         num_classes: количество классов
         dropout_rate: коэффициент dropout
-        model_type: тип модели ('small', 'medium', 'large')
-        expansion_factor: коэффициент расширения для UIB блоков (только для v4)
-        se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
+        model_type: тип модели (используется только 'small')
+        expansion_factor: коэффициент расширения для UIB блоков
+        se_ratio: коэффициент для Squeeze-and-Excitation
     """
-    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, model_type={model_type}")
+    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
     
-    # Конфигурации для разных типов моделей
-    configs = {
-        'small': {
-            'initial_filters': 32,
-            'blocks': [
-                {'filters': 64, 'expansion': 4, 'stride': 2},
-                {'filters': 128, 'expansion': 4, 'stride': 2},
-                {'filters': 256, 'expansion': 4, 'stride': 2},
-                {'filters': 512, 'expansion': 4, 'stride': 2},
-            ]
-        },
-        'medium': {
-            'initial_filters': 48,
-            'blocks': [
-                {'filters': 96, 'expansion': 6, 'stride': 2},
-                {'filters': 192, 'expansion': 6, 'stride': 2},
-                {'filters': 384, 'expansion': 6, 'stride': 2},
-                {'filters': 768, 'expansion': 6, 'stride': 2},
-            ]
-        },
-        'large': {
-            'initial_filters': 64,
-            'blocks': [
-                {'filters': 128, 'expansion': 6, 'stride': 2},
-                {'filters': 256, 'expansion': 6, 'stride': 2},
-                {'filters': 512, 'expansion': 6, 'stride': 2},
-                {'filters': 1024, 'expansion': 6, 'stride': 2},
-            ]
-        }
+    # Конфигурация для модели small
+    config = {
+        'initial_filters': 32,
+        'blocks': [
+            {'filters': 64, 'expansion': 4, 'stride': 2},
+            {'filters': 128, 'expansion': 4, 'stride': 2},
+            {'filters': 256, 'expansion': 4, 'stride': 2},
+            {'filters': 512, 'expansion': 4, 'stride': 2},
+        ]
     }
     
-    config = configs[model_type]
     network_handler = NetworkErrorHandler()
     
     def _create_model_operation():
@@ -270,11 +249,14 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
             # Временное внимание
             x = TemporalAttention(units=128)(x)
             
+            # Изменяем размерность перед нормализацией
+            x = Reshape((-1, 128))(x)
+            
             # Нормализация
-            x = LayerNormalization()(x)
+            x = LayerNormalization(axis=-1)(x)
             
             # Финальный слой классификации
-            outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
+            outputs = Dense(num_classes, activation='softmax', dtype='float32')(x)
             
             return Model(inputs=inputs, outputs=outputs)
             
