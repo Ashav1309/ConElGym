@@ -143,24 +143,20 @@ class VideoDataLoader:
         """
         print("[DEBUG] Запуск генератора данных...")
         
-        # Очистка памяти перед началом
-        print("[DEBUG] ===== Начало очистки памяти =====")
-        tf.keras.backend.clear_session()
-        gc.collect()
-        print("[DEBUG] ===== Очистка памяти завершена =====")
-        
         # Получаем список всех видео
         video_files = self.video_paths.copy()
         if shuffle:
             np.random.shuffle(video_files)
         
-        # Множество для отслеживания обработанных видео
-        processed_videos = set()
+        # Создаем словарь для отслеживания обработанных видео
+        # Используем словарь вместо множества, так как он сохраняется между вызовами
+        if not hasattr(self, '_processed_videos'):
+            self._processed_videos = {}
         
         while True:
             for video_path in video_files:
-                # Пропускаем видео, если оно уже было обработано
-                if video_path in processed_videos:
+                # Пропускаем видео, если оно уже было обработано в текущей эпохе
+                if video_path in self._processed_videos:
                     continue
                 
                 try:
@@ -197,14 +193,14 @@ class VideoDataLoader:
                             yield batch_sequences, batch_labels
                     
                     # Отмечаем видео как обработанное
-                    processed_videos.add(video_path)
+                    self._processed_videos[video_path] = True
                     
                 except Exception as e:
                     print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
                     continue
             
-            # Если все видео обработаны, очищаем множество и начинаем заново
-            processed_videos.clear()
+            # Если все видео обработаны, очищаем словарь и начинаем заново
+            self._processed_videos.clear()
             if shuffle:
                 np.random.shuffle(video_files)
     
