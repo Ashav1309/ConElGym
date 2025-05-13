@@ -18,6 +18,20 @@ from tensorflow.keras.metrics import Precision, Recall, F1Score
 
 logger = logging.getLogger(__name__)
 
+def f1_score_element(y_true, y_pred):
+    """
+    Вычисление F1-score для класса элемента
+    """
+    true_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
+    predicted_positives = tf.reduce_sum(tf.cast(tf.equal(y_pred, 1), tf.float32))
+    possible_positives = tf.reduce_sum(tf.cast(tf.equal(y_true, 1), tf.float32))
+    
+    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
+    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
+    
+    f1 = 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+    return f1
+
 class SpatialAttention(tf.keras.layers.Layer):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
