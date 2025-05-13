@@ -34,48 +34,48 @@ def clear_memory():
     print("\n[DEBUG] ===== Начало очистки памяти =====")
     
     try:
-        print("[DEBUG] 1. Очистка TensorFlow сессии...")
+    #    print("[DEBUG] 1. Очистка TensorFlow сессии...")
         # Очищаем все сессии TensorFlow
         tf.keras.backend.clear_session()
-        print("[DEBUG] ✓ TensorFlow сессия очищена")
+        # print("[DEBUG] ✓ TensorFlow сессия очищена")
         
-        print("[DEBUG] 2. Запуск garbage collector...")
+        # print("[DEBUG] 2. Запуск garbage collector...")
         # Очистка Python garbage collector
         gc.collect()
-        print("[DEBUG] ✓ Garbage collector выполнен")
+        # print("[DEBUG] ✓ Garbage collector выполнен")
         
         # Очистка CUDA кэша если используется GPU
         if Config.DEVICE_CONFIG['use_gpu']:
-            print("[DEBUG] 3. Очистка GPU памяти...")
+            # print("[DEBUG] 3. Очистка GPU памяти...")
             try:
-                print("[DEBUG] 3.1. Сброс статистики памяти GPU...")
+                # print("[DEBUG] 3.1. Сброс статистики памяти GPU...")
                 # Пробуем очистить CUDA кэш через TensorFlow
                 tf.config.experimental.reset_memory_stats('GPU:0')
-                print("[DEBUG] ✓ Статистика памяти GPU сброшена")
+                # print("[DEBUG] ✓ Статистика памяти GPU сброшена")
                 
-                print("[DEBUG] 3.2. Очистка CUDA кэша...")
+                # print("[DEBUG] 3.2. Очистка CUDA кэша...")
                 # Принудительно очищаем CUDA кэш
                 tf.keras.backend.clear_session()
-                print("[DEBUG] ✓ CUDA кэш очищен")
+                # print("[DEBUG] ✓ CUDA кэш очищен")
                 
-                print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
+                # print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
                 for var in tf.compat.v1.global_variables():
                     del var
-                print("[DEBUG] ✓ TensorFlow переменные очищены")
+                # print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
-                print("[DEBUG] 3.4. Финальная очистка сессии...")
+                # print("[DEBUG] 3.4. Финальная очистка сессии...")
                 # Очищаем все операции
                 tf.keras.backend.clear_session()
-                print("[DEBUG] ✓ Финальная очистка сессии выполнена")
+                    # print("[DEBUG] ✓ Финальная очистка сессии выполнена")
                 
             except Exception as e:
                 print(f"[DEBUG] ✗ Ошибка при очистке GPU: {str(e)}")
         
-        print("[DEBUG] 4. Финальная очистка...")
-        # Дополнительная очистка
-        gc.collect()
-        print("[DEBUG] ✓ Финальная очистка выполнена")
+        # print("[DEBUG] 4. Финальная очистка...")
+        # # Дополнительная очистка
+        # gc.collect()
+        # print("[DEBUG] ✓ Финальная очистка выполнена")
         
     except Exception as e:
         print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
@@ -369,7 +369,7 @@ def objective(trial):
         'batch_size': trial.suggest_int('batch_size', 8, 32)
     }
     
-    print(f"\n[DEBUG] Trial {trial.number} parameters:")
+    print(f"\n[DEBUG] ===== Trial {trial.number} parameters: =====\n")
     for param, value in params.items():
         print(f"  - {param}: {value}")
     
