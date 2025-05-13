@@ -428,15 +428,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         raise
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
-    """
-    Создает модель MobileNetV3 с LSTM для обработки временных последовательностей.
-    
-    Args:
-        input_shape: Форма входных данных (sequence_length, height, width, channels)
-        num_classes: Количество классов
-        dropout_rate: Коэффициент dropout
-        lstm_units: Количество юнитов в LSTM слое (по умолчанию 64)
-    """
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
         
@@ -457,10 +448,12 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                     input_shape=input_shape[1:],
                     include_top=False,
                     weights='imagenet',
-                    alpha=0.75  # Изменено с 0.5 на 0.75
+                    alpha=0.75
                 )
                 
-                base_model.trainable = False
+                # Размораживаем последние слои для тонкой настройки
+                for layer in base_model.layers[-10:]:
+                    layer.trainable = True
                 
                 x = TimeDistributed(base_model)(x)
                 print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
@@ -471,39 +464,47 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 # Добавляем дополнительную регуляризацию
                 x = TimeDistributed(Dropout(0.3))(x)
                 
-                # Уменьшаем количество LSTM юнитов
+                # Уменьшаем количество LSTM юнитов и добавляем регуляризацию
                 x = Bidirectional(LSTM(32, return_sequences=True, 
                                      recurrent_dropout=0.2,
                                      unroll=True))(x)
                 x = Dropout(dropout_rate)(x)
                 
-                # Добавляем дополнительный Dense слой
-                x = TimeDistributed(Dense(64, activation='relu'))(x)
+                # Добавляем дополнительный Dense слой с batch normalization
+                x = TimeDistributed(Dense(64))(x)
+                x = TimeDistributed(BatchNormalization())(x)
+                x = TimeDistributed(Activation('relu'))(x)
                 x = TimeDistributed(Dropout(0.3))(x)
                 
                 outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
                 
                 model = Model(inputs=inputs, outputs=outputs)
                 
-                # Используем оптимизатор с меньшим learning rate
+                # Используем оптимизатор с меньшим learning rate и градиентным клиппингом
                 optimizer = Adam(
                     learning_rate=0.0001,
-                    clipnorm=1.0
+                    clipnorm=1.0,
+                    beta_1=0.9,
+                    beta_2=0.999,
+                    epsilon=1e-07
                 )
                 
-                # Добавляем веса классов для решения проблемы дисбаланса
+                # Увеличиваем веса для положительного класса
                 class_weights = {
                     0: 1.0,  # Нормальный вес для фонового класса
-                    1: 10.0  # Увеличиваем вес для классов начала и конца
+                    1: 20.0  # Значительно увеличиваем вес для классов начала и конца
                 }
                 
+                # Добавляем метрики с порогами для лучшего определения положительных классов
                 model.compile(
                     optimizer=optimizer,
                     loss='categorical_crossentropy',
-                    metrics=['accuracy', 
-                            Precision(class_id=1, name='precision_element'),
-                            Recall(class_id=1, name='recall_element'),
-                            f1_score_element]
+                    metrics=[
+                        'accuracy',
+                        Precision(thresholds=0.5, class_id=1, name='precision_element'),
+                        Recall(thresholds=0.5, class_id=1, name='recall_element'),
+                        f1_score_element
+                    ]
                 )
                 
                 print("[DEBUG] MobileNetV3 успешно создана")
