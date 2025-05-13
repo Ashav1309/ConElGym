@@ -267,6 +267,7 @@ def objective(trial):
         print("[DEBUG] ✓ Данные загружены успешно\n")
         
         print("[DEBUG] 2. Создание и компиляция модели...")
+        print(f"[DEBUG] Создание модели типа: {Config.MODEL_TYPE}")
         model = create_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
