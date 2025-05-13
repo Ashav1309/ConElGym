@@ -438,12 +438,12 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 x = Reshape(input_shape)(inputs)
                 print(f"[DEBUG] Форма после Reshape: {x.shape}")
                 
-                # Уменьшаем размер модели и добавляем регуляризацию
+                # Используем поддерживаемое значение alpha=0.75
                 base_model = MobileNetV3Small(
                     input_shape=input_shape[1:],
                     include_top=False,
                     weights='imagenet',
-                    alpha=0.5  # Уменьшаем размер модели
+                    alpha=0.75  # Изменено с 0.5 на 0.75
                 )
                 
                 base_model.trainable = False
@@ -473,7 +473,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 
                 # Используем оптимизатор с меньшим learning rate
                 optimizer = Adam(
-                    learning_rate=0.0001,  # Уменьшаем learning rate
+                    learning_rate=0.0001,
                     clipnorm=1.0
                 )
                 
