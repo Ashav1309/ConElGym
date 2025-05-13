@@ -125,29 +125,40 @@ def setup_device():
 device_available = setup_device()
 
 def create_data_pipeline(batch_size, data_loader):
-    """
-    Создает pipeline данных для обучения
-    Args:
-        batch_size: размер батча
-        data_loader: экземпляр VideoDataLoader
-    """
-    print("\n[DEBUG] ===== Создание pipeline данных =====")
+    """Создание pipeline данных"""
+    print(f"\n[DEBUG] ===== Создание pipeline данных =====")
     print(f"[DEBUG] Параметры:")
     print(f"  - batch_size: {batch_size}")
     print(f"  - sequence_length: {Config.SEQUENCE_LENGTH}")
     print(f"  - input_size: {Config.INPUT_SIZE}")
     print(f"  - ожидаемая форма: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     
-    # Создаем tf.data.Dataset
-    dataset = data_loader.data_generator(batch_size=batch_size, shuffle=True)
-    print("[DEBUG] tf.data.Dataset создан успешно")
-    
-    # Оптимизируем pipeline
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    print("[DEBUG] Pipeline данных оптимизирован")
-    print("[DEBUG] ===== Pipeline данных создан =====\n")
-    
-    return dataset
+    print("[DEBUG] Запуск генератора данных...")
+    try:
+        # Создаем tf.data.Dataset из генератора
+        dataset = tf.data.Dataset.from_generator(
+            data_loader.data_generator,
+            output_signature=(
+                tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(None, Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
+            )
+        )
+        
+        print("[DEBUG] Применяем оптимизации к dataset...")
+        dataset = dataset.cache()
+        dataset = dataset.shuffle(buffer_size=1000)
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
+        print("[DEBUG] Pipeline данных успешно создан")
+        return dataset
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 def f1_score_element(y_true, y_pred):
     y_true = tf.argmax(y_true, axis=-1)
@@ -233,16 +244,14 @@ def load_and_prepare_data(batch_size):
         raise
 
 def objective(trial):
-    """
-    Целевая функция для оптимизации гиперпараметров
-    """
-    print("\n[DEBUG] ===== Начало Trial", trial.number, "=====")
+    """Функция оптимизации для Optuna"""
+    print(f"\n[DEBUG] ===== Начало Trial {trial.number} =====")
     
-    # Определяем гиперпараметры
-    learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
-    dropout_rate = trial.suggest_float('dropout_rate', 0.2, 0.5)
+    # Определение гиперпараметров
+    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+    dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
     batch_size = trial.suggest_int('batch_size', 8, 32)
-    lstm_units = trial.suggest_int('lstm_units', 32, 128)
+    lstm_units = trial.suggest_int('lstm_units', 32, 256)
     
     print("[DEBUG] Гиперпараметры:")
     print(f"  - learning_rate: {learning_rate}")
@@ -252,45 +261,45 @@ def objective(trial):
     
     try:
         print("\n[DEBUG] ===== Этап 1: Загрузка данных =====")
+        print("[DEBUG] Инициализация VideoDataLoader...")
         
-        # Создаем VideoDataLoader один раз для всех триалов
+        # Создаем загрузчик данных только один раз
         if not hasattr(objective, 'data_loader'):
-            print("[DEBUG] Инициализация VideoDataLoader...")
-            print("[DEBUG] ===== Очистка памяти =====")
-            tf.keras.backend.clear_session()
-            gc.collect()
-            print("[DEBUG] ===== Очистка памяти завершена =====")
-            
-            objective.data_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-            objective.val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
-            print("[DEBUG] VideoDataLoader инициализирован успешно")
+            print("[DEBUG] Создание нового экземпляра VideoDataLoader")
+            objective.data_loader = VideoDataLoader(
+                video_dir=Config.TRAIN_VIDEO_DIR,
+                annotation_dir=Config.TRAIN_ANNOTATION_DIR,
+                sequence_length=Config.SEQUENCE_LENGTH,
+                input_size=Config.INPUT_SIZE
+            )
+            print("[DEBUG] VideoDataLoader создан успешно")
         
-        # Создаем pipeline данных
         print("\n[DEBUG] Создание train dataset...")
         train_dataset = create_data_pipeline(batch_size, objective.data_loader)
         print("[DEBUG] Train dataset создан успешно")
         
-        print("\n[DEBUG] Создание val dataset...")
-        val_dataset = create_data_pipeline(batch_size, objective.val_loader)
-        print("[DEBUG] Val dataset создан успешно")
+        print("\n[DEBUG] Создание valid dataset...")
+        valid_dataset = create_data_pipeline(batch_size, objective.data_loader)
+        print("[DEBUG] Valid dataset создан успешно")
         
         print("\n[DEBUG] ===== Этап 2: Создание модели =====")
-        print(f"[DEBUG] Тип модели: {Config.MODEL_TYPE}")
-        print(f"[DEBUG] Параметры модели:")
-        print(f"  - input_shape: ({Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
-        print(f"  - num_classes: {Config.NUM_CLASSES}")
-        print(f"  - dropout_rate: {dropout_rate}")
-        print(f"  - lstm_units: {lstm_units}")
+        print(f"[DEBUG] Создание модели типа: {Config.MODEL_TYPE}")
         
+        # Создание модели
         model = create_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            model_type=Config.MODEL_TYPE
+            model_type=Config.MODEL_TYPE,
+            model_size=Config.MODEL_SIZE,
+            expansion_factor=Config.EXPANSION_FACTOR,
+            se_ratio=Config.SE_RATIO
         )
+        print("[DEBUG] Модель создана успешно")
         
-        print("\n[DEBUG] Компиляция модели...")
+        print("\n[DEBUG] ===== Этап 3: Компиляция модели =====")
+        # Компиляция модели
         model.compile(
             optimizer=Adam(learning_rate=learning_rate),
             loss='categorical_crossentropy',
@@ -298,10 +307,11 @@ def objective(trial):
         )
         print("[DEBUG] Модель скомпилирована успешно")
         
-        print("\n[DEBUG] ===== Этап 3: Обучение модели =====")
+        print("\n[DEBUG] ===== Этап 4: Обучение модели =====")
+        # Обучение модели
         history = model.fit(
             train_dataset,
-            validation_data=val_dataset,
+            validation_data=valid_dataset,
             epochs=Config.EPOCHS,
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(
@@ -311,12 +321,16 @@ def objective(trial):
                 )
             ]
         )
+        print("[DEBUG] Обучение завершено успешно")
         
-        print("\n[DEBUG] ===== Trial", trial.number, "завершен успешно =====")
+        # Возвращаем лучшую валидационную точность
         return max(history.history['val_accuracy'])
         
     except Exception as e:
         print(f"\n[ERROR] Ошибка в trial {trial.number}: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
         raise optuna.TrialPruned()
 
 def save_tuning_results(study, total_time, n_trials):
