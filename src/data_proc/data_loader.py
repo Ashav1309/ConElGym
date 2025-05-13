@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import logging
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -133,49 +134,79 @@ class VideoDataLoader:
         """
         self.load_video(video_path, target_size)
     
-    def data_generator(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
-        logger.info(f"Запуск генератора данных: sequence_length={sequence_length}, batch_size={batch_size}")
+    def data_generator(self, batch_size=32, shuffle=True):
+        """
+        Генератор данных для обучения модели
+        Args:
+            batch_size: размер батча
+            shuffle: перемешивать ли данные
+        """
+        print("[DEBUG] Запуск генератора данных...")
         
-        # Создаем список всех последовательностей заранее
-        all_sequences = []
-        all_labels = []
+        # Очистка памяти перед началом
+        print("[DEBUG] ===== Начало очистки памяти =====")
+        tf.keras.backend.clear_session()
+        gc.collect()
+        print("[DEBUG] ===== Очистка памяти завершена =====")
         
-        for idx in range(len(self.video_paths)):
-            try:
-                # Проверка состояния сети
-                self.network_monitor.check_network_status()
-                
-                frames = self.load_video(self.video_paths[idx], target_size)
-                annotation_path = self.labels[idx]
-                seqs, seq_labels = self.create_sequences(frames, annotation_path, sequence_length, one_hot, max_sequences_per_video)
-                
-                all_sequences.extend(seqs)
-                all_labels.extend(seq_labels)
-                
-                logger.info(f"Обработано видео {os.path.basename(self.video_paths[idx])}: добавлено {len(seqs)} последовательностей")
-                
-            except Exception as e:
-                logger.error(f"Ошибка при обработке видео {self.video_paths[idx]}: {str(e)}")
-                continue
+        # Получаем список всех видео
+        video_files = self.video_paths.copy()
+        if shuffle:
+            np.random.shuffle(video_files)
         
-        # Преобразуем в numpy массивы
-        all_sequences = np.array(all_sequences)
-        all_labels = np.array(all_labels)
-        
-        logger.info(f"Всего создано {len(all_sequences)} последовательностей")
-        
-        # Создаем батчи
-        n_samples = len(all_sequences)
-        indices = np.arange(n_samples)
+        # Множество для отслеживания обработанных видео
+        processed_videos = set()
         
         while True:
-            np.random.shuffle(indices)
-            for i in range(0, n_samples, batch_size):
-                batch_indices = indices[i:i + batch_size]
-                yield all_sequences[batch_indices], all_labels[batch_indices]
+            for video_path in video_files:
+                # Пропускаем видео, если оно уже было обработано
+                if video_path in processed_videos:
+                    continue
                 
-            if not infinite_loop:
-                break
+                try:
+                    print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
+                    
+                    # Загружаем видео
+                    frames = self.load_video(video_path)
+                    if frames is None or len(frames) == 0:
+                        continue
+                    
+                    # Получаем аннотации
+                    annotation_path = self.labels[self.video_paths.index(video_path)]
+                    if not os.path.exists(annotation_path):
+                        continue
+                    
+                    # Создаем последовательности
+                    sequences, labels = self.create_sequences(
+                        frames,
+                        annotation_path,
+                        sequence_length=self.sequence_length,
+                        one_hot=True,
+                        max_sequences_per_video=self.max_sequences_per_video
+                    )
+                    
+                    if len(sequences) == 0:
+                        continue
+                    
+                    # Разбиваем на батчи
+                    for i in range(0, len(sequences), batch_size):
+                        batch_sequences = sequences[i:i + batch_size]
+                        batch_labels = labels[i:i + batch_size]
+                        
+                        if len(batch_sequences) == batch_size:
+                            yield batch_sequences, batch_labels
+                    
+                    # Отмечаем видео как обработанное
+                    processed_videos.add(video_path)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                    continue
+            
+            # Если все видео обработаны, очищаем множество и начинаем заново
+            processed_videos.clear()
+            if shuffle:
+                np.random.shuffle(video_files)
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         """
@@ -191,4 +222,4 @@ class VideoDataLoader:
         Returns:
             generator: Генератор данных
         """
-        return self.data_generator(sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video) 
+        return self.data_generator(batch_size, True) 
