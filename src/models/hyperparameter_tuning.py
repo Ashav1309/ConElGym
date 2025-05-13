@@ -192,7 +192,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
     
-    model = create_model(
+    model, class_weights = create_model(
         input_shape=input_shape,
         num_classes=num_classes,
         dropout_rate=dropout_rate,
@@ -217,7 +217,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         ]
     )
     
-    return model
+    return model, class_weights
 
 def load_and_prepare_data(batch_size):
     """
@@ -428,11 +428,7 @@ def tune_hyperparameters():
     successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
     if not successful_trials:
         print("\nNo successful trials completed. Check the error messages above.")
-        return {
-            'study': study,
-            'best_params': None,
-            'best_value': float('-inf')
-        }
+        return None
     
     # Сохранение результатов
     save_tuning_results(study, total_time, n_trials)
@@ -443,9 +439,8 @@ def tune_hyperparameters():
     except Exception as e:
         print(f"\nWarning: Could not create visualization plots: {str(e)}")
     
-    # Возвращаем и study, и лучшие параметры
+    # Возвращаем лучшие параметры
     return {
-        'study': study,
         'best_params': study.best_params,
         'best_value': study.best_value
     }
