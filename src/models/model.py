@@ -223,6 +223,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
     }
     
     config = configs[model_type]
+    network_handler = NetworkErrorHandler()
     
     def _create_model_operation():
         try:
@@ -263,7 +264,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
             logger.error(f"Ошибка при создании модели: {str(e)}")
             raise
             
-    return NetworkErrorHandler.handle_network_operation(_create_model_operation)
+    return network_handler.handle_network_operation(_create_model_operation)
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25):
     """
