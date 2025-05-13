@@ -63,31 +63,58 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     """
     Создает оптимизированный pipeline данных с использованием tf.data.Dataset
     """
-    def generator():
-        return loader.data_generator(
-            sequence_length=sequence_length,
-            batch_size=batch_size,
-            target_size=target_size,
-            one_hot=one_hot,
-            infinite_loop=infinite_loop,
-            max_sequences_per_video=max_sequences_per_video
+    try:
+        print(f"\n[DEBUG] ===== Создание pipeline данных =====")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - target_size: {target_size}")
+        print(f"  - one_hot: {one_hot}")
+        print(f"  - infinite_loop: {infinite_loop}")
+        print(f"  - max_sequences_per_video: {max_sequences_per_video}")
+        
+        def generator():
+            try:
+                return loader.data_generator(
+                    sequence_length=sequence_length,
+                    batch_size=batch_size,
+                    target_size=target_size,
+                    one_hot=one_hot,
+                    infinite_loop=infinite_loop,
+                    max_sequences_per_video=max_sequences_per_video
+                )
+            except Exception as e:
+                print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+                print("[DEBUG] Stack trace:", flush=True)
+                import traceback
+                traceback.print_exc()
+                raise
+        
+        print("[DEBUG] Создание tf.data.Dataset...")
+        dataset = tf.data.Dataset.from_generator(
+            generator,
+            output_signature=(
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
+            )
         )
-    
-    dataset = tf.data.Dataset.from_generator(
-        generator,
-        output_signature=(
-            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
-        )
-    )
-    
-    # Оптимизация загрузки данных
-    if Config.MEMORY_OPTIMIZATION['cache_dataset']:
-        dataset = dataset.cache()
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(1)
-    
-    return dataset
+        
+        print("[DEBUG] Применение оптимизаций...")
+        # Оптимизация загрузки данных
+        if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+            dataset = dataset.cache()
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(1)
+        
+        print("[DEBUG] Pipeline данных успешно создан")
+        return dataset
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 class OverfittingMonitor(Callback):
     """Мониторинг переобучения"""
@@ -187,21 +214,28 @@ def load_best_params(model_type=None):
     Args:
         model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
     """
-    model_type = model_type or Config.MODEL_TYPE
-    results_path = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', 'optuna_results.txt')
-    
-    if not os.path.exists(results_path):
-        print(f"Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию для {model_type}.")
-        default_params = {
-            'learning_rate': 1e-4,
-            'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-            'batch_size': 16
-        }
-        if model_type == 'v3':
-            default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
-        return default_params
-    
     try:
+        model_type = model_type or Config.MODEL_TYPE
+        results_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        results_path = os.path.join(results_dir, 'optuna_results.txt')
+        
+        # Проверяем существование директории
+        if not os.path.exists(results_dir):
+            print(f"[DEBUG] Создание директории для результатов: {results_dir}")
+            os.makedirs(results_dir, exist_ok=True)
+        
+        if not os.path.exists(results_path):
+            print(f"[DEBUG] Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию для {model_type}.")
+            default_params = {
+                'learning_rate': 1e-4,
+                'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+                'batch_size': 16
+            }
+            if model_type == 'v3':
+                default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+            return default_params
+        
+        print(f"[DEBUG] Загрузка параметров из {results_path}")
         with open(results_path, 'r') as f:
             content = f.read()
             
@@ -227,7 +261,7 @@ def load_best_params(model_type=None):
             elif model_type == 'v4' and v4_best:
                 best_params = v4_best[1]
             else:
-                print(f"Не найдены результаты для модели {model_type}. Используем параметры по умолчанию.")
+                print(f"[DEBUG] Не найдены результаты для модели {model_type}. Используем параметры по умолчанию.")
                 best_params = {
                     'learning_rate': 1e-4,
                     'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
@@ -236,13 +270,16 @@ def load_best_params(model_type=None):
                 if model_type == 'v3':
                     best_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
             
-            print(f"Загружены лучшие параметры для {model_type}: {best_params}")
+            print(f"[DEBUG] Загружены лучшие параметры для {model_type}: {best_params}")
             return best_params
             
     except Exception as e:
-        print(f"Ошибка при загрузке параметров: {e}")
+        print(f"[ERROR] Ошибка при загрузке параметров: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
     
-    print(f"Не удалось загрузить параметры для {model_type}. Используем параметры по умолчанию.")
+    print(f"[DEBUG] Не удалось загрузить параметры для {model_type}. Используем параметры по умолчанию.")
     default_params = {
         'learning_rate': 1e-4,
         'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],

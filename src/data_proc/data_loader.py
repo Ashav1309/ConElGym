@@ -30,42 +30,101 @@ class VideoDataLoader:
         self.cache = {}
         self.cache_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Инициализация параметров из конфигурации
+        self.sequence_length = Config.SEQUENCE_LENGTH
+        self.max_sequences_per_video = Config.MAX_SEQUENCES_PER_VIDEO
+        
         self._load_data()
     
     def _load_data(self, infinite_loop=False):
         """
         Загрузка путей к видео (без классов, без подкаталогов) и соответствующих аннотаций.
+        
+        Args:
+            infinite_loop (bool): Бесконечный цикл загрузки данных
+            
+        Raises:
+            FileNotFoundError: Если директория с данными не найдена
+            ValueError: Если нет видео файлов в директории
         """
-        annotation_dir = os.path.join(self.data_path, 'annotations')
-        print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
-        while True:
-            for file_name in os.listdir(self.data_path):
-                file_path = os.path.join(self.data_path, file_name)
-                if file_name.endswith('.mp4') and os.path.isfile(file_path):
-                    self.video_paths.append(file_path)
-                    base = os.path.splitext(file_name)[0]
-                    ann_path = os.path.join(annotation_dir, base + '.json')
-                    if os.path.exists(ann_path):
-                        # print(f"[DEBUG] Найдена аннотация для {file_name}: {ann_path}")
-                        pass
-                    else:
-                        print(f"[DEBUG] Аннотация для {file_name} не найдена!")
-                        pass
-                    self.labels.append(ann_path if os.path.exists(ann_path) else None)
-            if not infinite_loop:
-                break
+        try:
+            if not os.path.exists(self.data_path):
+                raise FileNotFoundError(f"Директория с данными не найдена: {self.data_path}")
+            
+            annotation_dir = os.path.join(self.data_path, 'annotations')
+            if not os.path.exists(annotation_dir):
+                print(f"[DEBUG] Создание директории для аннотаций: {annotation_dir}")
+                os.makedirs(annotation_dir, exist_ok=True)
+            
+            print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
+            
+            video_count = 0
+            while True:
+                for file_name in os.listdir(self.data_path):
+                    file_path = os.path.join(self.data_path, file_name)
+                    if file_name.endswith('.mp4') and os.path.isfile(file_path):
+                        video_count += 1
+                        self.video_paths.append(file_path)
+                        base = os.path.splitext(file_name)[0]
+                        ann_path = os.path.join(annotation_dir, base + '.json')
+                        if os.path.exists(ann_path):
+                            print(f"[DEBUG] Найдена аннотация для {file_name}")
+                        else:
+                            print(f"[DEBUG] Аннотация для {file_name} не найдена")
+                        self.labels.append(ann_path if os.path.exists(ann_path) else None)
+                
+                if not infinite_loop:
+                    break
+                
+            if video_count == 0:
+                raise ValueError(f"В директории {self.data_path} не найдено видео файлов")
+            
+            print(f"[DEBUG] Загружено {video_count} видео файлов")
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
     
     def load_video(self, video_path, target_size=None):
         """
         Загрузка видео с обработкой сетевых ошибок
+        
+        Args:
+            video_path (str): Путь к видео файлу
+            target_size (tuple): Размер изображения (ширина, высота)
+            
+        Returns:
+            list: Список кадров видео
+            
+        Raises:
+            IOError: Если не удалось открыть видео
+            ValueError: Если видео имеет неподдерживаемый формат
         """
         def _load_video_operation():
             frames = []
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 raise IOError(f"Не удалось открыть видео: {video_path}")
-                
+            
             try:
+                # Проверка формата видео
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                
+                if width == 0 or height == 0 or fps == 0 or frame_count == 0:
+                    raise ValueError(f"Неподдерживаемый формат видео: {video_path}")
+                
+                print(f"[DEBUG] Загрузка видео: {os.path.basename(video_path)}")
+                print(f"  - Размер: {width}x{height}")
+                print(f"  - FPS: {fps}")
+                print(f"  - Количество кадров: {frame_count}")
+                
                 while cap.isOpened():
                     ret, frame = cap.read()
                     if not ret:
@@ -75,58 +134,105 @@ class VideoDataLoader:
                         frame = cv2.resize(frame, target_size)
                     frame = frame.astype(np.float32) / 255.0
                     frames.append(frame)
-                    
+                
+                if len(frames) == 0:
+                    raise ValueError(f"Не удалось прочитать кадры из видео: {video_path}")
+                
+                print(f"[DEBUG] Загружено {len(frames)} кадров")
                 return frames
+                
             finally:
                 cap.release()
-                
+            
         return self.network_handler.handle_network_operation(_load_video_operation)
     
     def create_sequences(self, frames, annotation_path, sequence_length, one_hot=False, max_sequences_per_video=10):
         """
         Создание последовательностей кадров и меток на основе аннотации.
-        """
-        print(f"[DEBUG] Создание последовательностей: frames={len(frames)}, annotation={annotation_path}")
-        labels = [0] * len(frames)
-        if annotation_path and os.path.exists(annotation_path):
-            try:
-                with open(annotation_path, 'r') as f:
-                    ann = json.load(f)
-                    if "annotations" in ann and len(ann["annotations"]) > 0:
-                        for elem in ann["annotations"]:
-                            start = elem.get('start_frame', 0)
-                            end = elem.get('end_frame', 0)
-                            print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
-                            for i in range(start, end + 1):
-                                if 0 <= i < len(labels):
-                                    labels[i] = 1
-                    else:
-                        print(f"[DEBUG] Нет элементов в annotations для {annotation_path}")
-            except Exception as e:
-                print(f"[DEBUG] Ошибка чтения аннотации {annotation_path}: {e}")
-        else:
-            print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
-            
-        sequences = []
-        sequence_labels = []
-        max_seq = min(len(frames) - sequence_length + 1, max_sequences_per_video)
         
-        for i in range(max_seq):
-            sequence = frames[i:i + sequence_length]
-            seq_labels = labels[i:i + sequence_length]
-            sequences.append(sequence)
+        Args:
+            frames (list): Список кадров видео
+            annotation_path (str): Путь к файлу аннотации
+            sequence_length (int): Длина последовательности
+            one_hot (bool): Использовать one-hot encoding для меток
+            max_sequences_per_video (int): Максимальное количество последовательностей
             
-            if one_hot:
-                # Преобразуем метки в one-hot формат
-                one_hot_labels = np.zeros((sequence_length, 2))
-                for j, label in enumerate(seq_labels):
-                    one_hot_labels[j, label] = 1
-                sequence_labels.append(one_hot_labels)
+        Returns:
+            tuple: (sequences, labels) - массивы последовательностей и меток
+            
+        Raises:
+            ValueError: Если входные данные некорректны
+        """
+        try:
+            # Валидация входных данных
+            if not isinstance(frames, (list, np.ndarray)):
+                raise ValueError(f"frames должен быть списком или numpy.ndarray, получен {type(frames)}")
+            
+            if len(frames) == 0:
+                raise ValueError("frames не может быть пустым")
+            
+            if not isinstance(sequence_length, int) or sequence_length <= 0:
+                raise ValueError(f"sequence_length должен быть положительным целым числом, получено {sequence_length}")
+            
+            if not isinstance(max_sequences_per_video, int) or max_sequences_per_video <= 0:
+                raise ValueError(f"max_sequences_per_video должен быть положительным целым числом, получено {max_sequences_per_video}")
+            
+            print(f"[DEBUG] Создание последовательностей: frames={len(frames)}, annotation={annotation_path}")
+            
+            # Инициализация меток
+            labels = [0] * len(frames)
+            
+            # Загрузка аннотаций
+            if annotation_path and os.path.exists(annotation_path):
+                try:
+                    with open(annotation_path, 'r') as f:
+                        ann = json.load(f)
+                        if "annotations" in ann and len(ann["annotations"]) > 0:
+                            for elem in ann["annotations"]:
+                                start = elem.get('start_frame', 0)
+                                end = elem.get('end_frame', 0)
+                                print(f"[DEBUG] Аннотация: start_frame={start}, end_frame={end}")
+                                for i in range(start, end + 1):
+                                    if 0 <= i < len(labels):
+                                        labels[i] = 1
+                        else:
+                            print(f"[DEBUG] Нет элементов в annotations для {annotation_path}")
+                except Exception as e:
+                    print(f"[ERROR] Ошибка чтения аннотации {annotation_path}: {str(e)}")
+                    print("[DEBUG] Stack trace:", flush=True)
+                    import traceback
+                    traceback.print_exc()
             else:
-                sequence_labels.append(seq_labels)
+                print(f"[DEBUG] Нет аннотации для видео, все метки = 0")
+            
+            # Создание последовательностей
+            sequences = []
+            sequence_labels = []
+            max_seq = min(len(frames) - sequence_length + 1, max_sequences_per_video)
+            
+            for i in range(max_seq):
+                sequence = frames[i:i + sequence_length]
+                seq_labels = labels[i:i + sequence_length]
+                sequences.append(sequence)
                 
-        print(f"[DEBUG] Сформировано {len(sequences)} последовательностей (ограничение: {max_sequences_per_video})")
-        return np.array(sequences), np.array(sequence_labels)
+                if one_hot:
+                    # Преобразуем метки в one-hot формат
+                    one_hot_labels = np.zeros((sequence_length, 2))
+                    for j, label in enumerate(seq_labels):
+                        one_hot_labels[j, label] = 1
+                    sequence_labels.append(one_hot_labels)
+                else:
+                    sequence_labels.append(seq_labels)
+                
+            print(f"[DEBUG] Сформировано {len(sequences)} последовательностей (ограничение: {max_sequences_per_video})")
+            return np.array(sequences), np.array(sequence_labels)
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
     
     def preload_video(self, video_path, target_size):
         """

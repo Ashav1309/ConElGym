@@ -13,6 +13,7 @@ from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import logging
 import gc
 from tensorflow.keras.optimizers import Adam
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -231,54 +232,50 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         }
         
         def _create_model_operation():
-            # Входной слой
-            inputs = Input(shape=input_shape)
-            x = inputs
-            
-            # Начальный слой
-            x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            
-            # UIB блоки
-            for block in config['blocks']:
-                x = UniversalInvertedBottleneck(
-                    filters=block['filters'],
-                    expansion=block['expansion'],
-                    stride=block['stride'],
-                    se_ratio=se_ratio
-                )(x)
-            
-            # Временное внимание
-            x = TemporalAttention()(x)
-            
-            # Пространственное внимание
-            x = SpatialAttention()(x)
-            
-            # Глобальное среднее объединение
-            x = GlobalAveragePooling2D()(x)
-            
-            # Нормализация и классификация
-            x = LayerNormalization(axis=-1)(x)
-            x = Dropout(dropout_rate)(x)
-            x = Dense(num_classes, activation='softmax')(x)
-            
-            return Model(inputs=inputs, outputs=x)
-        
-        # Создание модели
-        model = _create_model_operation()
-        
-        # Компиляция модели
-        model.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        return model
+            try:
+                # Входной слой
+                inputs = Input(shape=input_shape)
+                x = inputs
+                
+                # Начальный слой
+                x = Conv2D(config['initial_filters'], 3, strides=2, padding='same')(x)
+                x = BatchNormalization()(x)
+                x = ReLU()(x)
+                
+                # UIB блоки
+                for block in config['blocks']:
+                    x = UniversalInvertedBottleneck(
+                        filters=block['filters'],
+                        expansion=block['expansion'],
+                        stride=block['stride'],
+                        se_ratio=se_ratio
+                    )(x)
+                
+                # Выходные слои
+                x = GlobalAveragePooling2D()(x)
+                x = Dropout(dropout_rate)(x)
+                outputs = Dense(num_classes, activation='softmax')(x)
+                
+                model = Model(inputs=inputs, outputs=outputs)
+                model.compile(
+                    optimizer=Adam(learning_rate=0.001),
+                    loss='categorical_crossentropy',
+                    metrics=['accuracy']
+                )
+                
+                print("[DEBUG] MobileNetV4 успешно создана")
+                return model
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
+                print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+                raise
+                
+        return _create_model_operation()
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при создании модели MobileNetV4: {str(e)}")
+        print(f"[ERROR] Критическая ошибка при инициализации MobileNetV4: {str(e)}")
+        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
         raise
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25):
@@ -333,68 +330,71 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     except Exception as e:
         print(f"[ERROR] Ошибка при создании модели: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         raise
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
     """
-    Создание модели на основе MobileNetV3 (текущая реализация)
-    """
-    print(f"[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
-    network_handler = NetworkErrorHandler()
-    network_monitor = NetworkMonitor()
+    Создает модель MobileNetV3 с LSTM для обработки временных последовательностей.
     
-    def _create_model_operation():
-        try:
-            # Проверка состояния сети
-            network_monitor.check_network_status()
-            
-            # Входной слой
-            inputs = Input(shape=input_shape)
-            
-            # MobileNetV3Small как backbone
-            base_model = MobileNetV3Small(
-                include_top=False,
-                weights='imagenet',
-                input_shape=input_shape[1:],
-                include_preprocessing=True
-            )
-            
-            # Проверка доступности GPU
-            if not tf.config.list_physical_devices('GPU'):
-                logger.warning("GPU не доступен, используется CPU")
+    Args:
+        input_shape: Форма входных данных (sequence_length, height, width, channels)
+        num_classes: Количество классов
+        dropout_rate: Коэффициент dropout
+        lstm_units: Количество юнитов в LSTM слое
+    """
+    try:
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
+        
+        def _create_model_operation():
+            try:
+                # Входной слой
+                inputs = Input(shape=input_shape)
                 
-            base_model.trainable = False
-            
-            # Применяем MobileNetV3 к каждому кадру в последовательности
-            x = TimeDistributed(base_model)(inputs)
-            # Пространственное внимание для каждого кадра
-            spatial_attention = TimeDistributed(SpatialAttention())(x)
-            x = Multiply()([x, spatial_attention])
-            # Подготовка для LSTM
-            x = TimeDistributed(GlobalAveragePooling2D())(x)
-            # BiLSTM слои
-            x = Bidirectional(LSTM(lstm_units * 2, return_sequences=True))(x)
-            x = Dropout(dropout_rate)(x)
-            x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-            x = TimeDistributed(Dense(lstm_units // 2, activation='relu'))(x)
-            x = Dropout(dropout_rate / 2)(x)
-            outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
-            
-            return Model(inputs=inputs, outputs=outputs)
-            
-        except tf.errors.ResourceExhaustedError as e:
-            logger.error(f"Недостаточно ресурсов GPU: {str(e)}")
-            tf.keras.backend.clear_session()
-            gc.collect()
-            raise
-            
-        except Exception as e:
-            logger.error(f"Ошибка при создании модели: {str(e)}")
-            raise
-            
-    return network_handler.handle_network_operation(_create_model_operation)
+                # Базовый MobileNetV3
+                base_model = MobileNetV3Small(
+                    input_shape=input_shape[1:],
+                    include_top=False,
+                    weights='imagenet'
+                )
+                
+                # Замораживаем веса базовой модели
+                base_model.trainable = False
+                
+                # Обработка последовательности
+                x = TimeDistributed(base_model)(inputs)
+                x = TimeDistributed(GlobalAveragePooling2D())(x)
+                
+                # LSTM для временной последовательности
+                x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+                x = Dropout(dropout_rate)(x)
+                x = Bidirectional(LSTM(lstm_units))(x)
+                x = Dropout(dropout_rate)(x)
+                
+                # Выходной слой
+                outputs = Dense(num_classes, activation='softmax')(x)
+                
+                model = Model(inputs=inputs, outputs=outputs)
+                model.compile(
+                    optimizer=Adam(learning_rate=0.001),
+                    loss='categorical_crossentropy',
+                    metrics=['accuracy']
+                )
+                
+                print("[DEBUG] MobileNetV3 успешно создана")
+                return model
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
+                print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+                raise
+                
+        return _create_model_operation()
+        
+    except Exception as e:
+        print(f"[ERROR] Критическая ошибка при инициализации MobileNetV3: {str(e)}")
+        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+        raise
 
 if __name__ == "__main__":
     try:

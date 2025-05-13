@@ -1,3 +1,6 @@
+import os
+import sys
+
 class Config:
     # Параметры модели
     INPUT_SHAPE = (224, 224, 3)
@@ -86,4 +89,71 @@ class Config:
                 {'filters': 512, 'expansion': 4, 'stride': 2},
             ]
         }
-    } 
+    }
+    
+    @classmethod
+    def validate(cls):
+        """Проверка конфигурации"""
+        print("\n[DEBUG] ===== Валидация конфигурации =====")
+        
+        # Проверка путей
+        paths = [
+            cls.TRAIN_DATA_PATH,
+            cls.VALID_DATA_PATH,
+            cls.TRAIN_ANNOTATION_PATH,
+            cls.VALID_ANNOTATION_PATH,
+            cls.MODEL_SAVE_PATH
+        ]
+        
+        for path in paths:
+            if not os.path.exists(path):
+                print(f"[ERROR] Директория не найдена: {path}")
+                os.makedirs(path, exist_ok=True)
+                print(f"[DEBUG] Создана директория: {path}")
+        
+        # Проверка параметров модели
+        if cls.MODEL_TYPE not in ['v3', 'v4']:
+            raise ValueError(f"Неверный тип модели: {cls.MODEL_TYPE}. Допустимые значения: v3, v4")
+            
+        if cls.MODEL_SIZE not in ['small', 'medium', 'large']:
+            raise ValueError(f"Неверный размер модели: {cls.MODEL_SIZE}. Допустимые значения: small, medium, large")
+            
+        if cls.EXPANSION_FACTOR <= 0:
+            raise ValueError(f"Фактор расширения должен быть положительным: {cls.EXPANSION_FACTOR}")
+            
+        if not 0 < cls.SE_RATIO <= 1:
+            raise ValueError(f"Коэффициент SE должен быть в диапазоне (0, 1]: {cls.SE_RATIO}")
+            
+        # Проверка параметров обучения
+        if cls.EPOCHS <= 0:
+            raise ValueError(f"Количество эпох должно быть положительным: {cls.EPOCHS}")
+            
+        if cls.STEPS_PER_EPOCH <= 0:
+            raise ValueError(f"Количество шагов на эпоху должно быть положительным: {cls.STEPS_PER_EPOCH}")
+            
+        if cls.VALIDATION_STEPS <= 0:
+            raise ValueError(f"Количество шагов валидации должно быть положительным: {cls.VALIDATION_STEPS}")
+            
+        # Проверка параметров данных
+        if cls.SEQUENCE_LENGTH <= 0:
+            raise ValueError(f"Длина последовательности должна быть положительной: {cls.SEQUENCE_LENGTH}")
+            
+        if cls.MAX_SEQUENCES_PER_VIDEO <= 0:
+            raise ValueError(f"Максимальное количество последовательностей должно быть положительным: {cls.MAX_SEQUENCES_PER_VIDEO}")
+            
+        # Проверка настроек GPU
+        if cls.DEVICE_CONFIG['use_gpu']:
+            if cls.DEVICE_CONFIG['gpu_memory_limit'] <= 0:
+                raise ValueError(f"Лимит памяти GPU должен быть положительным: {cls.DEVICE_CONFIG['gpu_memory_limit']}")
+                
+            if not 0 < cls.DEVICE_CONFIG['per_process_gpu_memory_fraction'] <= 1:
+                raise ValueError(f"Доля памяти GPU должна быть в диапазоне (0, 1]: {cls.DEVICE_CONFIG['per_process_gpu_memory_fraction']}")
+                
+        # Проверка настроек CPU
+        if cls.DEVICE_CONFIG['cpu_threads'] <= 0:
+            raise ValueError(f"Количество потоков CPU должно быть положительным: {cls.DEVICE_CONFIG['cpu_threads']}")
+            
+        print("[DEBUG] Валидация конфигурации успешно завершена\n")
+        
+# Валидация конфигурации при импорте
+Config.validate() 

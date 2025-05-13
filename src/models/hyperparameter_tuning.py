@@ -227,6 +227,16 @@ def load_and_prepare_data(batch_size):
     clear_memory()  # Очищаем память перед загрузкой данных
     
     try:
+        # Проверяем существование директорий
+        if not os.path.exists(Config.TRAIN_DATA_PATH):
+            raise FileNotFoundError(f"Директория с обучающими данными не найдена: {Config.TRAIN_DATA_PATH}")
+        if not os.path.exists(Config.VALID_DATA_PATH):
+            raise FileNotFoundError(f"Директория с валидационными данными не найдена: {Config.VALID_DATA_PATH}")
+            
+        print(f"[DEBUG] Проверка директорий успешна:")
+        print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
+        print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
+        
         train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
         print("[DEBUG] VideoDataLoader создан успешно")
@@ -239,7 +249,10 @@ def load_and_prepare_data(batch_size):
         
         return train_dataset, val_dataset
     except Exception as e:
-        print(f"[DEBUG] Ошибка при загрузке данных: {str(e)}")
+        print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
         clear_memory()
         raise
 
@@ -247,71 +260,39 @@ def objective(trial):
     """Функция оптимизации для Optuna"""
     print(f"\n[DEBUG] ===== Начало Trial {trial.number} =====")
     
-    # Определение гиперпараметров
-    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
-    dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-    batch_size = trial.suggest_int('batch_size', 8, 32)
-    lstm_units = trial.suggest_int('lstm_units', 32, 256)
-    
-    print("[DEBUG] Гиперпараметры:")
-    print(f"  - learning_rate: {learning_rate}")
-    print(f"  - dropout_rate: {dropout_rate}")
-    print(f"  - batch_size: {batch_size}")
-    print(f"  - lstm_units: {lstm_units}")
-    
     try:
-        print("\n[DEBUG] ===== Этап 1: Загрузка данных =====")
-        print("[DEBUG] Инициализация VideoDataLoader...")
+        # Определение гиперпараметров
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        batch_size = trial.suggest_int('batch_size', 8, 32)
+        lstm_units = trial.suggest_int('lstm_units', 32, 256) if Config.MODEL_TYPE == 'v3' else None
         
-        # Создаем загрузчик данных только один раз
-        if not hasattr(objective, 'data_loader'):
-            print("[DEBUG] Создание нового экземпляра VideoDataLoader")
-            objective.data_loader = VideoDataLoader(
-                video_dir=Config.TRAIN_DATA_PATH,
-                annotation_dir=Config.TRAIN_ANNOTATION_PATH,
-                sequence_length=Config.SEQUENCE_LENGTH,
-                input_size=Config.INPUT_SIZE
-            )
-            print("[DEBUG] VideoDataLoader создан успешно")
-        
-        print("\n[DEBUG] Создание train dataset...")
-        train_dataset = create_data_pipeline(batch_size, objective.data_loader)
-        print("[DEBUG] Train dataset создан успешно")
-        
-        print("\n[DEBUG] Создание valid dataset...")
-        valid_dataset = create_data_pipeline(batch_size, objective.data_loader)
-        print("[DEBUG] Valid dataset создан успешно")
-        
-        print("\n[DEBUG] ===== Этап 2: Создание модели =====")
-        print(f"[DEBUG] Создание модели типа: {Config.MODEL_TYPE}")
+        print(f"[DEBUG] Параметры trial {trial.number}:")
+        print(f"  - learning_rate: {learning_rate}")
+        print(f"  - dropout_rate: {dropout_rate}")
+        print(f"  - batch_size: {batch_size}")
+        if lstm_units:
+            print(f"  - lstm_units: {lstm_units}")
+            
+        # Загрузка данных
+        train_dataset, val_dataset = load_and_prepare_data(batch_size)
         
         # Создание модели
-        model = create_model(
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
+        model = create_and_compile_model(
+            input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
+            learning_rate=learning_rate,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            model_type=Config.MODEL_TYPE,
-            model_size=Config.MODEL_SIZE,
-            expansion_factor=Config.EXPANSION_FACTOR,
-            se_ratio=Config.SE_RATIO
+            model_type=Config.MODEL_TYPE
         )
-        print("[DEBUG] Модель создана успешно")
         
-        print("\n[DEBUG] ===== Этап 3: Компиляция модели =====")
-        # Компиляция модели
-        model.compile(
-            optimizer=Adam(learning_rate=learning_rate),
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        print("[DEBUG] Модель скомпилирована успешно")
-        
-        print("\n[DEBUG] ===== Этап 4: Обучение модели =====")
         # Обучение модели
+        print(f"[DEBUG] Начало обучения trial {trial.number}...")
         history = model.fit(
             train_dataset,
-            validation_data=valid_dataset,
+            validation_data=val_dataset,
             epochs=Config.EPOCHS,
             callbacks=[
                 tf.keras.callbacks.EarlyStopping(
@@ -321,13 +302,15 @@ def objective(trial):
                 )
             ]
         )
-        print("[DEBUG] Обучение завершено успешно")
         
-        # Возвращаем лучшую валидационную точность
-        return max(history.history['val_accuracy'])
+        # Оценка результатов
+        val_loss = min(history.history['val_loss'])
+        print(f"[DEBUG] Trial {trial.number} завершен. Лучшая val_loss: {val_loss}")
+        
+        return val_loss
         
     except Exception as e:
-        print(f"\n[ERROR] Ошибка в trial {trial.number}: {str(e)}")
+        print(f"[ERROR] Ошибка в trial {trial.number}: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
