@@ -420,15 +420,21 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
         input_shape: Форма входных данных (sequence_length, height, width, channels)
         num_classes: Количество классов
         dropout_rate: Коэффициент dropout
-        lstm_units: Количество юнитов в LSTM слое
+        lstm_units: Количество юнитов в LSTM слое (по умолчанию 64)
     """
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}")
+        
+        # Проверяем и устанавливаем значение по умолчанию для lstm_units
+        if lstm_units is None:
+            lstm_units = 64
+            print(f"[DEBUG] lstm_units установлен по умолчанию: {lstm_units}")
         
         def _create_model_operation():
             try:
                 # Входной слой
                 inputs = Input(shape=input_shape)
+                print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
                 
                 # Базовый MobileNetV3
                 base_model = MobileNetV3Small(
