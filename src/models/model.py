@@ -208,14 +208,6 @@ class ModelTrainer:
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     """
     Создает модель MobileNetV4 с правильной обработкой размерностей.
-    
-    Args:
-        input_shape: Форма входных данных (sequence_length, height, width, channels)
-        num_classes: Количество классов
-        dropout_rate: Коэффициент dropout
-        model_type: Тип модели (small, medium, large)
-        expansion_factor: Фактор расширения для UIB блоков
-        se_ratio: Коэффициент для Squeeze-and-Excitation блоков
     """
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
@@ -233,6 +225,8 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         
         def _create_model_operation():
             try:
+                print("[DEBUG] Начало создания модели...")
+                
                 # Входной слой
                 inputs = Input(shape=input_shape)
                 print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
@@ -243,9 +237,8 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 width = input_shape[2]
                 channels = input_shape[3]
                 
-                # Преобразуем последовательность в батч изображений
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
-                print(f"[DEBUG] Форма входных данных до Reshape: {inputs.shape}")
+                print(f"[DEBUG] Форма входных данных до обработки: {inputs.shape}")
                 
                 # Проверяем и исправляем размерности входных данных
                 if len(inputs.shape) == 6:  # Если есть лишняя размерность
@@ -262,43 +255,56 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                     print(f"[ERROR] Ожидаемая размерность: (batch_size, {sequence_length}, {height}, {width}, {channels})")
                     raise ValueError(f"Неверная размерность после обработки: {x.shape}")
                 
-                # Начальный слой
-                x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
-                print(f"[DEBUG] После начального Conv2D: {x.shape}")
-                print(f"[DEBUG] Тип данных после Conv2D: {type(x)}")
-                x = TimeDistributed(BatchNormalization())(x)
-                x = TimeDistributed(ReLU())(x)
-                
-                # UIB блоки
-                for i, block in enumerate(config['blocks']):
-                    x = TimeDistributed(UniversalInvertedBottleneck(
-                        filters=block['filters'],
-                        expansion=block['expansion'],
-                        stride=block['stride'],
-                        se_ratio=se_ratio
-                    ))(x)
-                    print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
-                
-                # Временная обработка
-                x = TimeDistributed(GlobalAveragePooling2D())(x)
-                print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
-                x = Bidirectional(LSTM(64, return_sequences=True))(x)
-                x = Dropout(dropout_rate)(x)
-                x = Bidirectional(LSTM(32))(x)
-                x = Dropout(dropout_rate)(x)
-                
-                # Выходной слой
-                outputs = Dense(num_classes, activation='softmax')(x)
-                
-                model = Model(inputs=inputs, outputs=outputs)
-                model.compile(
-                    optimizer=Adam(learning_rate=0.001),
-                    loss='categorical_crossentropy',
-                    metrics=['accuracy']
-                )
-                
-                print("[DEBUG] MobileNetV4 успешно создана")
-                return model
+                try:
+                    # Начальный слой
+                    x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
+                    print(f"[DEBUG] После начального Conv2D: {x.shape}")
+                    print(f"[DEBUG] Тип данных после Conv2D: {type(x)}")
+                    
+                    x = TimeDistributed(BatchNormalization())(x)
+                    x = TimeDistributed(ReLU())(x)
+                    
+                    # UIB блоки
+                    for i, block in enumerate(config['blocks']):
+                        try:
+                            x = TimeDistributed(UniversalInvertedBottleneck(
+                                filters=block['filters'],
+                                expansion=block['expansion'],
+                                stride=block['stride'],
+                                se_ratio=se_ratio
+                            ))(x)
+                            print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
+                        except Exception as e:
+                            print(f"[ERROR] Ошибка в UIB блоке {i+1}: {str(e)}")
+                            print(f"[DEBUG] Форма данных перед блоком: {x.shape}")
+                            raise
+                    
+                    # Временная обработка
+                    x = TimeDistributed(GlobalAveragePooling2D())(x)
+                    print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
+                    
+                    x = Bidirectional(LSTM(64, return_sequences=True))(x)
+                    x = Dropout(dropout_rate)(x)
+                    x = Bidirectional(LSTM(32))(x)
+                    x = Dropout(dropout_rate)(x)
+                    
+                    # Выходной слой
+                    outputs = Dense(num_classes, activation='softmax')(x)
+                    
+                    model = Model(inputs=inputs, outputs=outputs)
+                    model.compile(
+                        optimizer=Adam(learning_rate=0.001),
+                        loss='categorical_crossentropy',
+                        metrics=['accuracy']
+                    )
+                    
+                    print("[DEBUG] MobileNetV4 успешно создана")
+                    return model
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при создании слоев модели: {str(e)}")
+                    print(f"[DEBUG] Текущая форма данных: {x.shape if 'x' in locals() else 'не определена'}")
+                    raise
                 
             except Exception as e:
                 print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
