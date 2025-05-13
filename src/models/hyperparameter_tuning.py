@@ -28,6 +28,7 @@ import subprocess
 import sys
 import json
 import cv2
+from tensorflow.keras.optimizers import Adam
 
 def clear_memory():
     """Очистка памяти"""
@@ -123,167 +124,25 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video):
+def create_data_pipeline(batch_size, data_loader):
     """
-    Создает оптимизированный pipeline данных
+    Создает pipeline данных для обучения
+    Args:
+        batch_size: размер батча
+        data_loader: экземпляр VideoDataLoader
     """
     print(f"[DEBUG] Создание pipeline данных: batch_size={batch_size}")
-    print(f"[DEBUG] Ожидаемая форма входных данных: (None, {Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
+    print(f"[DEBUG] Ожидаемая форма входных данных: (None, {Config.SEQUENCE_LENGTH}, {Config.IMAGE_SIZE[0]}, {Config.IMAGE_SIZE[1]}, 3)")
     
-    def generator():
-        print("[DEBUG] Запуск генератора данных...")
-        try:
-            # Очищаем память перед созданием генератора
-            # clear_memory()
-            
-            # Получаем список видео и аннотаций
-            video_paths = loader.video_paths
-            annotation_paths = loader.labels
-            
-            # Множество для отслеживания обработанных видео
-            processed_videos = set()
-            
-            while True:  # Бесконечный цикл для infinite_loop
-                # Перемешиваем видео для каждой эпохи
-                indices = np.arange(len(video_paths))
-                np.random.shuffle(indices)
-                shuffled_video_paths = [video_paths[i] for i in indices]
-                shuffled_annotation_paths = [annotation_paths[i] for i in indices]
-                
-                # Сбрасываем множество обработанных видео в начале каждой эпохи
-                processed_videos.clear()
-                
-                for video_path, annotation_path in zip(shuffled_video_paths, shuffled_annotation_paths):
-                    # Пропускаем видео, если оно уже было обработано в этой эпохе
-                    if video_path in processed_videos:
-                        continue
-                        
-                    try:
-                        print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
-                        
-                        # Загружаем аннотацию
-                        if annotation_path and os.path.exists(annotation_path):
-                            with open(annotation_path, 'r') as f:
-                                annotation = json.load(f)
-                            annotations = annotation.get('annotations', [])
-                        else:
-                            annotations = []
-                        
-                        # Открываем видео
-                        cap = cv2.VideoCapture(video_path)
-                        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        
-                        # Определяем границы для последовательностей
-                        sequence_count = 0
-                        while sequence_count < max_sequences_per_video:
-                            # Выбираем случайную начальную позицию
-                            if annotations:
-                                # Если есть аннотации, выбираем случайную из них
-                                ann = np.random.choice(annotations)
-                                start_frame = ann['start_frame']
-                                end_frame = ann['end_frame']
-                                
-                                if end_frame - start_frame <= sequence_length:
-                                    start_pos = start_frame
-                                else:
-                                    start_pos = np.random.randint(start_frame, end_frame - sequence_length)
-                            else:
-                                # Если нет аннотаций, выбираем случайную позицию
-                                if total_frames <= sequence_length:
-                                    start_pos = 0
-                                else:
-                                    start_pos = np.random.randint(0, total_frames - sequence_length)
-                            
-                            # Загружаем только нужные кадры
-                            frames = []
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_pos)
-                            
-                            for _ in range(sequence_length):
-                                ret, frame = cap.read()
-                                if not ret:
-                                    break
-                                frame = cv2.resize(frame, target_size)
-                                frame = frame.astype(np.float32) / 255.0
-                                frames.append(frame)
-                            
-                            if len(frames) == sequence_length:
-                                # Создаем метки
-                                labels = np.zeros((sequence_length, 2))
-                                for i in range(sequence_length):
-                                    frame_idx = start_pos + i
-                                    is_annotated = False
-                                    for ann in annotations:
-                                        if ann['start_frame'] <= frame_idx <= ann['end_frame']:
-                                            labels[i, 1] = 1  # Элемент присутствует
-                                            is_annotated = True
-                                            break
-                                    if not is_annotated:
-                                        labels[i, 0] = 1  # Элемент отсутствует
-                                
-                                # Преобразуем в one-hot если нужно
-                                if one_hot:
-                                    labels = tf.keras.utils.to_categorical(labels.argmax(axis=1), num_classes=2)
-                                
-                                # Очищаем память после создания последовательности
-                                frames_array = np.array(frames)
-                                del frames
-                                gc.collect()
-                                
-                                yield frames_array, labels
-                                sequence_count += 1
-                                
-                                # Очищаем память после yield
-                                del frames_array
-                                del labels
-                                gc.collect()
-                        
-                        # Закрываем видео
-                        cap.release()
-                        
-                        # Добавляем видео в множество обработанных
-                        processed_videos.add(video_path)
-                        
-                    except Exception as e:
-                        print(f"[DEBUG] Ошибка при обработке видео {video_path}: {str(e)}")
-                        continue
-                
-                if not infinite_loop:
-                    break
-            
-        except Exception as e:
-            print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
-            raise
-        # finally:
-            # Очищаем память после завершения генератора
-            # clear_memory()
+    # Создаем tf.data.Dataset
+    dataset = data_loader.data_generator(batch_size=batch_size, shuffle=True)
+    print("[DEBUG] tf.data.Dataset создан успешно")
     
-    try:
-        # Очищаем память перед созданием dataset
-        clear_memory()
-        
-        dataset = tf.data.Dataset.from_generator(
-            generator,
-            output_signature=(
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
-            )
-        )
-        print("[DEBUG] tf.data.Dataset создан успешно")
-        
-        # Оптимизация загрузки данных
-        dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
-        
-        # Добавляем .repeat() для бесконечного цикла
-        if infinite_loop:
-            dataset = dataset.repeat()
-            
-        print("[DEBUG] Pipeline данных оптимизирован")
-        
-        return dataset
-    except Exception as e:
-        print(f"[DEBUG] Ошибка при создании pipeline данных: {str(e)}")
-        raise
+    # Оптимизируем pipeline
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    print("[DEBUG] Pipeline данных оптимизирован")
+    
+    return dataset
 
 def f1_score_element(y_true, y_pred):
     y_true = tf.argmax(y_true, axis=-1)
@@ -359,30 +218,8 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(
-            loader=train_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=batch_size,
-            target_size=target_size,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=10
-        )
-        print("[DEBUG] Train dataset создан успешно")
-        
-        # Очищаем память между созданием train и val datasets
-        clear_memory()
-        
-        val_dataset = create_data_pipeline(
-            loader=val_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=batch_size,
-            target_size=target_size,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=10
-        )
-        print("[DEBUG] Val dataset создан успешно")
+        train_dataset = create_data_pipeline(batch_size, train_loader)
+        val_dataset = create_data_pipeline(batch_size, val_loader)
         
         return train_dataset, val_dataset
     except Exception as e:
@@ -391,95 +228,79 @@ def load_and_prepare_data(batch_size):
         raise
 
 def objective(trial):
-    print(f"\n[DEBUG] ===== Начало trial {trial.number} =====")
+    """
+    Целевая функция для оптимизации гиперпараметров
+    """
+    print("\n[DEBUG] ===== Trial", trial.number, "parameters: =====")
     
-    # Очищаем память перед каждым trial
-    clear_memory()
+    # Определяем гиперпараметры
+    learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
+    dropout_rate = trial.suggest_float('dropout_rate', 0.2, 0.5)
+    batch_size = trial.suggest_int('batch_size', 8, 32)
+    lstm_units = trial.suggest_int('lstm_units', 32, 128)
     
-    # Определяем параметры для подбора
-    model_type = trial.suggest_categorical('model_type', ['v3', 'v4'])
-    params = {
-        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True),
-        'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-        'batch_size': trial.suggest_int('batch_size', 8, 32)
-    }
-    
-    # Добавляем специфичные параметры для каждого типа модели
-    if model_type == 'v3':
-        params['lstm_units'] = trial.suggest_int('lstm_units', 32, 128)
-    else:  # v4
-        params['expansion_factor'] = trial.suggest_int('expansion_factor', 4, 6)
-        params['se_ratio'] = trial.suggest_float('se_ratio', 0.1, 0.3)
-    
-    print(f"\n[DEBUG] ===== Trial {trial.number} parameters: =====\n")
-    for param, value in params.items():
-        print(f"  - {param}: {value}")
+    print(f"\n  - learning_rate: {learning_rate}")
+    print(f"  - dropout_rate: {dropout_rate}")
+    print(f"  - batch_size: {batch_size}")
+    print(f"  - lstm_units: {lstm_units}\n")
     
     try:
-        # Загружаем данные
-        print("\n[DEBUG] 1. Загрузка данных...")
-        train_dataset, val_dataset = load_and_prepare_data(params['batch_size'])
-        print("[DEBUG] ✓ Данные загружены успешно")
+        print("[DEBUG] 1. Загрузка данных...")
+        print("[DEBUG] Начало загрузки данных...")
         
-        # Создаем и компилируем модель
-        print("\n[DEBUG] 2. Создание и компиляция модели...")
-        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
+        # Создаем VideoDataLoader один раз для всех триалов
+        if not hasattr(objective, 'data_loader'):
+            print("[DEBUG] ===== Начало очистки памяти =====")
+            tf.keras.backend.clear_session()
+            gc.collect()
+            print("[DEBUG] ===== Очистка памяти завершена =====")
+            
+            objective.data_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+            objective.val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
         
+        # Создаем pipeline данных
+        train_dataset = create_data_pipeline(batch_size, objective.data_loader)
+        val_dataset = create_data_pipeline(batch_size, objective.val_loader)
+        
+        print("[DEBUG] Train dataset создан успешно")
+        print("[DEBUG] Val dataset создан успешно")
+        print("[DEBUG] ✓ Данные загружены успешно\n")
+        
+        print("[DEBUG] 2. Создание и компиляция модели...")
         model = create_model(
-            input_shape=input_shape,
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.IMAGE_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
-            dropout_rate=params['dropout_rate'],
-            lstm_units=params.get('lstm_units'),
-            model_type=model_type,
-            model_size='small',  # Фиксируем только small версию
-            expansion_factor=params.get('expansion_factor'),
-            se_ratio=params.get('se_ratio')
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units,
+            model_type=Config.MODEL_TYPE
         )
         
-        optimizer = tf.keras.optimizers.Adam(learning_rate=params['learning_rate'])
-        if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-            optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-        
         model.compile(
-            optimizer=optimizer,
+            optimizer=Adam(learning_rate=learning_rate),
             loss='categorical_crossentropy',
-            metrics=[
-                'accuracy',
-                Precision(class_id=1, name='precision_element'),
-                Recall(class_id=1, name='recall_element'),
-                f1_score_element
+            metrics=['accuracy']
+        )
+        
+        print("[DEBUG] 3. Обучение модели...")
+        history = model.fit(
+            train_dataset,
+            validation_data=val_dataset,
+            epochs=Config.EPOCHS,
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=5,
+                    restore_best_weights=True
+                )
             ]
         )
         
-        # Обучение модели
-        print("\n[DEBUG] 3. Обучение модели...")
-        early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor='val_accuracy',
-            patience=3,
-            restore_best_weights=True
-        )
-        
-        history = model.fit(
-            train_dataset,
-            epochs=Config.EPOCHS,
-            validation_data=val_dataset,
-            callbacks=[early_stopping],
-            steps_per_epoch=Config.STEPS_PER_EPOCH,
-            validation_steps=Config.VALIDATION_STEPS,
-            verbose=0
-        )
-        
-        # Получаем лучшую валидационную точность
-        best_val_accuracy = max(history.history['val_accuracy'])
-        print(f"[DEBUG] ✓ Обучение завершено. Лучшая валидационная точность: {best_val_accuracy:.4f}")
-        
-        return best_val_accuracy
+        # Возвращаем лучшую валидационную точность
+        return max(history.history['val_accuracy'])
         
     except Exception as e:
-        print(f"[DEBUG] Ошибка в trial {trial.number}: {str(e)}")
-        raise
-    finally:
-        clear_memory()
+        print(f"[ERROR] Ошибка в trial {trial.number}: {str(e)}")
+        raise optuna.TrialPruned()
 
 def save_tuning_results(study, total_time, n_trials):
     """

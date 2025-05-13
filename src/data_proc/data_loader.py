@@ -136,77 +136,66 @@ class VideoDataLoader:
     
     def data_generator(self, batch_size=32, shuffle=True):
         """
-        Генератор данных для обучения модели
+        Создает tf.data.Dataset для обучения модели
         Args:
             batch_size: размер батча
             shuffle: перемешивать ли данные
         """
         print("[DEBUG] Запуск генератора данных...")
         
-        # Получаем список всех видео
-        video_files = self.video_paths.copy()
-        if shuffle:
-            np.random.shuffle(video_files)
+        # Создаем списки для хранения всех последовательностей и меток
+        all_sequences = []
+        all_labels = []
         
-        # Создаем словарь для отслеживания обработанных видео
-        if not hasattr(self, '_processed_videos'):
-            self._processed_videos = {}
-        
-        while True:
-            for video_path in video_files:
-                # Пропускаем видео, если оно уже было обработано в текущей эпохе
-                if video_path in self._processed_videos:
+        # Обрабатываем все видео один раз
+        for video_path in self.video_paths:
+            try:
+                print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
+                
+                # Загружаем видео
+                frames = self.load_video(video_path)
+                if frames is None or len(frames) == 0:
                     continue
                 
-                try:
-                    print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
-                    
-                    # Загружаем видео
-                    frames = self.load_video(video_path)
-                    if frames is None or len(frames) == 0:
-                        continue
-                    
-                    # Получаем аннотации
-                    annotation_path = self.labels[self.video_paths.index(video_path)]
-                    if not os.path.exists(annotation_path):
-                        continue
-                    
-                    # Создаем последовательности
-                    sequences, labels = self.create_sequences(
-                        frames,
-                        annotation_path,
-                        sequence_length=self.sequence_length,
-                        one_hot=True,
-                        max_sequences_per_video=self.max_sequences_per_video
-                    )
-                    
-                    if len(sequences) == 0:
-                        continue
-                    
-                    # Разбиваем на батчи
-                    for i in range(0, len(sequences), batch_size):
-                        batch_sequences = sequences[i:i + batch_size]
-                        batch_labels = labels[i:i + batch_size]
-                        
-                        if len(batch_sequences) == batch_size:
-                            yield batch_sequences, batch_labels
-                    
-                    # Отмечаем видео как обработанное
-                    self._processed_videos[video_path] = True
-                    
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                # Получаем аннотации
+                annotation_path = self.labels[self.video_paths.index(video_path)]
+                if not os.path.exists(annotation_path):
                     continue
-            
-            # Если все видео обработаны, очищаем словарь и память
-            self._processed_videos.clear()
-            print("[DEBUG] ===== Начало очистки памяти =====")
-            tf.keras.backend.clear_session()
-            gc.collect()
-            print("[DEBUG] ===== Очистка памяти завершена =====")
-            
-            if shuffle:
-                np.random.shuffle(video_files)
+                
+                # Создаем последовательности
+                sequences, labels = self.create_sequences(
+                    frames,
+                    annotation_path,
+                    sequence_length=self.sequence_length,
+                    one_hot=True,
+                    max_sequences_per_video=self.max_sequences_per_video
+                )
+                
+                if len(sequences) > 0:
+                    all_sequences.extend(sequences)
+                    all_labels.extend(labels)
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                continue
+        
+        # Преобразуем в numpy массивы
+        all_sequences = np.array(all_sequences)
+        all_labels = np.array(all_labels)
+        
+        print(f"[DEBUG] Всего создано {len(all_sequences)} последовательностей")
+        
+        # Создаем tf.data.Dataset
+        dataset = tf.data.Dataset.from_tensor_slices((all_sequences, all_labels))
+        
+        if shuffle:
+            dataset = dataset.shuffle(buffer_size=len(all_sequences))
+        
+        # Разбиваем на батчи и оптимизируем производительность
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
+        return dataset
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         """
