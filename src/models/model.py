@@ -246,8 +246,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
                 print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
                 
                 # Преобразуем входные данные в нужную форму
-                x = Reshape((-1, height, width, channels))(inputs)
+                x = Reshape((sequence_length, height, width, channels))(inputs)
                 print(f"[DEBUG] После Reshape: {x.shape}")
+                
+                # Проверяем размерности
+                if len(x.shape) != 5:
+                    raise ValueError(f"Неверная размерность после Reshape: {x.shape}, ожидается (batch_size, {sequence_length}, {height}, {width}, {channels})")
                 
                 # Начальный слой
                 x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
