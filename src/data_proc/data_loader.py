@@ -152,6 +152,30 @@ class VideoDataLoader:
             # Очищаем память перед созданием последовательностей
             gc.collect()
             
+            # Проверяем, что аннотации существуют
+            if annotations is None:
+                print("[WARNING] Аннотации не найдены, создаем пустые метки")
+                annotations = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+            else:
+                # Загружаем аннотации из JSON файла
+                try:
+                    with open(annotations, 'r') as f:
+                        ann_data = json.load(f)
+                        # Преобразуем аннотации в numpy массив
+                        annotations = np.array(ann_data['labels'], dtype=np.float32)
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
+                    print("[WARNING] Создаем пустые метки")
+                    annotations = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+            
+            # Проверяем размерности
+            if len(annotations) != len(frames):
+                print(f"[WARNING] Несоответствие размерностей: frames={len(frames)}, annotations={len(annotations)}")
+                # Обрезаем до минимальной длины
+                min_len = min(len(frames), len(annotations))
+                frames = frames[:min_len]
+                annotations = annotations[:min_len]
+            
             for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
                 sequence = frames[i:i + self.sequence_length]
                 sequence_labels = annotations[i:i + self.sequence_length]
@@ -167,10 +191,17 @@ class VideoDataLoader:
             sequences = np.array(sequences, dtype=np.float32)
             labels = np.array(labels, dtype=np.float32)
             
+            print(f"[DEBUG] Создано {len(sequences)} последовательностей")
+            print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
+            print(f"[DEBUG] Форма меток: {labels.shape}")
+            
             return sequences, labels
             
         except Exception as e:
             print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
             raise
     
     def preload_video(self, video_path, target_size):
