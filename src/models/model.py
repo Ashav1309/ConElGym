@@ -5,7 +5,7 @@ from tensorflow.keras.layers import (
     GlobalAveragePooling2D, Reshape,
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
-    GlobalAveragePooling1D
+    GlobalAveragePooling1D, LayerNormalization, Add
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
@@ -113,9 +113,89 @@ class ModelTrainer:
                 
         return self.network_handler.handle_network_operation(_train_operation)
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5):
     """
-    Создание модели с обработкой сетевых ошибок
+    Создание модели на основе MobileNetV4
+    """
+    network_handler = NetworkErrorHandler()
+    network_monitor = NetworkMonitor()
+    
+    def _create_model_operation():
+        try:
+            # Проверка состояния сети
+            network_monitor.check_network_status()
+            
+            # Входной слой
+            inputs = Input(shape=input_shape)
+            
+            # Базовый слой для обработки последовательности
+            x = TimeDistributed(Conv2D(32, (3, 3), padding='same'))(inputs)
+            x = TimeDistributed(BatchNormalization())(x)
+            x = TimeDistributed(Activation('relu'))(x)
+            
+            # Блоки MobileNetV4
+            for filters in [64, 128, 256]:
+                # Основной блок
+                residual = x
+                
+                # Depthwise separable convolution
+                x = TimeDistributed(Conv2D(filters, (3, 3), padding='same', groups=filters))(x)
+                x = TimeDistributed(BatchNormalization())(x)
+                x = TimeDistributed(Activation('relu'))(x)
+                
+                # Pointwise convolution
+                x = TimeDistributed(Conv2D(filters, (1, 1)))(x)
+                x = TimeDistributed(BatchNormalization())(x)
+                x = TimeDistributed(Activation('relu'))(x)
+                
+                # Добавляем residual connection если размерности совпадают
+                if residual.shape[-1] == filters:
+                    x = TimeDistributed(Add())([x, residual])
+                
+                # Применяем dropout
+                x = TimeDistributed(Dropout(dropout_rate))(x)
+            
+            # Глобальное среднее объединение
+            x = TimeDistributed(GlobalAveragePooling2D())(x)
+            
+            # Нормализация
+            x = LayerNormalization()(x)
+            
+            # Финальный слой классификации
+            outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
+            
+            return Model(inputs=inputs, outputs=outputs)
+            
+        except tf.errors.ResourceExhaustedError as e:
+            logger.error(f"Недостаточно ресурсов GPU: {str(e)}")
+            tf.keras.backend.clear_session()
+            gc.collect()
+            raise
+            
+        except Exception as e:
+            logger.error(f"Ошибка при создании модели: {str(e)}")
+            raise
+            
+    return network_handler.handle_network_operation(_create_model_operation)
+
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3'):
+    """
+    Создание модели с выбором типа архитектуры
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        dropout_rate: коэффициент dropout
+        lstm_units: количество юнитов в LSTM слоях
+        model_type: тип модели ('v3' или 'v4')
+    """
+    if model_type == 'v4':
+        return create_mobilenetv4_model(input_shape, num_classes, dropout_rate)
+    else:
+        return create_mobilenetv3_model(input_shape, num_classes, dropout_rate, lstm_units)
+
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
+    """
+    Создание модели на основе MobileNetV3 (текущая реализация)
     """
     network_handler = NetworkErrorHandler()
     network_monitor = NetworkMonitor()
@@ -161,7 +241,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64):
             
         except tf.errors.ResourceExhaustedError as e:
             logger.error(f"Недостаточно ресурсов GPU: {str(e)}")
-            # Попытка освободить память
             tf.keras.backend.clear_session()
             gc.collect()
             raise
@@ -177,7 +256,8 @@ if __name__ == "__main__":
         # Инициализация компонентов
         model = create_model(
             input_shape=(16, 224, 224, 3),  # 16 кадров, размер 224x224, 3 канала
-            num_classes=2  # Начало и конец элемента
+            num_classes=2,  # Начало и конец элемента
+            model_type='v3'
         )
         model.summary()
         

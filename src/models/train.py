@@ -181,62 +181,117 @@ def f1_score_element(y_true, y_pred):
     recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
     return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
 
-def load_best_params():
+def load_best_params(model_type=None):
     """
     Загрузка лучших параметров из файла optuna_results.txt
+    Args:
+        model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
     """
+    model_type = model_type or Config.MODEL_TYPE
     results_path = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', 'optuna_results.txt')
+    
     if not os.path.exists(results_path):
-        print("Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию.")
-        return {
-            'learning_rate': Config.LEARNING_RATE,
-            'dropout_rate': 0.5,
-            'lstm_units': 32,
-            'batch_size': Config.BATCH_SIZE
+        print(f"Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию для {model_type}.")
+        default_params = {
+            'learning_rate': 1e-4,
+            'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+            'batch_size': 16
         }
+        if model_type == 'v3':
+            default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+        return default_params
     
     try:
         with open(results_path, 'r') as f:
             content = f.read()
-            # Ищем параметры в формате {'param': value, ...}
-            params_match = re.search(r"Params: ({.*})", content)
-            if params_match:
-                params_str = params_match.group(1)
-                # Заменяем одинарные кавычки на двойные для корректного JSON
-                params_str = params_str.replace("'", '"')
+            
+            # Ищем лучшие результаты для каждого типа модели
+            v3_best = None
+            v4_best = None
+            
+            # Ищем все trials
+            trials = re.finditer(r"Trial \d+:\s+Value: ([\d.-]+)\s+Params: ({[^}]+})", content)
+            for trial in trials:
+                value = float(trial.group(1))
+                params_str = trial.group(2).replace("'", '"')
                 params = json.loads(params_str)
-                print(f"Загружены лучшие параметры: {params}")
-                return params
+                
+                if params.get('model_type') == 'v3' and (v3_best is None or value > v3_best[0]):
+                    v3_best = (value, params)
+                elif params.get('model_type') == 'v4' and (v4_best is None or value > v4_best[0]):
+                    v4_best = (value, params)
+            
+            # Выбираем лучшие параметры для запрошенного типа модели
+            if model_type == 'v3' and v3_best:
+                best_params = v3_best[1]
+            elif model_type == 'v4' and v4_best:
+                best_params = v4_best[1]
+            else:
+                print(f"Не найдены результаты для модели {model_type}. Используем параметры по умолчанию.")
+                best_params = {
+                    'learning_rate': 1e-4,
+                    'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+                    'batch_size': 16
+                }
+                if model_type == 'v3':
+                    best_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+            
+            print(f"Загружены лучшие параметры для {model_type}: {best_params}")
+            return best_params
+            
     except Exception as e:
         print(f"Ошибка при загрузке параметров: {e}")
     
-    print("Не удалось загрузить параметры. Используем параметры по умолчанию.")
-    return {
-        'learning_rate': Config.LEARNING_RATE,
-        'dropout_rate': 0.5,
-        'lstm_units': 32,
-        'batch_size': Config.BATCH_SIZE
+    print(f"Не удалось загрузить параметры для {model_type}. Используем параметры по умолчанию.")
+    default_params = {
+        'learning_rate': 1e-4,
+        'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+        'batch_size': 16
     }
+    if model_type == 'v3':
+        default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+    return default_params
 
-def train():
+def train(model_type=None):
+    """
+    Обучение модели
+    Args:
+        model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
+    """
     # Очищаем память перед началом обучения
     clear_memory()
     
+    # Определяем тип модели
+    model_type = model_type or Config.MODEL_TYPE
+    
     # Загружаем лучшие параметры
-    best_params = load_best_params()
+    best_params = load_best_params(model_type)
     
     # Создание директорий
-    os.makedirs(Config.MODEL_SAVE_PATH, exist_ok=True)
-    os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'plots'), exist_ok=True)
+    model_save_path = os.path.join(Config.MODEL_SAVE_PATH, model_type)
+    os.makedirs(model_save_path, exist_ok=True)
+    os.makedirs(os.path.join(model_save_path, 'plots'), exist_ok=True)
     
     # Создание модели с лучшими параметрами
     input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-    model = create_model(
-        input_shape=input_shape,
-        num_classes=Config.NUM_CLASSES,
-        dropout_rate=best_params['dropout_rate'],
-        lstm_units=best_params['lstm_units']
-    )
+    
+    # Получаем параметры модели в зависимости от типа
+    model_params = Config.MODEL_PARAMS[model_type]
+    if model_type == 'v3':
+        model = create_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
+            lstm_units=best_params.get('lstm_units', model_params['lstm_units']),
+            model_type=model_type
+        )
+    else:  # v4
+        model = create_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
+            model_type=model_type
+        )
     
     # Компиляция модели с mixed precision и лучшим learning rate
     optimizer = tf.keras.optimizers.Adam(learning_rate=best_params['learning_rate'])
@@ -256,7 +311,7 @@ def train():
     # Callbacks
     callbacks = [
         ModelCheckpoint(
-            filepath=os.path.join(Config.MODEL_SAVE_PATH, 'best_model.h5'),
+            filepath=os.path.join(model_save_path, 'best_model.h5'),
             monitor='val_loss',
             save_best_only=True
         ),
@@ -274,8 +329,8 @@ def train():
         OverfittingMonitor(
             threshold=Config.OVERFITTING_PREVENTION['max_overfitting_threshold']
         ),
-        TrainingPlotter(os.path.join(Config.MODEL_SAVE_PATH, 'plots')),
-        TqdmCallback(verbose=1)  # Добавляем прогресс-бар
+        TrainingPlotter(os.path.join(model_save_path, 'plots')),
+        TqdmCallback(verbose=1)
     ]
     
     try:
@@ -290,7 +345,7 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=True,  # Включаем бесконечный цикл для обучения
+            infinite_loop=True,
             max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
         )
         
@@ -300,7 +355,7 @@ def train():
             batch_size=best_params['batch_size'],
             target_size=Config.INPUT_SIZE,
             one_hot=True,
-            infinite_loop=False,  # Отключаем бесконечный цикл для валидации
+            infinite_loop=False,
             max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
         )
         
@@ -312,11 +367,11 @@ def train():
             callbacks=callbacks,
             steps_per_epoch=Config.STEPS_PER_EPOCH,
             validation_steps=Config.VALIDATION_STEPS,
-            verbose=0  # Отключаем стандартный вывод, так как используем tqdm
+            verbose=0
         )
         
         # Визуализация результатов
-        plot_path = os.path.join(Config.MODEL_SAVE_PATH, 'plots')
+        plot_path = os.path.join(model_save_path, 'plots')
         
         # Графики потерь и точности
         plt.figure(figsize=(12, 5))
@@ -345,6 +400,7 @@ def train():
         
         # Сохраняем параметры модели
         model_params = {
+            'model_type': model_type,
             'best_params': best_params,
             'input_shape': input_shape,
             'num_classes': Config.NUM_CLASSES,
@@ -353,7 +409,7 @@ def train():
             'max_sequences_per_video': Config.MAX_SEQUENCES_PER_VIDEO
         }
         
-        with open(os.path.join(Config.MODEL_SAVE_PATH, 'model_params.json'), 'w') as f:
+        with open(os.path.join(model_save_path, 'model_params.json'), 'w') as f:
             json.dump(model_params, f, indent=4)
         
         return model, history
@@ -365,4 +421,9 @@ def train():
         clear_memory()
 
 if __name__ == "__main__":
-    train() 
+    # Обучаем обе модели
+    print("Обучение MobileNetV3...")
+    model_v3, history_v3 = train('v3')
+    
+    print("\nОбучение MobileNetV4...")
+    model_v4, history_v4 = train('v4') 

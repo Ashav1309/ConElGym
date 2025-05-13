@@ -271,16 +271,25 @@ def f1_score_element(y_true, y_pred):
     recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
     return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3'):
     """
     Создание и компиляция модели с заданными параметрами
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        learning_rate: скорость обучения
+        dropout_rate: коэффициент dropout
+        lstm_units: количество юнитов в LSTM слоях (только для v3)
+        model_type: тип модели ('v3' или 'v4')
     """
     clear_memory()  # Очищаем память перед созданием модели
     
     print(f"[DEBUG] Creating model with parameters:")
+    print(f"  - Model type: {model_type}")
     print(f"  - Learning rate: {learning_rate}")
     print(f"  - Dropout rate: {dropout_rate}")
-    print(f"  - LSTM units: {lstm_units}")
+    if model_type == 'v3':
+        print(f"  - LSTM units: {lstm_units}")
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
     
@@ -288,7 +297,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         input_shape=input_shape,
         num_classes=num_classes,
         dropout_rate=dropout_rate,
-        lstm_units=lstm_units
+        lstm_units=lstm_units,
+        model_type=model_type
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
@@ -361,13 +371,20 @@ def objective(trial):
     # Очищаем память перед каждым испытанием
     clear_memory()
     
-    # Определяем пространство поиска
+    # Определяем тип модели для текущего trial
+    model_type = trial.suggest_categorical('model_type', ['v3', 'v4'])
+    
+    # Определяем пространство поиска в зависимости от типа модели
     params = {
+        'model_type': model_type,
         'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
         'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-        'lstm_units': trial.suggest_int('lstm_units', 32, 64),
         'batch_size': trial.suggest_int('batch_size', 8, 32)
     }
+    
+    # Добавляем специфичные параметры для MobileNetV3
+    if model_type == 'v3':
+        params['lstm_units'] = trial.suggest_int('lstm_units', 32, 64)
     
     print(f"\n[DEBUG] ===== Trial {trial.number} parameters: =====\n")
     for param, value in params.items():
@@ -382,12 +399,27 @@ def objective(trial):
         # Создаем и компилируем модель
         print("\n[DEBUG] 2. Создание и компиляция модели...")
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        model = create_and_compile_model(
+        model = create_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
-            learning_rate=params['learning_rate'],
             dropout_rate=params['dropout_rate'],
-            lstm_units=params['lstm_units']
+            lstm_units=params.get('lstm_units', None),  # None для v4
+            model_type=model_type
+        )
+        
+        optimizer = tf.keras.optimizers.Adam(learning_rate=params['learning_rate'])
+        if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+            optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+        
+        model.compile(
+            optimizer=optimizer,
+            loss='categorical_crossentropy',
+            metrics=[
+                'accuracy',
+                Precision(class_id=1, name='precision_element'),
+                Recall(class_id=1, name='recall_element'),
+                f1_score_element
+            ]
         )
         print("[DEBUG] ✓ Модель создана и скомпилирована")
         
@@ -449,9 +481,26 @@ def save_tuning_results(study, total_time, n_trials):
         f.write(f"Total time: {timedelta(seconds=int(total_time))}\n")
         f.write(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}\n")
         
+        # Добавляем статистику по типам моделей
+        v3_trials = sum(1 for t in study.trials if t.params.get('model_type') == 'v3')
+        v4_trials = sum(1 for t in study.trials if t.params.get('model_type') == 'v4')
+        f.write(f"\nModel type distribution:\n")
+        f.write(f"MobileNetV3 trials: {v3_trials}\n")
+        f.write(f"MobileNetV4 trials: {v4_trials}\n")
+        
         # Добавляем статистику успешных trials
         successful_trials = sum(1 for t in study.trials if t.value is not None)
         f.write(f"\nSuccessful trials: {successful_trials}/{n_trials}\n")
+        
+        # Добавляем лучшие результаты для каждого типа модели
+        v3_best = max((t.value for t in study.trials if t.params.get('model_type') == 'v3' and t.value is not None), default=None)
+        v4_best = max((t.value for t in study.trials if t.params.get('model_type') == 'v4' and t.value is not None), default=None)
+        
+        f.write("\nBest results by model type:\n")
+        if v3_best is not None:
+            f.write(f"MobileNetV3 best accuracy: {v3_best:.4f}\n")
+        if v4_best is not None:
+            f.write(f"MobileNetV4 best accuracy: {v4_best:.4f}\n")
 
 def plot_tuning_results(study):
     """

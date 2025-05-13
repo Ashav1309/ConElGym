@@ -2,6 +2,7 @@ class Config:
     # Параметры модели
     INPUT_SHAPE = (224, 224, 3)
     NUM_CLASSES = 2  # Начало и конец элемента
+    MODEL_TYPE = 'v3'  # 'v3' для MobileNetV3 или 'v4' для MobileNetV4
     
     # Параметры обучения
     EPOCHS = 10
@@ -58,4 +59,15 @@ class Config:
         'n_trials': 10,
         'timeout': 3600,
         'n_jobs': 1
+    }
+    
+    # Параметры моделей
+    MODEL_PARAMS = {
+        'v3': {
+            'lstm_units': 64,
+            'dropout_rate': 0.5
+        },
+        'v4': {
+            'dropout_rate': 0.5
+        }
     } 
