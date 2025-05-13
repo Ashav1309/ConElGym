@@ -283,14 +283,18 @@ def train(model_type=None):
             num_classes=Config.NUM_CLASSES,
             dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
             lstm_units=best_params.get('lstm_units', model_params['lstm_units']),
-            model_type=model_type
+            model_type=model_type,
+            model_size='small'  # Фиксируем только small версию
         )
     else:  # v4
         model = create_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
             dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
-            model_type=model_type
+            model_type=model_type,
+            model_size='small',  # Фиксируем только small версию
+            expansion_factor=best_params.get('expansion_factor', model_params['expansion_factor']),
+            se_ratio=best_params.get('se_ratio', model_params['se_ratio'])
         )
     
     # Компиляция модели с mixed precision и лучшим learning rate
@@ -401,6 +405,7 @@ def train(model_type=None):
         # Сохраняем параметры модели
         model_params = {
             'model_type': model_type,
+            'model_size': 'small',  # Добавляем информацию о размере модели
             'best_params': best_params,
             'input_shape': input_shape,
             'num_classes': Config.NUM_CLASSES,

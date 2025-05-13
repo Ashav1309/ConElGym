@@ -65,9 +65,20 @@ class Config:
     MODEL_PARAMS = {
         'v3': {
             'lstm_units': 64,
-            'dropout_rate': 0.5
+            'dropout_rate': 0.5,
+            'model_type': 'small'  # Добавляем тип модели для v3
         },
         'v4': {
-            'dropout_rate': 0.5
+            'dropout_rate': 0.5,
+            'model_type': 'small',  # Фиксируем только small версию
+            'expansion_factor': 4,  # Коэффициент расширения для UIB блоков
+            'se_ratio': 0.25,  # Коэффициент для Squeeze-and-Excitation
+            'initial_filters': 32,  # Начальное количество фильтров
+            'blocks': [
+                {'filters': 64, 'expansion': 4, 'stride': 2},
+                {'filters': 128, 'expansion': 4, 'stride': 2},
+                {'filters': 256, 'expansion': 4, 'stride': 2},
+                {'filters': 512, 'expansion': 4, 'stride': 2},
+            ]
         }
     } 

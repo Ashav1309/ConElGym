@@ -69,6 +69,71 @@ class TemporalAttention(tf.keras.layers.Layer):
         # Возвращаем только context_vector
         return context_vector
 
+class UniversalInvertedBottleneck(tf.keras.layers.Layer):
+    def __init__(self, filters, expansion_factor=6, kernel_size=3, stride=1, se_ratio=0.25):
+        super(UniversalInvertedBottleneck, self).__init__()
+        self.filters = filters
+        self.expansion_factor = expansion_factor
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.se_ratio = se_ratio
+        
+    def build(self, input_shape):
+        expanded_filters = int(input_shape[-1] * self.expansion_factor)
+        
+        # Pointwise expansion
+        self.expand_conv = Conv2D(expanded_filters, (1, 1), padding='same')
+        self.expand_bn = BatchNormalization()
+        self.expand_act = Activation('relu')
+        
+        # Depthwise convolution
+        self.depthwise_conv = DepthwiseConv2D(
+            (self.kernel_size, self.kernel_size),
+            strides=(self.stride, self.stride),
+            padding='same'
+        )
+        self.depthwise_bn = BatchNormalization()
+        self.depthwise_act = Activation('relu')
+        
+        # Squeeze-and-Excitation
+        self.se_reduce = Conv2D(
+            max(1, int(expanded_filters * self.se_ratio)),
+            (1, 1),
+            padding='same'
+        )
+        self.se_expand = Conv2D(expanded_filters, (1, 1), padding='same')
+        
+        # Pointwise projection
+        self.project_conv = Conv2D(self.filters, (1, 1), padding='same')
+        self.project_bn = BatchNormalization()
+        
+        super(UniversalInvertedBottleneck, self).build(input_shape)
+        
+    def call(self, inputs):
+        x = self.expand_conv(inputs)
+        x = self.expand_bn(x)
+        x = self.expand_act(x)
+        
+        x = self.depthwise_conv(x)
+        x = self.depthwise_bn(x)
+        x = self.depthwise_act(x)
+        
+        # Squeeze-and-Excitation
+        se = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+        se = self.se_reduce(se)
+        se = tf.nn.relu(se)
+        se = self.se_expand(se)
+        se = tf.sigmoid(se)
+        x = x * se
+        
+        x = self.project_conv(x)
+        x = self.project_bn(x)
+        
+        if self.stride == 1 and inputs.shape[-1] == self.filters:
+            x = x + inputs
+            
+        return x
+
 class ModelTrainer:
     def __init__(self, model, data_loader):
         self.model = model
@@ -113,61 +178,89 @@ class ModelTrainer:
                 
         return self.network_handler.handle_network_operation(_train_operation)
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small'):
     """
-    Создание модели на основе MobileNetV4
+    Создание модели MobileNetV4
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        dropout_rate: коэффициент dropout
+        model_type: тип модели ('small', 'medium', 'large')
     """
-    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
-    network_handler = NetworkErrorHandler()
-    network_monitor = NetworkMonitor()
+    print(f"[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, model_type={model_type}")
+    
+    # Конфигурации для разных типов моделей
+    configs = {
+        'small': {
+            'initial_filters': 32,
+            'blocks': [
+                {'filters': 64, 'expansion': 4, 'stride': 2},
+                {'filters': 128, 'expansion': 4, 'stride': 2},
+                {'filters': 256, 'expansion': 4, 'stride': 2},
+                {'filters': 512, 'expansion': 4, 'stride': 2},
+            ]
+        },
+        'medium': {
+            'initial_filters': 48,
+            'blocks': [
+                {'filters': 96, 'expansion': 6, 'stride': 2},
+                {'filters': 192, 'expansion': 6, 'stride': 2},
+                {'filters': 384, 'expansion': 6, 'stride': 2},
+                {'filters': 768, 'expansion': 6, 'stride': 2},
+            ]
+        },
+        'large': {
+            'initial_filters': 64,
+            'blocks': [
+                {'filters': 128, 'expansion': 6, 'stride': 2},
+                {'filters': 256, 'expansion': 6, 'stride': 2},
+                {'filters': 512, 'expansion': 6, 'stride': 2},
+                {'filters': 1024, 'expansion': 6, 'stride': 2},
+            ]
+        }
+    }
+    
+    config = configs[model_type]
     
     def _create_model_operation():
         try:
-            # Проверка состояния сети
-            network_monitor.check_network_status()
-            
-            # Входной слой
             inputs = Input(shape=input_shape)
             
-            # Базовый слой для обработки последовательности
-            x = TimeDistributed(Conv2D(32, (3, 3), padding='same'))(inputs)
+            # Начальный слой
+            x = TimeDistributed(Conv2D(config['initial_filters'], (3, 3), strides=(2, 2), padding='same'))(inputs)
             x = TimeDistributed(BatchNormalization())(x)
             x = TimeDistributed(Activation('relu'))(x)
             
-            # Блоки MobileNetV4
-            for filters in [64, 128, 256]:
-                residual = x
-                # Depthwise separable convolution
-                x = TimeDistributed(DepthwiseConv2D((3, 3), padding='same'))(x)
-                x = TimeDistributed(BatchNormalization())(x)
-                x = TimeDistributed(Activation('relu'))(x)
-                # Pointwise convolution
-                x = TimeDistributed(Conv2D(filters, (1, 1), padding='same'))(x)
-                x = TimeDistributed(BatchNormalization())(x)
-                x = TimeDistributed(Activation('relu'))(x)
-                # Добавляем residual connection если размерности совпадают
-                if residual.shape[-1] == filters:
-                    x = TimeDistributed(Add())([x, residual])
+            # UIB блоки
+            for block_config in config['blocks']:
+                x = TimeDistributed(UniversalInvertedBottleneck(
+                    filters=block_config['filters'],
+                    expansion_factor=block_config['expansion'],
+                    stride=block_config['stride']
+                ))(x)
                 x = TimeDistributed(Dropout(dropout_rate))(x)
+            
             # Пространственное внимание
             x = TimeDistributed(SpatialAttention())(x)
+            
             # Глобальное среднее объединение
             x = TimeDistributed(GlobalAveragePooling2D())(x)
+            
             # Временное внимание
             x = TemporalAttention(units=128)(x)
-            # Нормализация (до TimeDistributed(Dense))
+            
+            # Нормализация
             x = LayerNormalization()(x)
+            
             # Финальный слой классификации
             outputs = TimeDistributed(Dense(num_classes, activation='softmax', dtype='float32'))(x)
+            
             return Model(inputs=inputs, outputs=outputs)
-        except tf.errors.ResourceExhaustedError as e:
-            logger.error(f"Недостаточно ресурсов GPU: {str(e)}")
-            tf.keras.backend.clear_session()
-            gc.collect()
-            raise
+            
         except Exception as e:
             logger.error(f"Ошибка при создании модели: {str(e)}")
             raise
+            
     return network_handler.handle_network_operation(_create_model_operation)
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3'):

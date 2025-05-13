@@ -382,9 +382,13 @@ def objective(trial):
         'batch_size': trial.suggest_int('batch_size', 8, 32)
     }
     
-    # Добавляем специфичные параметры для MobileNetV3
+    # Добавляем специфичные параметры для каждой модели
     if model_type == 'v3':
         params['lstm_units'] = trial.suggest_int('lstm_units', 32, 64)
+    else:  # v4
+        params['model_size'] = 'small'  # Фиксируем только small версию
+        params['expansion_factor'] = trial.suggest_int('expansion_factor', 4, 6)
+        params['se_ratio'] = trial.suggest_float('se_ratio', 0.1, 0.3)
     
     print(f"\n[DEBUG] ===== Trial {trial.number} parameters: =====\n")
     for param, value in params.items():
@@ -399,13 +403,26 @@ def objective(trial):
         # Создаем и компилируем модель
         print("\n[DEBUG] 2. Создание и компиляция модели...")
         input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-        model = create_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            dropout_rate=params['dropout_rate'],
-            lstm_units=params.get('lstm_units', None),  # None для v4
-            model_type=model_type
-        )
+        
+        if model_type == 'v3':
+            model = create_model(
+                input_shape=input_shape,
+                num_classes=Config.NUM_CLASSES,
+                dropout_rate=params['dropout_rate'],
+                lstm_units=params['lstm_units'],
+                model_type=model_type,
+                model_size='small'  # Фиксируем только small версию
+            )
+        else:  # v4
+            model = create_model(
+                input_shape=input_shape,
+                num_classes=Config.NUM_CLASSES,
+                dropout_rate=params['dropout_rate'],
+                model_type=model_type,
+                model_size='small',  # Фиксируем только small версию
+                expansion_factor=params['expansion_factor'],
+                se_ratio=params['se_ratio']
+            )
         
         optimizer = tf.keras.optimizers.Adam(learning_rate=params['learning_rate'])
         if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
@@ -441,21 +458,18 @@ def objective(trial):
             validation_steps=Config.VALIDATION_STEPS,
             verbose=0
         )
-        print("[DEBUG] ✓ Обучение завершено")
         
-        # Получаем лучшую точность валидации
+        # Возвращаем лучшую валидационную точность
         best_val_accuracy = max(history.history['val_accuracy'])
-        print(f"[DEBUG] Лучшая точность валидации: {best_val_accuracy:.4f}")
-        
-        # Очищаем память после обучения
-        clear_memory()
+        print(f"[DEBUG] ✓ Обучение завершено. Лучшая валидационная точность: {best_val_accuracy:.4f}")
         
         return best_val_accuracy
         
     except Exception as e:
         print(f"[DEBUG] Ошибка в trial {trial.number}: {str(e)}")
-        clear_memory()
         raise
+    finally:
+        clear_memory()
 
 def save_tuning_results(study, total_time, n_trials):
     """
