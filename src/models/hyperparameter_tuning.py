@@ -253,7 +253,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         except Exception as e:
             print(f"[DEBUG] Ошибка в генераторе данных: {str(e)}")
             raise
-        finally:
+        # finally:
             # Очищаем память после завершения генератора
             # clear_memory()
     
