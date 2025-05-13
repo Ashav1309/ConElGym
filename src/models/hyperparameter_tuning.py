@@ -134,7 +134,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         print("[DEBUG] Запуск генератора данных...")
         try:
             # Очищаем память перед созданием генератора
-            clear_memory()
+            # clear_memory()
             
             # Получаем список видео и аннотаций
             video_paths = loader.video_paths
