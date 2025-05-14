@@ -355,3 +355,37 @@ class VideoDataLoader:
         Рассчитывает общее количество батчей для данных.
         """
         self.total_batches = sum(1 for _ in self.data_generator()) 
+    
+    def get_video_info(self, video_path):
+        """
+        Получение информации о видео
+        
+        Args:
+            video_path: путь к видео файлу
+            
+        Returns:
+            dict: словарь с информацией о видео (total_frames, fps, width, height)
+        """
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"Не удалось открыть видео: {video_path}")
+            
+            # Получаем информацию о видео
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            cap.release()
+            
+            return {
+                'total_frames': total_frames,
+                'fps': fps,
+                'width': width,
+                'height': height
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
+            raise 

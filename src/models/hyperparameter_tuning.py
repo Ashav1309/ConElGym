@@ -222,7 +222,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях (только для v3)
         model_type: тип модели ('v3' или 'v4')
-        positive_class_weight: вес положительного класса (если None, будет рассчитан автоматически)
+        positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -235,9 +235,14 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
     
-    # Если positive_class_weight не указан, рассчитываем его
+    # Если positive_class_weight не указан, загружаем из конфига
     if positive_class_weight is None:
-        positive_class_weight = calculate_balanced_weights(train_loader)
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+        else:
+            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
     
     print(f"  - Positive class weight: {positive_class_weight}")
     
@@ -358,69 +363,6 @@ def load_and_prepare_data(batch_size):
         clear_memory()
         raise
 
-def calculate_balanced_weights(data_loader):
-    """
-    Расчет сбалансированных весов классов для всего датасета
-    """
-    print("[DEBUG] Расчет весов классов для всего датасета...")
-    
-    total_samples = 0
-    class_counts = {0: 0, 1: 0}
-    
-    # Проходим по всем видео в датасете
-    for video_path in data_loader.video_paths:
-        try:
-            # Получаем путь к аннотации для видео
-            annotation_path = data_loader.labels[data_loader.video_paths.index(video_path)]
-            if not annotation_path or not os.path.exists(annotation_path):
-                print(f"[WARNING] Аннотация не найдена для {video_path}")
-                continue
-                
-            with open(annotation_path, 'r') as f:
-                annotations = json.load(f)
-            
-            # Подсчитываем количество кадров каждого класса
-            for element in annotations['annotations']:
-                start_frame = element['start_frame']
-                end_frame = element['end_frame']
-                
-                # Все кадры до start_frame - класс 0
-                class_counts[0] += start_frame
-                
-                # Кадры от start_frame до end_frame - класс 1
-                class_counts[1] += (end_frame - start_frame)
-                
-                # Все кадры после end_frame - класс 0
-                total_frames = data_loader.get_video_info(video_path)['total_frames']
-                class_counts[0] += (total_frames - end_frame)
-            
-            total_samples = sum(class_counts.values())
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
-            continue
-    
-    if total_samples == 0:
-        print("[WARNING] Не удалось подсчитать количество примеров")
-        return None
-    
-    print("[DEBUG] Распределение классов:")
-    print(f"  - Всего примеров: {total_samples}")
-    print(f"  - Класс 0 (фон): {class_counts[0]}")
-    print(f"  - Класс 1 (элемент): {class_counts[1]}")
-    
-    # Рассчитываем веса
-    weights = {
-        0: total_samples / (2 * class_counts[0]),
-        1: total_samples / (2 * class_counts[1])
-    }
-    
-    print("[DEBUG] Рассчитанные веса:")
-    print(f"  - Вес класса 0: {weights[0]:.2f}")
-    print(f"  - Вес класса 1: {weights[1]:.2f}")
-    
-    return weights[1]  # Возвращаем только вес положительного класса
-
 def objective(trial):
     """
     Целевая функция для оптимизации гиперпараметров
@@ -520,8 +462,11 @@ def objective(trial):
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
                 
-                # Вызываем родительский метод
-                super().update_state(y_true, y_pred, sample_weight)
+                # Преобразуем обратно в one-hot
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                
+                return super().update_state(y_true, y_pred, sample_weight)
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', class_id=1, threshold=0.5))
@@ -646,14 +591,6 @@ def tune_hyperparameters(n_trials=100):
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
         print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
         print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
-
-        # Рассчитываем веса классов для всего датасета
-        positive_class_weight = calculate_balanced_weights(train_loader)
-        if positive_class_weight is None:
-            raise ValueError("Не удалось рассчитать веса классов")
-
-        # Сохраняем вес в конфигурации
-        Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight'] = positive_class_weight
 
         # Создаем study
         study = optuna.create_study(
