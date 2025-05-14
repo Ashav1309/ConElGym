@@ -62,52 +62,81 @@ def clear_memory():
         except:
             pass
 
-def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot, infinite_loop, max_sequences_per_video):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None):
     """
-    Создает оптимизированный pipeline данных с использованием tf.data.Dataset
+    Создание оптимизированного pipeline данных
     """
     try:
-        print(f"\n[DEBUG] ===== Создание pipeline данных =====")
-        print(f"[DEBUG] Параметры:")
-        print(f"  - sequence_length: {sequence_length}")
-        print(f"  - batch_size: {batch_size}")
-        print(f"  - target_size: {target_size}")
-        print(f"  - one_hot: {one_hot}")
-        print(f"  - infinite_loop: {infinite_loop}")
-        print(f"  - max_sequences_per_video: {max_sequences_per_video}")
+        print("\n[DEBUG] Создание pipeline данных...")
         
-        def generator():
-            try:
-                return loader.data_generator(
-                    sequence_length=sequence_length,
-                    batch_size=batch_size,
-                    target_size=target_size,
-                    one_hot=one_hot,
-                    infinite_loop=infinite_loop,
-                    max_sequences_per_video=max_sequences_per_video
-                )
-            except Exception as e:
-                print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
-                print("[DEBUG] Stack trace:", flush=True)
-                import traceback
-                traceback.print_exc()
-                raise
+        # Валидация входных параметров
+        if not isinstance(loader, VideoDataLoader):
+            raise ValueError("loader должен быть экземпляром VideoDataLoader")
+            
+        if sequence_length <= 0:
+            raise ValueError(f"Длина последовательности должна быть положительной: {sequence_length}")
+            
+        if batch_size <= 0:
+            raise ValueError(f"Размер батча должен быть положительным: {batch_size}")
+            
+        if not isinstance(target_size, tuple) or len(target_size) != 2:
+            raise ValueError(f"Неверный формат target_size: {target_size}. Ожидается (height, width)")
+            
+        if max_sequences_per_video is not None and max_sequences_per_video <= 0:
+            raise ValueError(f"Максимальное количество последовательностей должно быть положительным: {max_sequences_per_video}")
         
-        print("[DEBUG] Создание tf.data.Dataset...")
-        dataset = tf.data.Dataset.from_generator(
-            generator,
-            output_signature=(
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, 2), dtype=tf.float32)
-            )
+        # Создаем генератор данных
+        def data_generator():
+            while True:
+                try:
+                    # Получаем батч данных
+                    batch_data = loader.get_batch(
+                        batch_size=batch_size,
+                        sequence_length=sequence_length,
+                        target_size=target_size,
+                        one_hot=one_hot,
+                        max_sequences_per_video=max_sequences_per_video
+                    )
+                    
+                    if batch_data is None:
+                        print("[WARNING] Получен пустой батч данных")
+                        continue
+                        
+                    X, y = batch_data
+                    
+                    # Проверяем размерности
+                    if X.shape[0] == 0 or y.shape[0] == 0:
+                        print("[WARNING] Получен батч с нулевой размерностью")
+                        continue
+                        
+                    yield X, y
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+                    print("[DEBUG] Stack trace:", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    continue
+                
+                if not infinite_loop:
+                    break
+        
+        # Создаем dataset
+        output_signature = (
+            tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, sequence_length, 2 if one_hot else 1), dtype=tf.float32)
         )
         
-        print("[DEBUG] Применение оптимизаций...")
-        # Оптимизация загрузки данных
+        dataset = tf.data.Dataset.from_generator(
+            data_generator,
+            output_signature=output_signature
+        )
+        
+        # Оптимизация производительности
         if Config.MEMORY_OPTIMIZATION['cache_dataset']:
             dataset = dataset.cache()
-        dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(1)
+            
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
@@ -294,90 +323,70 @@ def load_best_params(model_type=None):
 
 def train(model_type=None):
     """
-    Обучение модели
-    Args:
-        model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
+    Обучение модели с оптимизацией памяти
     """
-    # Очищаем память перед началом обучения
-    clear_memory()
-    
-    # Определяем тип модели
-    model_type = model_type or Config.MODEL_TYPE
-    
-    # Загружаем лучшие параметры
-    best_params = load_best_params(model_type)
-    
-    # Создание директорий
-    model_save_path = os.path.join(Config.MODEL_SAVE_PATH, model_type)
-    os.makedirs(model_save_path, exist_ok=True)
-    os.makedirs(os.path.join(model_save_path, 'plots'), exist_ok=True)
-    
-    # Создание модели с лучшими параметрами
-    input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
-    
-    # Получаем параметры модели в зависимости от типа
-    model_params = Config.MODEL_PARAMS[model_type]
-    if model_type == 'v3':
-        model = create_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
-            lstm_units=best_params.get('lstm_units', model_params['lstm_units']),
-            model_type=model_type,
-            model_size='small'  # Фиксируем только small версию
-        )
-    else:  # v4
-        model = create_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            dropout_rate=best_params.get('dropout_rate', model_params['dropout_rate']),
-            model_type=model_type,
-            model_size='small',  # Фиксируем только small версию
-            expansion_factor=best_params.get('expansion_factor', model_params['expansion_factor']),
-            se_ratio=best_params.get('se_ratio', model_params['se_ratio'])
-        )
-    
-    # Компиляция модели с mixed precision и лучшим learning rate
-    optimizer = tf.keras.optimizers.Adam(learning_rate=best_params['learning_rate'])
-    optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-    
-    model.compile(
-        optimizer=optimizer,
-        loss='categorical_crossentropy',
-        metrics=[
-            'accuracy',
-            Precision(class_id=1, name='precision_element'),
-            Recall(class_id=1, name='recall_element'),
-            f1_score_element
-        ]
-    )
-    
-    # Callbacks
-    callbacks = [
-        ModelCheckpoint(
-            filepath=os.path.join(model_save_path, 'best_model.h5'),
-            monitor='val_loss',
-            save_best_only=True
-        ),
-        EarlyStopping(
-            monitor='val_loss',
-            patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
-            restore_best_weights=True
-        ),
-        ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
-            patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
-            min_lr=Config.OVERFITTING_PREVENTION['min_lr']
-        ),
-        OverfittingMonitor(
-            threshold=Config.OVERFITTING_PREVENTION['max_overfitting_threshold']
-        ),
-        TrainingPlotter(os.path.join(model_save_path, 'plots')),
-        TqdmCallback(verbose=1)
-    ]
-    
     try:
+        print("\n[DEBUG] Начало обучения...")
+        
+        # Валидация конфигурации
+        Config.validate()
+        
+        # Определение типа модели
+        model_type = model_type or Config.MODEL_TYPE
+        print(f"[DEBUG] Тип модели: {model_type}")
+        
+        # Создание директории для сохранения модели
+        model_save_path = os.path.join('models', f'model_{model_type}')
+        os.makedirs(model_save_path, exist_ok=True)
+        
+        # Получение параметров модели
+        model_params = Config.MODEL_PARAMS[model_type]
+        
+        # Создание модели
+        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
+        model, class_weights = create_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=model_params['dropout_rate'],
+            lstm_units=model_params['lstm_units'],
+            model_type=model_type
+        )
+        
+        # Настройка оптимизатора с mixed precision
+        optimizer = tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE)
+        if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+            optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+        
+        # Компиляция модели
+        model.compile(
+            optimizer=optimizer,
+            loss=focal_loss(gamma=2., alpha=0.25),
+            metrics=['accuracy', f1_score_element]
+        )
+        
+        # Создание callbacks
+        callbacks = [
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=os.path.join(model_save_path, 'best_model.h5'),
+                monitor='val_f1_score_element',
+                save_best_only=True,
+                mode='max'
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_f1_score_element',
+                patience=5,
+                restore_best_weights=True,
+                mode='max'
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_f1_score_element',
+                factor=0.5,
+                patience=3,
+                min_lr=1e-6,
+                mode='max'
+            )
+        ]
+        
         # Загрузка данных
         train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
@@ -386,7 +395,7 @@ def train(model_type=None):
         train_dataset = create_data_pipeline(
             loader=train_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=best_params['batch_size'],
+            batch_size=Config.BATCH_SIZE,
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
@@ -396,7 +405,7 @@ def train(model_type=None):
         val_dataset = create_data_pipeline(
             loader=val_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=best_params['batch_size'],
+            batch_size=Config.BATCH_SIZE,
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=False,
@@ -411,11 +420,46 @@ def train(model_type=None):
             callbacks=callbacks,
             steps_per_epoch=Config.STEPS_PER_EPOCH,
             validation_steps=Config.VALIDATION_STEPS,
-            verbose=0
+            class_weight=class_weights,
+            verbose=1
         )
         
+        # Сохранение финальной модели
+        model.save(os.path.join(model_save_path, 'final_model.h5'))
+        
         # Визуализация результатов
-        plot_path = os.path.join(model_save_path, 'plots')
+        plot_training_results(history, model_save_path)
+        
+        return model, history
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обучении модели: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        # Очистка памяти
+        if Config.MEMORY_OPTIMIZATION['clear_memory_after_epoch']:
+            clear_memory()
+
+def plot_training_results(history, save_path):
+    """
+    Визуализация результатов обучения
+    """
+    try:
+        print("\n[DEBUG] Визуализация результатов обучения...")
+        
+        # Валидация входных параметров
+        if not isinstance(history, tf.keras.callbacks.History):
+            raise ValueError("history должен быть экземпляром tf.keras.callbacks.History")
+            
+        if not os.path.exists(save_path):
+            raise ValueError(f"Директория не существует: {save_path}")
+        
+        # Создаем директорию для графиков
+        plot_path = os.path.join(save_path, 'plots')
+        os.makedirs(plot_path, exist_ok=True)
         
         # Графики потерь и точности
         plt.figure(figsize=(12, 5))
@@ -439,31 +483,30 @@ def train(model_type=None):
         plt.grid(True)
         
         plt.tight_layout()
-        plt.savefig(os.path.join(plot_path, 'final_training_plot.png'))
+        plt.savefig(os.path.join(plot_path, 'training_metrics.png'))
         plt.close()
         
-        # Сохраняем параметры модели
-        model_params = {
-            'model_type': model_type,
-            'model_size': 'small',  # Добавляем информацию о размере модели
-            'best_params': best_params,
-            'input_shape': input_shape,
-            'num_classes': Config.NUM_CLASSES,
-            'batch_size': best_params['batch_size'],
-            'sequence_length': Config.SEQUENCE_LENGTH,
-            'max_sequences_per_video': Config.MAX_SEQUENCES_PER_VIDEO
-        }
+        # График F1-score
+        plt.figure(figsize=(6, 4))
+        plt.plot(history.history['f1_score_element'], label='Training F1-score')
+        plt.plot(history.history['val_f1_score_element'], label='Validation F1-score')
+        plt.title('F1-score')
+        plt.xlabel('Epoch')
+        plt.ylabel('F1-score')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(plot_path, 'f1_score.png'))
+        plt.close()
         
-        with open(os.path.join(model_save_path, 'model_params.json'), 'w') as f:
-            json.dump(model_params, f, indent=4)
-        
-        return model, history
+        print("[DEBUG] Результаты обучения успешно визуализированы")
         
     except Exception as e:
-        print(f"Ошибка при обучении модели: {e}")
+        print(f"[ERROR] Ошибка при визуализации результатов: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
         raise
-    finally:
-        clear_memory()
 
 if __name__ == "__main__":
     # Обучаем обе модели

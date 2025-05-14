@@ -21,16 +21,27 @@ logger = logging.getLogger(__name__)
 
 def f1_score_element(y_true, y_pred):
     """
-    Вычисление F1-score для класса элемента
+    Вычисление F1-score для элемента с учетом временной размерности и one-hot encoded меток
     """
+    # Преобразуем one-hot encoded метки в индексы классов
+    y_true = tf.argmax(y_true, axis=-1)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    
+    # Вычисляем метрики с учетом временной размерности
     true_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
     predicted_positives = tf.reduce_sum(tf.cast(tf.equal(y_pred, 1), tf.float32))
     possible_positives = tf.reduce_sum(tf.cast(tf.equal(y_true, 1), tf.float32))
     
-    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
+    # Добавляем epsilon для предотвращения деления на ноль
+    epsilon = tf.keras.backend.epsilon()
     
-    f1 = 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+    # Вычисляем precision и recall
+    precision = true_positives / (predicted_positives + epsilon)
+    recall = true_positives / (possible_positives + epsilon)
+    
+    # Вычисляем F1-score
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+    
     return f1
 
 class SpatialAttention(tf.keras.layers.Layer):
@@ -88,94 +99,121 @@ class TemporalAttention(tf.keras.layers.Layer):
         # Возвращаем только context_vector
         return context_vector
 
-class UniversalInvertedBottleneck(Layer):
-    def __init__(self, filters, expansion=4, stride=1, se_ratio=0.25, **kwargs):
+class UniversalInvertedBottleneck(tf.keras.layers.Layer):
+    """
+    Универсальный инвертированный бутылочный слой
+    """
+    def __init__(self, filters, kernel_size=3, strides=1, expansion_factor=4, se_ratio=0.25, **kwargs):
         super(UniversalInvertedBottleneck, self).__init__(**kwargs)
+        
+        # Валидация входных параметров
+        if filters <= 0:
+            raise ValueError(f"Количество фильтров должно быть положительным: {filters}")
+            
+        if kernel_size <= 0:
+            raise ValueError(f"Размер ядра должен быть положительным: {kernel_size}")
+            
+        if strides <= 0:
+            raise ValueError(f"Шаг должен быть положительным: {strides}")
+            
+        if expansion_factor <= 0:
+            raise ValueError(f"Фактор расширения должен быть положительным: {expansion_factor}")
+            
+        if not 0 <= se_ratio <= 1:
+            raise ValueError(f"Коэффициент SE должен быть в диапазоне [0, 1]: {se_ratio}")
+        
         self.filters = filters
-        self.expansion = expansion
-        self.stride = stride
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.expansion_factor = expansion_factor
         self.se_ratio = se_ratio
         
-    def build(self, input_shape):
-        self.expanded_filters = int(input_shape[-1] * self.expansion)
+        # Вычисляем количество каналов после расширения
+        self.expanded_filters = int(filters * expansion_factor)
         
-        # Расширяющий слой
-        self.expand_conv = Conv2D(
+        # Создаем слои
+        self.expand_conv = tf.keras.layers.Conv2D(
             self.expanded_filters,
             kernel_size=1,
             padding='same',
             use_bias=False
         )
-        self.expand_bn = BatchNormalization()
-        self.expand_activation = ReLU()
+        self.expand_bn = tf.keras.layers.BatchNormalization()
+        self.expand_activation = tf.keras.layers.ReLU(max_value=6.0)
         
-        # Depthwise слой
-        self.depthwise_conv = DepthwiseConv2D(
-            kernel_size=3,
-            strides=self.stride,
+        self.depthwise_conv = tf.keras.layers.DepthwiseConv2D(
+            kernel_size=kernel_size,
+            strides=strides,
             padding='same',
             use_bias=False
         )
-        self.depthwise_bn = BatchNormalization()
-        self.depthwise_activation = ReLU()
+        self.depthwise_bn = tf.keras.layers.BatchNormalization()
+        self.depthwise_activation = tf.keras.layers.ReLU(max_value=6.0)
         
-        # Squeeze-and-Excitation
-        self.se_reduce = Conv2D(
-            max(1, int(self.expanded_filters * self.se_ratio)),
+        # Squeeze-and-Excitation блок
+        self.se_reduce = tf.keras.layers.Conv2D(
+            max(1, int(self.expanded_filters * se_ratio)),
             kernel_size=1,
-            activation='relu',
             padding='same'
         )
-        self.se_expand = Conv2D(
+        self.se_expand = tf.keras.layers.Conv2D(
             self.expanded_filters,
             kernel_size=1,
-            activation='sigmoid',
-            padding='same'
+            padding='same',
+            activation='sigmoid'
         )
         
-        # Проецирующий слой
-        self.project_conv = Conv2D(
-            self.filters,
+        self.project_conv = tf.keras.layers.Conv2D(
+            filters,
             kernel_size=1,
             padding='same',
             use_bias=False
         )
-        self.project_bn = BatchNormalization()
+        self.project_bn = tf.keras.layers.BatchNormalization()
+    
+    def call(self, inputs, training=None):
+        # Проверка входных размерностей
+        if len(inputs.shape) != 4:
+            raise ValueError(f"Неверная размерность входных данных: {inputs.shape}. Ожидается (batch_size, height, width, channels)")
         
-        # Skip connection
-        self.use_residual = self.stride == 1 and input_shape[-1] == self.filters
-        
-    def call(self, inputs):
+        # Расширение каналов
         x = self.expand_conv(inputs)
-        x = self.expand_bn(x)
+        x = self.expand_bn(x, training=training)
         x = self.expand_activation(x)
         
+        # Depthwise свертка
         x = self.depthwise_conv(x)
-        x = self.depthwise_bn(x)
+        x = self.depthwise_bn(x, training=training)
         x = self.depthwise_activation(x)
         
         # Squeeze-and-Excitation
-        se = GlobalAveragePooling2D()(x)
+        se = tf.keras.layers.GlobalAveragePooling2D()(x)
         se = self.se_reduce(se)
+        se = tf.keras.layers.ReLU(max_value=6.0)(se)
         se = self.se_expand(se)
-        x = Multiply()([x, se])
+        se = tf.reshape(se, [-1, 1, 1, self.expanded_filters])
+        x = tf.multiply(x, se)
         
+        # Проекция
         x = self.project_conv(x)
-        x = self.project_bn(x)
+        x = self.project_bn(x, training=training)
         
-        if self.use_residual:
-            x = Add()([x, inputs])
-            
+        # Добавляем skip connection если размерности совпадают
+        if self.strides == 1 and inputs.shape[-1] == self.filters:
+            x = tf.keras.layers.Add()([x, inputs])
+        
         return x
-        
-    def compute_output_shape(self, input_shape):
-        if self.stride > 1:
-            height = input_shape[1] // self.stride
-            width = input_shape[2] // self.stride
-        else:
-            height = input_shape[1]
-            width = input_shape[2]
-        return (input_shape[0], height, width, self.filters)
+    
+    def get_config(self):
+        config = super(UniversalInvertedBottleneck, self).get_config()
+        config.update({
+            'filters': self.filters,
+            'kernel_size': self.kernel_size,
+            'strides': self.strides,
+            'expansion_factor': self.expansion_factor,
+            'se_ratio': self.se_ratio
+        })
+        return config
 
 class MemoryClearCallback(Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -446,84 +484,94 @@ def focal_loss(gamma=2., alpha=0.25):
         return tf.reduce_sum(loss, axis=-1)
     return focal_loss_fixed
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, positive_class_weight=200.0):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=64, model_type='v3', model_size='small'):
     """
-    Создание MobileNetV3 с возможностью задания веса положительного класса и использованием focal loss.
-    Args:
-        input_shape: форма входных данных
-        num_classes: количество классов
-        dropout_rate: коэффициент dropout
-        lstm_units: количество юнитов в LSTM слоях
-        positive_class_weight: вес положительного класса (default=200.0)
+    Создание модели MobileNetV3 с LSTM
     """
     try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, lstm_units={lstm_units}, positive_class_weight={positive_class_weight}")
+        print("\n[DEBUG] Создание модели MobileNetV3...")
         
-        if lstm_units is None:
-            lstm_units = 64
-            print(f"[DEBUG] lstm_units установлен по умолчанию: {lstm_units}")
+        # Валидация входных параметров
+        if not isinstance(input_shape, tuple) or len(input_shape) != 4:
+            raise ValueError(f"Неверный формат input_shape: {input_shape}. Ожидается (sequence_length, height, width, channels)")
+            
+        if num_classes <= 0:
+            raise ValueError(f"Количество классов должно быть положительным: {num_classes}")
+            
+        if not 0 <= dropout_rate <= 1:
+            raise ValueError(f"Коэффициент dropout должен быть в диапазоне [0, 1]: {dropout_rate}")
+            
+        if lstm_units <= 0:
+            raise ValueError(f"Количество LSTM юнитов должно быть положительным: {lstm_units}")
+            
+        if model_type not in ['v3', 'v4']:
+            raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
+            
+        if model_size not in ['small', 'medium', 'large']:
+            raise ValueError(f"Неверный размер модели: {model_size}. Допустимые значения: small, medium, large")
         
-        def _create_model_operation():
-            try:
-                inputs = Input(shape=input_shape)
-                print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
-                
-                x = Reshape(input_shape)(inputs)
-                print(f"[DEBUG] Форма после Reshape: {x.shape}")
-                
-                base_model = MobileNetV3Small(
-                    input_shape=input_shape[1:],
-                    include_top=False,
-                    weights='imagenet',
-                    alpha=0.75
-                )
-                for layer in base_model.layers[-20:]:
-                    layer.trainable = True
-                x = TimeDistributed(base_model)(x)
-                print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
-                x = TimeDistributed(GlobalAveragePooling2D())(x)
-                print(f"[DEBUG] Форма после GlobalAveragePooling2D: {x.shape}")
-                x = TimeDistributed(Dropout(0.3))(x)
-                x = Bidirectional(LSTM(64, return_sequences=True, recurrent_dropout=0.2, unroll=True))(x)
-                x = Dropout(dropout_rate)(x)
-                x = Bidirectional(LSTM(32, return_sequences=True, recurrent_dropout=0.2, unroll=True))(x)
-                x = Dropout(dropout_rate)(x)
-                x = TimeDistributed(Dense(128))(x)
-                x = TimeDistributed(BatchNormalization())(x)
-                x = TimeDistributed(Activation('relu'))(x)
-                x = TimeDistributed(Dropout(0.3))(x)
-                x = TimeDistributed(Dense(64))(x)
-                x = TimeDistributed(BatchNormalization())(x)
-                x = TimeDistributed(Activation('relu'))(x)
-                x = TimeDistributed(Dropout(0.3))(x)
-                outputs = TimeDistributed(Dense(num_classes, activation='softmax'))(x)
-                model = Model(inputs=inputs, outputs=outputs)
-                optimizer = Adam(
-                    learning_rate=0.00005,
-                    clipnorm=1.0,
-                    beta_1=0.9,
-                    beta_2=0.999,
-                    epsilon=1e-07
-                )
-                class_weights = {
-                    0: 1.0,
-                    1: positive_class_weight
-                }
-                model.compile(
-                    optimizer=optimizer,
-                    loss=focal_loss(gamma=2., alpha=0.25),
-                    metrics=['accuracy']
-                )
-                print("[DEBUG] MobileNetV3 успешно создана (focal loss)")
-                return model, class_weights
-            except Exception as e:
-                print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
-                print(f"[ERROR] Stack trace: {traceback.format_exc()}")
-                raise
-        return _create_model_operation()
+        # Получаем параметры модели
+        model_params = Config.MODEL_PARAMS[model_type]
+        positive_class_weight = model_params.get('positive_class_weight', 200.0)
+        
+        # Создаем базовую модель MobileNetV3
+        if model_type == 'v3':
+            base_model = MobileNetV3Small(
+                input_shape=input_shape[1:],
+                alpha=1.0,
+                minimalistic=False,
+                include_top=False,
+                weights='imagenet',
+                pooling=None,
+                classes=num_classes,
+                classifier_activation=None
+            )
+        else:  # v4
+            base_model = MobileNetV3Small(
+                input_shape=input_shape[1:],
+                alpha=1.0,
+                minimalistic=False,
+                include_top=False,
+                weights='imagenet',
+                pooling=None,
+                classes=num_classes,
+                classifier_activation=None,
+                expansion_factor=model_params.get('expansion_factor', 4),
+                se_ratio=model_params.get('se_ratio', 0.25)
+            )
+        
+        # Создаем входной слой
+        inputs = tf.keras.layers.Input(shape=input_shape)
+        
+        # Применяем базовую модель к каждому кадру
+        x = tf.keras.layers.TimeDistributed(base_model)(inputs)
+        
+        # Добавляем LSTM слои
+        x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        x = tf.keras.layers.LSTM(lstm_units)(x)
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        # Добавляем выходной слой
+        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        
+        # Создаем модель
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        
+        # Компилируем модель с focal loss и метриками
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
+            loss=focal_loss(gamma=2., alpha=0.25),
+            metrics=['accuracy', f1_score_element]
+        )
+        
+        print("[DEBUG] Модель MobileNetV3 успешно создана")
+        return model
+        
     except Exception as e:
-        print(f"[ERROR] Критическая ошибка при инициализации MobileNetV3: {str(e)}")
-        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+        print(f"[ERROR] Ошибка при создании модели: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        traceback.print_exc()
         raise
 
 if __name__ == "__main__":
