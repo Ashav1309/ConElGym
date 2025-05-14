@@ -28,7 +28,7 @@ class Config:
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 100
-    MAX_VIDEOS = 2
+    MAX_VIDEOS = 3
     
     # Параметры оптимизации
     LEARNING_RATE = 0.00005  # Уменьшаем с 0.0001 до 0.00005
