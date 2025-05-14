@@ -383,7 +383,7 @@ def train(model_type=None):
             dropout_rate=best_params.get('dropout_rate', Config.MODEL_PARAMS[model_type]['dropout_rate']),
             lstm_units=best_params.get('lstm_units', Config.MODEL_PARAMS[model_type].get('lstm_units', 64)),
             model_type=model_type,
-            positive_class_weight=500.0  # Увеличиваем вес положительного класса
+            positive_class_weight=best_params.get('positive_class_weight', Config.MODEL_PARAMS[model_type]['positive_class_weight'])
         )
         
         # Настройка оптимизатора с mixed precision

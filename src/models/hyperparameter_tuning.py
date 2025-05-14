@@ -331,10 +331,10 @@ def objective(trial):
         clear_memory()
         
         # Определяем гиперпараметры для текущего триала
-        learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 128)
-        positive_class_weight = trial.suggest_float('positive_class_weight', 100.0, 500.0, log=True)
+        positive_class_weight = trial.suggest_float('positive_class_weight', 200.0, 1000.0, log=True)
         
         print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")

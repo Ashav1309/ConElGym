@@ -38,13 +38,13 @@ class Config:
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 128,  # Уменьшаем с 256 до 128
-            'positive_class_weight': 200.0  # Уменьшаем с 400.0 до 200.0
+            'positive_class_weight': 500.0  # Увеличиваем с 200.0 до 500.0
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': 200.0  # Уменьшаем с 400.0 до 200.0
+            'positive_class_weight': 500.0  # Увеличиваем с 200.0 до 500.0
         }
     }
     
