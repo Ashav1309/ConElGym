@@ -154,17 +154,15 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(data_loader, batch_size, sequence_length, input_size, is_training=True):
+def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True):
     """
     Создание оптимизированного пайплайна данных.
-    
     Args:
         data_loader: Загрузчик данных
-        batch_size: Размер батча
         sequence_length: Длина последовательности
+        batch_size: Размер батча
         input_size: Размер входного изображения
         is_training: Флаг обучения
-        
     Returns:
         tf.data.Dataset: Оптимизированный датасет
     """
@@ -352,8 +350,8 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(train_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, True)
-        val_dataset = create_data_pipeline(val_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, False)
+        train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True)
+        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False)
         
         return train_dataset, val_dataset
     except Exception as e:
