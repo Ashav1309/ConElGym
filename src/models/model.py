@@ -546,7 +546,9 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         
         # Применяем базовую модель к каждому кадру
         x = tf.keras.layers.TimeDistributed(base_model)(inputs)
-        
+        # Добавляем слой агрегации признаков по пространству
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
+        # Теперь x имеет форму (batch, seq, features), что подходит для LSTM
         # Добавляем LSTM слои
         x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
         x = tf.keras.layers.Dropout(dropout_rate)(x)
