@@ -145,8 +145,8 @@ class VideoDataLoader:
             print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
     
-    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None):
-        """Получение батча данных"""
+    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):
+        """Получение батча данных с опциональным sampling положительных примеров"""
         try:
             if self.current_video_index >= len(self.video_paths):
                 self.current_video_index = 0
@@ -177,70 +177,83 @@ class VideoDataLoader:
             else:
                 frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
             
-            # Создаем батч
             batch_sequences = []
             batch_labels = []
+            used_indices = set()
             
+            # --- Новый sampling: хотя бы одна последовательность с положительным кадром ---
+            if force_positive:
+                # Находим индексы всех положительных кадров
+                positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
+                if len(positive_indices) > 0:
+                    # Случайно выбираем один положительный кадр
+                    pos_idx = np.random.choice(positive_indices)
+                    # Формируем последовательность вокруг него
+                    start_idx = max(0, pos_idx - sequence_length // 2)
+                    end_idx = min(total_frames, start_idx + sequence_length)
+                    start_idx = end_idx - sequence_length  # гарантируем длину
+                    if start_idx >= 0 and end_idx <= total_frames:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                        frames = []
+                        labels = []
+                        for i in range(start_idx, end_idx):
+                            ret, frame = cap.read()
+                            if not ret:
+                                break
+                            frame = cv2.resize(frame, target_size)
+                            frames.append(frame)
+                            labels.append(frame_labels[i])
+                        if len(frames) == sequence_length:
+                            batch_sequences.append(frames)
+                            batch_labels.append(labels)
+                            used_indices.update(range(start_idx, end_idx))
+            # --- Остальные последовательности как обычно ---
+            self.current_frame_index = 0
             while len(batch_sequences) < batch_size:
                 # Проверяем, можем ли мы прочитать sequence_length кадров
                 if self.current_frame_index + sequence_length > total_frames:
-                    # Если не можем, переходим к следующему видео
                     cap.release()
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     if self.current_video_index >= len(self.video_paths):
-                        # Если достигли конца всех видео и не собрали полный батч
                         if len(batch_sequences) > 0:
                             print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                             return None
                         break
-                    video_path = self.video_paths[self.current_video_index]
-                    cap, total_frames = self.load_video(video_path)
+                # Пропускаем уже использованные индексы (чтобы не дублировать положительную последовательность)
+                if any(idx in used_indices for idx in range(self.current_frame_index, self.current_frame_index + sequence_length)):
+                    self.current_frame_index += sequence_length
                     continue
-                
-                # Читаем sequence_length кадров
                 frames = []
                 labels = []
-                
                 for _ in range(sequence_length):
                     ret, frame = cap.read()
                     if not ret:
                         break
-                        
                     frame = cv2.resize(frame, target_size)
                     frames.append(frame)
                     labels.append(frame_labels[self.current_frame_index])
                     self.current_frame_index += 1
-                
                 if len(frames) == sequence_length:
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
-                
-                # Если достигли конца видео, переходим к следующему
                 if self.current_frame_index >= total_frames:
                     cap.release()
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     if self.current_video_index >= len(self.video_paths):
-                        # Если достигли конца всех видео и не собрали полный батч
                         if len(batch_sequences) > 0:
                             print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                             return None
                         break
                     video_path = self.video_paths[self.current_video_index]
                     cap, total_frames = self.load_video(video_path)
-            
-            # Проверяем, что собрали полный батч
             if len(batch_sequences) != batch_size:
                 print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                 return None
-            
-            # Преобразуем в numpy массивы
             X = np.array(batch_sequences, dtype=np.float32) / 255.0
             y = np.array(batch_labels, dtype=np.float32)
-            
             return X, y
-            
         except Exception as e:
             print(f"[ERROR] Ошибка при получении батча: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
@@ -341,45 +354,32 @@ class VideoDataLoader:
         """
         self.load_video(video_path)
     
-    def data_generator(self):
-        """Генератор данных с оптимизацией памяти"""
+    def data_generator(self, force_positive=True):
+        """Генератор данных с sampling положительных примеров"""
         try:
             print("\n[DEBUG] ===== Запуск генератора данных =====")
             print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
-            
             while True:
-                # Получаем батч данных
                 batch_data = self.get_batch(
                     batch_size=self.batch_size,
                     sequence_length=self.sequence_length,
                     target_size=Config.INPUT_SIZE,
                     one_hot=True,
-                    max_sequences_per_video=self.max_sequences_per_video
+                    max_sequences_per_video=self.max_sequences_per_video,
+                    force_positive=force_positive
                 )
-                
                 if batch_data is None:
                     print("[DEBUG] Достигнут конец эпохи")
                     break
-                    
                 X, y = batch_data
-                
-                # Проверяем размерности
                 if X.shape[0] == 0 or y.shape[0] == 0:
                     print("[WARNING] Получен пустой батч")
                     continue
-                    
-                # DEBUG: считаем количество положительных примеров (class 1)
-                # y shape: (batch, seq, num_classes)
-                # Суммируем по всем кадрам и батчам, где класс 1 (индекс 1) равен 1
                 num_positive = int((y[...,1] == 1).sum())
                 print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
-                
-                # Преобразуем в тензоры
                 x = tf.convert_to_tensor(X, dtype=tf.float32)
                 y = tf.convert_to_tensor(y, dtype=tf.float32)
-                
                 yield (x, y)
-                
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
