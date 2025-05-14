@@ -38,10 +38,22 @@ def focal_loss(gamma=2., alpha=0.25):
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
-        cross_entropy = -y_true * tf.math.log(y_pred)
-        weight = alpha * tf.pow(1 - y_pred, gamma)
-        loss = weight * cross_entropy
-        return tf.reduce_sum(loss, axis=-1)
+        
+        # Вычисляем веса для каждого класса
+        alpha_weight = alpha * y_true + (1 - alpha) * (1 - y_true)
+        
+        # Вычисляем фокусный вес
+        pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+        focal_weight = tf.pow(1 - pt, gamma)
+        
+        # Вычисляем кросс-энтропию
+        cross_entropy = -y_true * tf.math.log(y_pred) - (1 - y_true) * tf.math.log(1 - y_pred)
+        
+        # Применяем веса
+        loss = alpha_weight * focal_weight * cross_entropy
+        
+        # Возвращаем среднее значение по батчу
+        return tf.reduce_mean(loss)
     return focal_loss_fixed
 
 def clear_memory():
@@ -223,8 +235,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print("[DEBUG] Создание метрик...")
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_element', class_id=1),
-        tf.keras.metrics.Recall(name='recall_element', class_id=1)
+        tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
     ]
 
     print("[DEBUG] Добавление F1Score...")
@@ -245,6 +257,12 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
                 
                 return super().update_state(y_true, y_pred, sample_weight)
+            
+            def result(self):
+                # Получаем результат от родительского класса
+                result = super().result()
+                # Возвращаем среднее значение по всем классам
+                return tf.reduce_mean(result)
         
         f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
         print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
@@ -348,14 +366,16 @@ def objective(trial):
                 monitor='val_f1_score_element',
                 patience=5,
                 restore_best_weights=True,
-                mode='max'
+                mode='max',
+                verbose=1
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
                 factor=0.5,
                 patience=3,
                 min_lr=1e-6,
-                mode='max'
+                mode='max',
+                verbose=1
             )
         ]
         
