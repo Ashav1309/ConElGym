@@ -568,8 +568,14 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             metrics=['accuracy', f1_score_element]
         )
         
+        # Создаем словарь весов классов
+        class_weights = {
+            0: 1.0,  # вес для фонового класса
+            1: positive_class_weight  # вес для класса элемента
+        }
+        
         print("[DEBUG] Модель MobileNetV3 успешно создана")
-        return model
+        return model, class_weights
         
     except Exception as e:
         print(f"[ERROR] Ошибка при создании модели: {str(e)}")
