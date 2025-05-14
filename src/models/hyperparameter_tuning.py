@@ -38,8 +38,27 @@ val_loader = None
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
+        # Преобразуем входные данные в тензоры
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+        
+        # Добавляем отладочную информацию
+        print(f"[DEBUG] Focal Loss - Формы входных данных:")
+        print(f"  - y_true shape: {y_true.shape}")
+        print(f"  - y_pred shape: {y_pred.shape}")
+        
+        # Преобразуем one-hot encoded метки в индексы классов
+        y_true = tf.argmax(y_true, axis=-1)
+        y_pred = tf.argmax(y_pred, axis=-1)
+        
+        # Преобразуем 3D в 2D
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+        
+        # Преобразуем обратно в one-hot
+        y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+        y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+        
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
         
@@ -341,54 +360,66 @@ def load_and_prepare_data(batch_size):
 
 def calculate_balanced_weights(data_loader):
     """
-    Расчет сбалансированных весов классов на основе распределения данных
+    Расчет сбалансированных весов классов для всего датасета
     """
-    try:
-        print("\n[DEBUG] Расчет сбалансированных весов классов...")
-        
-        # Создаем временный генератор для подсчета
-        temp_generator = data_loader.data_generator()
-        
-        # Инициализируем счетчики
-        total_samples = 0
-        class_counts = {0: 0, 1: 0}  # Для бинарной классификации
-        
-        # Подсчитываем количество примеров каждого класса
-        for _ in range(100):  # Берем первые 100 батчей для оценки
-            try:
-                _, labels = next(temp_generator)
-                # Преобразуем one-hot в индексы классов
-                class_indices = tf.argmax(labels, axis=-1)
-                # Подсчитываем количество примеров каждого класса
-                for class_idx in range(2):
-                    class_counts[class_idx] += tf.reduce_sum(tf.cast(class_indices == class_idx, tf.int32))
-                total_samples += tf.reduce_prod(tf.shape(labels)[:-1])
-            except StopIteration:
-                break
-        
-        print(f"[DEBUG] Распределение классов:")
-        print(f"  - Всего примеров: {total_samples}")
-        print(f"  - Класс 0 (фон): {class_counts[0]}")
-        print(f"  - Класс 1 (элемент): {class_counts[1]}")
-        
-        # Рассчитываем веса
-        n_classes = 2
-        weights = {
-            0: total_samples / (n_classes * class_counts[0]),
-            1: total_samples / (n_classes * class_counts[1])
-        }
-        
-        print(f"[DEBUG] Рассчитанные веса:")
-        print(f"  - Вес класса 0: {weights[0]:.2f}")
-        print(f"  - Вес класса 1: {weights[1]:.2f}")
-        
-        return weights[1]  # Возвращаем вес положительного класса
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при расчете весов: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        return 500.0  # Возвращаем значение по умолчанию в случае ошибки
+    print("[DEBUG] Расчет весов классов для всего датасета...")
+    
+    total_samples = 0
+    class_counts = {0: 0, 1: 0}
+    
+    # Проходим по всем видео в датасете
+    for video_path in data_loader.video_paths:
+        try:
+            # Загружаем аннотации для видео
+            annotation_path = data_loader.get_annotation_path(video_path)
+            if not os.path.exists(annotation_path):
+                print(f"[WARNING] Аннотация не найдена для {video_path}")
+                continue
+                
+            with open(annotation_path, 'r') as f:
+                annotations = json.load(f)
+            
+            # Подсчитываем количество кадров каждого класса
+            for element in annotations['elements']:
+                start_frame = element['start_frame']
+                end_frame = element['end_frame']
+                
+                # Все кадры до start_frame - класс 0
+                class_counts[0] += start_frame
+                
+                # Кадры от start_frame до end_frame - класс 1
+                class_counts[1] += (end_frame - start_frame)
+                
+                # Все кадры после end_frame - класс 0
+                total_frames = data_loader.get_video_info(video_path)['total_frames']
+                class_counts[0] += (total_frames - end_frame)
+            
+            total_samples = sum(class_counts.values())
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+            continue
+    
+    if total_samples == 0:
+        print("[WARNING] Не удалось подсчитать количество примеров")
+        return None
+    
+    print("[DEBUG] Распределение классов:")
+    print(f"  - Всего примеров: {total_samples}")
+    print(f"  - Класс 0 (фон): {class_counts[0]}")
+    print(f"  - Класс 1 (элемент): {class_counts[1]}")
+    
+    # Рассчитываем веса
+    weights = {
+        0: total_samples / (2 * class_counts[0]),
+        1: total_samples / (2 * class_counts[1])
+    }
+    
+    print("[DEBUG] Рассчитанные веса:")
+    print(f"  - Вес класса 0: {weights[0]:.2f}")
+    print(f"  - Вес класса 1: {weights[1]:.2f}")
+    
+    return weights[1]  # Возвращаем только вес положительного класса
 
 def objective(trial):
     """
@@ -400,27 +431,19 @@ def objective(trial):
         # Очищаем память перед каждым триалом
         clear_memory()
         
-        # Рассчитываем сбалансированный вес для положительного класса
-        balanced_weight = calculate_balanced_weights(train_loader)
-        
-        # Определяем гиперпараметры для текущего триала
+        # Определяем гиперпараметры
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        lstm_units = trial.suggest_int('lstm_units', 32, 128)
+        lstm_units = trial.suggest_int('lstm_units', 32, 256)
         
-        # Используем рассчитанный вес как базовое значение
-        positive_class_weight = trial.suggest_float(
-            'positive_class_weight',
-            balanced_weight * 0.8,  # Минимум - 80% от сбалансированного веса
-            balanced_weight * 1.2,  # Максимум - 120% от сбалансированного веса
-            log=True
-        )
+        # Используем предварительно рассчитанный вес для положительного класса
+        positive_class_weight = Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
         
         print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
         print(f"  - lstm_units: {lstm_units}")
-        print(f"  - positive_class_weight: {positive_class_weight} (сбалансированный вес: {balanced_weight})")
+        print(f"  - positive_class_weight: {positive_class_weight}")
         
         # Создаем и компилируем модель
         model, class_weights = create_and_compile_model(
@@ -477,6 +500,7 @@ def objective(trial):
     except Exception as e:
         print(f"[ERROR] Ошибка в триале {trial.number}: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
+        import traceback
         traceback.print_exc()
         raise optuna.TrialPruned()
 
@@ -540,50 +564,40 @@ def plot_tuning_results(study):
     except Exception as e:
         print(f"Warning: Could not create visualization plots: {str(e)}")
 
-def tune_hyperparameters():
+def tune_hyperparameters(n_trials=100):
     """
     Подбор гиперпараметров с использованием Optuna
     """
     try:
         print("\n[DEBUG] Начало подбора гиперпараметров...")
+        start_time = time.time()
         
-        # Создаем глобальные загрузчики данных
-        global train_loader, val_loader
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        # Рассчитываем веса классов для всего датасета
+        positive_class_weight = calculate_balanced_weights(train_loader)
+        if positive_class_weight is None:
+            raise ValueError("Не удалось рассчитать веса классов")
+        
+        # Сохраняем вес в конфигурации
+        Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight'] = positive_class_weight
         
         # Создаем study
         study = optuna.create_study(
             direction='maximize',
-            study_name='model_hyperparameter_tuning'
+            study_name=f'hyperparameter_tuning_{Config.MODEL_TYPE}'
         )
-        
-        # Засекаем время начала
-        start_time = time.time()
         
         # Запускаем оптимизацию
-        study.optimize(
-            objective,
-            n_trials=Config.HYPERPARAM_TUNING['n_trials'],
-            timeout=Config.HYPERPARAM_TUNING['timeout'],
-            n_jobs=Config.HYPERPARAM_TUNING['n_jobs']
-        )
-        
-        # Вычисляем общее время выполнения
-        total_time = time.time() - start_time
-        
-        # Получаем количество выполненных триалов
-        n_trials = len(study.trials)
+        study.optimize(objective, n_trials=n_trials)
         
         # Сохраняем результаты
-        save_tuning_results(study, total_time, n_trials)
+        save_tuning_results(study, time.time() - start_time, n_trials)
         
-        print("[DEBUG] Подбор гиперпараметров завершен")
         return study
         
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
+        import traceback
         traceback.print_exc()
         raise
 
