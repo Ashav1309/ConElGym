@@ -20,8 +20,8 @@ class Config:
     MODEL_TYPE = 'v3'  # 'v3' или 'v4'
     NUM_CLASSES = 2  # Фон и элемент
     INPUT_SIZE = (224, 224)  # Размер входного изображения
-    INPUT_SHAPE = (*INPUT_SIZE, 3)  # Форма входных данных
     SEQUENCE_LENGTH = 16  # Уменьшаем с 32 до 16 кадров для экономии памяти
+    INPUT_SHAPE = (SEQUENCE_LENGTH, *INPUT_SIZE, 3)  # Полная форма входных данных
     BATCH_SIZE = 2  # Уменьшаем размер батча
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
@@ -39,13 +39,15 @@ class Config:
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 128,  # Уменьшаем с 256 до 128
-            'positive_class_weight': None  # Будет рассчитано автоматически на основе данных
+            'positive_class_weight': None,  # Будет рассчитано автоматически на основе данных
+            'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': None  # Будет рассчитано автоматически на основе данных
+            'positive_class_weight': None,  # Будет рассчитано автоматически на основе данных
+            'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
         }
     }
     

@@ -463,16 +463,20 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
         
         # Проверяем и корректируем input_shape
-        if len(input_shape) == 4:  # Если нет размерности последовательности
-            input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+        if len(input_shape) == 3:  # Если это (height, width, channels)
+            full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+        elif len(input_shape) == 4:  # Если это (sequence_length, height, width, channels)
+            full_input_shape = input_shape
         elif len(input_shape) == 5:  # Если есть лишняя размерность
-            input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+            full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+        else:
+            raise ValueError(f"Неверная форма входных данных: {input_shape}")
         
-        print(f"[DEBUG] Исправленный input_shape: {input_shape}")
+        print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
         
         # Создаем базовую модель MobileNetV3
         # Для базовой модели нужна форма (height, width, channels)
-        base_input_shape = input_shape[1:]  # Убираем размерность последовательности
+        base_input_shape = full_input_shape[1:]  # Убираем размерность последовательности
         print(f"[DEBUG] Форма входных данных для базовой модели: {base_input_shape}")
         
         base_model = MobileNetV3Small(
@@ -484,7 +488,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         # Создаем модель
         model = tf.keras.Sequential([
             # Входной слой
-            tf.keras.layers.Input(shape=input_shape),
+            tf.keras.layers.Input(shape=full_input_shape),
             
             # Обработка последовательности кадров
             tf.keras.layers.TimeDistributed(base_model),
