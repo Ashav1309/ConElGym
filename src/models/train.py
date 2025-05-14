@@ -62,7 +62,7 @@ def clear_memory():
         except:
             pass
 
-def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None, is_train=True):
     """
     Создание оптимизированного pipeline данных
     """
@@ -135,7 +135,11 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         # Оптимизация производительности
         if Config.MEMORY_OPTIMIZATION['cache_dataset']:
             dataset = dataset.cache()
-            
+        if is_train:
+            dataset = dataset.shuffle(512)
+            dataset = dataset.batch(batch_size, drop_remainder=True)
+        else:
+            dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
         print("[DEBUG] Pipeline данных успешно создан")
@@ -401,7 +405,8 @@ def train(model_type=None):
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
+            is_train=True
         )
         
         val_dataset = create_data_pipeline(

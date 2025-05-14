@@ -124,7 +124,7 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(batch_size, data_loader):
+def create_data_pipeline(batch_size, data_loader, is_train=True):
     """Создание pipeline данных"""
     print(f"\n[DEBUG] ===== Создание pipeline данных =====")
     print(f"[DEBUG] Параметры:")
@@ -143,22 +143,19 @@ def create_data_pipeline(batch_size, data_loader):
                 tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
             )
         )
-        
         print("[DEBUG] Применяем оптимизации к dataset...")
-        
-        # Возвращаем всю последовательность меток
         def process_data(x, y):
             return x, y
-        
         dataset = dataset.map(process_data)
         dataset = dataset.cache()
         dataset = dataset.shuffle(buffer_size=1000)
-        dataset = dataset.batch(batch_size)
+        if is_train:
+            dataset = dataset.batch(batch_size, drop_remainder=True)
+        else:
+            dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
-        
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
-        
     except Exception as e:
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
