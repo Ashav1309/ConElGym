@@ -700,9 +700,18 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             # Создаем адаптер для F1Score
             class F1ScoreAdapter(tf.keras.metrics.F1Score):
                 def update_state(self, y_true, y_pred, sample_weight=None):
-                    # Преобразуем 3D в 2D, усредняя по временной размерности
-                    y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-                    y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+                    # Преобразуем one-hot encoded метки в индексы классов
+                    y_true = tf.argmax(y_true, axis=-1)
+                    y_pred = tf.argmax(y_pred, axis=-1)
+                    
+                    # Преобразуем 3D в 2D
+                    y_true = tf.reshape(y_true, [-1])
+                    y_pred = tf.reshape(y_pred, [-1])
+                    
+                    # Преобразуем обратно в one-hot
+                    y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+                    y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                    
                     return super().update_state(y_true, y_pred, sample_weight)
             
             f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
