@@ -249,8 +249,10 @@ class VideoDataLoader:
     def data_generator(self):
         """Генератор данных с оптимизацией памяти"""
         try:
+            print("\n[DEBUG] ===== Запуск генератора данных =====")
             # Создаем копию списка видео для текущей эпохи
             current_videos = self.video_paths.copy()
+            print(f"[DEBUG] Количество видео для обработки: {len(current_videos)}")
             
             while current_videos:  # Пока есть необработанные видео
                 # Берем случайное видео из оставшихся
@@ -258,15 +260,20 @@ class VideoDataLoader:
                 video_path = current_videos.pop(video_idx)
                 
                 try:
-                    print(f"[DEBUG] Обработка видео: {os.path.basename(video_path)}")
+                    print(f"\n[DEBUG] Обработка видео: {os.path.basename(video_path)}")
                     # Загружаем видео
                     frames = self.load_video(video_path)
+                    print(f"[DEBUG] Загружено кадров: {len(frames)}")
                     
                     # Получаем аннотации
                     annotations = self.labels[self.video_paths.index(video_path)]
+                    print(f"[DEBUG] Путь к аннотациям: {annotations}")
                     
                     # Создаем последовательности
                     sequences, labels = self.create_sequences(frames, annotations)
+                    print(f"[DEBUG] Создано последовательностей: {len(sequences)}")
+                    print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
+                    print(f"[DEBUG] Форма меток: {labels.shape}")
                     
                     # Очищаем память после обработки видео
                     del frames
@@ -288,10 +295,10 @@ class VideoDataLoader:
                             y = tf.convert_to_tensor(batch_labels, dtype=tf.float32)
                             
                             # Проверяем размерности
-                            print(f"[DEBUG] Размерность X: {x.shape}")
+                            print(f"\n[DEBUG] Размерность X: {x.shape}")
                             print(f"[DEBUG] Размерность y: {y.shape}")
                             
-                            # Возвращаем кортеж (x, y)
+                            # Возвращаем только x и y
                             yield (x, y)
                         
                         # Очищаем память после каждого батча
@@ -300,10 +307,12 @@ class VideoDataLoader:
                         
                 except Exception as e:
                     print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+                    print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
                     continue
-                
+            
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+            print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
             raise
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):

@@ -343,12 +343,25 @@ class GradientAccumulationModel(tf.keras.Model):
         """Шаг обучения с градиентной аккумуляцией"""
         # Распаковываем данные
         try:
-            if isinstance(data, tuple) and len(data) == 2:
-                x, y = data
+            print("\n[DEBUG] ===== Шаг обучения =====")
+            print(f"[DEBUG] Тип входных данных: {type(data)}")
+            
+            if isinstance(data, tuple):
+                if len(data) == 2:
+                    x, y = data
+                    print(f"[DEBUG] Успешно распакованы x и y")
+                elif len(data) == 3:
+                    x, y, _ = data  # Игнорируем третий элемент
+                    print(f"[DEBUG] Распакованы x, y и игнорирован третий элемент")
+                else:
+                    print(f"[DEBUG] Неожиданное количество элементов в кортеже: {len(data)}")
+                    raise ValueError(f"Ожидается кортеж из 2 или 3 элементов, получено {len(data)}")
             else:
-                print(f"[DEBUG] Неожиданный формат данных: {type(data)}")
-                print(f"[DEBUG] Содержимое данных: {data}")
+                print(f"[DEBUG] Неожиданный тип данных: {type(data)}")
                 raise ValueError("Ожидается кортеж (x, y)")
+            
+            print(f"[DEBUG] Форма x: {x.shape}")
+            print(f"[DEBUG] Форма y: {y.shape}")
             
             batch_size = tf.shape(x)[0]
             

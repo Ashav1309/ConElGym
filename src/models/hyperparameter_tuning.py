@@ -140,6 +140,7 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
             print(f"[WARNING] VideoDataLoader содержит {data_loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
             
         # Создаем tf.data.Dataset из генератора
+        print("[DEBUG] Создание tf.data.Dataset из генератора...")
         dataset = tf.data.Dataset.from_generator(
             data_loader.data_generator,
             output_signature=(
@@ -152,12 +153,21 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
         
         # Оптимизация производительности
         if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(data_loader, 'video_count') or data_loader.video_count <= 50):
+            print("[DEBUG] Кэширование датасета...")
             dataset = dataset.cache()
             
         if is_train:
+            print("[DEBUG] Перемешивание датасета...")
             dataset = dataset.shuffle(buffer_size=64)
             
+        print("[DEBUG] Настройка prefetch...")
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
+        # Проверяем первый батч
+        print("[DEBUG] Проверка первого батча...")
+        for x, y in dataset.take(1):
+            print(f"[DEBUG] Форма X: {x.shape}")
+            print(f"[DEBUG] Форма y: {y.shape}")
         
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
