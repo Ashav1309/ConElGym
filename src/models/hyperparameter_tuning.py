@@ -312,8 +312,8 @@ def load_and_prepare_data(batch_size):
         print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
         print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
         
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         print("[DEBUG] VideoDataLoader создан успешно")
         
         target_size = Config.INPUT_SIZE
@@ -391,8 +391,8 @@ def objective(trial):
         )
         
         # Создаем загрузчики данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         
         # Создаем оптимизированные pipeline данных
         train_dataset = create_data_pipeline(

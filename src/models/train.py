@@ -401,8 +401,8 @@ def train(model_type=None):
             print(f"  - {key}: {value}")
         
         # Создаем загрузчики данных без ограничения на количество видео
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
         print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
         
