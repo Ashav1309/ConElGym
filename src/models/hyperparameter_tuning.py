@@ -370,9 +370,9 @@ def calculate_balanced_weights(data_loader):
     # Проходим по всем видео в датасете
     for video_path in data_loader.video_paths:
         try:
-            # Загружаем аннотации для видео
-            annotation_path = data_loader.get_annotation_path(video_path)
-            if not os.path.exists(annotation_path):
+            # Получаем путь к аннотации для видео
+            annotation_path = data_loader.labels[data_loader.video_paths.index(video_path)]
+            if not annotation_path or not os.path.exists(annotation_path):
                 print(f"[WARNING] Аннотация не найдена для {video_path}")
                 continue
                 
