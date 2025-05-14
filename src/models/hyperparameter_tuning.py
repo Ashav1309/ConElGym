@@ -301,7 +301,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     print("[DEBUG] Модель успешно создана и скомпилирована")
-    return model
+    return model, class_weights
 
 def load_and_prepare_data(batch_size):
     """
