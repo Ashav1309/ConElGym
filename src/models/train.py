@@ -355,27 +355,64 @@ def focal_loss(gamma=2., alpha=0.25):
 
 def train(model_type=None):
     """
-    Обучение модели с оптимизацией памяти
+    Обучение модели
     """
     try:
-        print("\n[DEBUG] Начало обучения...")
+        print("\n[DEBUG] Начало обучения модели...")
         
-        # Валидация конфигурации
-        Config.validate()
+        # Очищаем память перед обучением
+        clear_memory()
         
-        # Определение типа модели
-        model_type = model_type or Config.MODEL_TYPE
+        # Определяем тип модели
+        if model_type is None:
+            model_type = Config.MODEL_TYPE
+        
         print(f"[DEBUG] Тип модели: {model_type}")
         
-        # Создание директории для сохранения модели
-        model_save_path = os.path.join('models', f'model_{model_type}')
-        os.makedirs(model_save_path, exist_ok=True)
-        
-        # Получение лучших параметров из Optuna (если есть)
+        # Загружаем лучшие параметры
         best_params = load_best_params(model_type)
-        print(f"[DEBUG] Используем параметры для обучения: {best_params}")
+        if best_params is None:
+            print("[WARNING] Не найдены лучшие параметры, используем значения по умолчанию")
+            best_params = {
+                'learning_rate': 1e-4,
+                'dropout_rate': 0.3,
+                'lstm_units': 128
+            }
         
-        # Создание модели с учетом лучших параметров
+        print("[DEBUG] Параметры модели:")
+        for key, value in best_params.items():
+            print(f"  - {key}: {value}")
+        
+        # Создаем загрузчики данных без ограничения на количество видео
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
+        print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
+        print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
+        
+        # Создаем оптимизированные pipeline данных
+        train_dataset = create_data_pipeline(
+            train_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
+            is_train=True
+        )
+        
+        val_dataset = create_data_pipeline(
+            val_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=False,
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
+            is_train=False
+        )
+        
+        # Создаем модель
         input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
         
         # Получаем positive_class_weight из best_params или конфигурации
@@ -469,32 +506,6 @@ def train(model_type=None):
             )
         ]
         
-        # Загрузка данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
-        
-        # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(
-            loader=train_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=best_params.get('batch_size', Config.BATCH_SIZE),
-            target_size=Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
-            is_train=True
-        )
-        
-        val_dataset = create_data_pipeline(
-            loader=val_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=best_params.get('batch_size', Config.BATCH_SIZE),
-            target_size=Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
-        )
-        
         # Обучение
         history = model.fit(
             train_dataset,
@@ -508,6 +519,8 @@ def train(model_type=None):
         )
         
         # Сохранение финальной модели
+        model_save_path = os.path.join('models', f'model_{model_type}')
+        os.makedirs(model_save_path, exist_ok=True)
         model.save(os.path.join(model_save_path, 'final_model.h5'))
         
         # Визуализация результатов

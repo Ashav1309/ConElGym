@@ -380,7 +380,7 @@ def calculate_balanced_weights(data_loader):
                 annotations = json.load(f)
             
             # Подсчитываем количество кадров каждого класса
-            for element in annotations['elements']:
+            for element in annotations['annotations']:
                 start_frame = element['start_frame']
                 end_frame = element['end_frame']
                 
@@ -573,9 +573,9 @@ def tune_hyperparameters(n_trials=100):
         print("\n[DEBUG] Начало подбора гиперпараметров...")
         start_time = time.time()
 
-        # Инициализация загрузчиков данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        # Инициализация загрузчиков данных без ограничения на количество видео
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
         print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
         print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
 

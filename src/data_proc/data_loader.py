@@ -15,16 +15,23 @@ import gc
 logger = logging.getLogger(__name__)
 
 class VideoDataLoader:
-    def __init__(self, data_path):
+    def __init__(self, data_path, max_videos=3):
         """
-        Инициализация загрузчика данных.
-        
+        Инициализация загрузчика данных
         Args:
-            data_path (str): Путь к директории с данными
+            data_path: путь к директории с данными
+            max_videos: максимальное количество видео для загрузки (None для загрузки всех видео)
         """
         self.data_path = data_path
+        self.max_videos = max_videos
         self.video_paths = []
         self.labels = []
+        self.video_count = 0
+        self.batch_size = 32
+        self.current_video_index = 0
+        self.current_frame_index = 0
+        self.current_batch = 0
+        self.total_batches = 0
         self.network_handler = NetworkErrorHandler()
         self.network_monitor = NetworkMonitor()
         self.cache = {}
@@ -34,17 +41,25 @@ class VideoDataLoader:
         # Инициализация параметров из конфигурации
         self.sequence_length = Config.SEQUENCE_LENGTH
         self.max_sequences_per_video = Config.MAX_SEQUENCES_PER_VIDEO
-        self.batch_size = Config.BATCH_SIZE  # Используем размер батча из конфигурации
         
-        self._load_data()
+        # Загружаем видео
+        self._load_videos()
+        
+        # Рассчитываем общее количество батчей
+        self._calculate_total_batches()
+        
+        print(f"[DEBUG] Загружено {self.video_count} видео")
+        if self.max_videos is not None and self.video_count > self.max_videos:
+            print(f"[WARNING] Загружено слишком много видео: {self.video_count} > {self.max_videos}")
+            self.video_paths = self.video_paths[:self.max_videos]
+            self.labels = self.labels[:self.max_videos]
+            self.video_count = self.max_videos
+            print(f"[DEBUG] Оставлено {self.video_count} видео")
     
-    def _load_data(self, infinite_loop=False):
+    def _load_videos(self):
         """
         Загрузка путей к видео и соответствующих аннотаций.
         
-        Args:
-            infinite_loop (bool): Бесконечный цикл загрузки данных
-            
         Raises:
             FileNotFoundError: Если директория с данными не найдена
             ValueError: Если нет видео файлов в директории
@@ -65,12 +80,10 @@ class VideoDataLoader:
             
             print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
             
-            video_count = 0
             while True:
                 for file_name in os.listdir(self.data_path):
                     file_path = os.path.join(self.data_path, file_name)
                     if file_name.endswith('.mp4') and os.path.isfile(file_path):
-                        video_count += 1
                         self.video_paths.append(file_path)
                         base = os.path.splitext(file_name)[0]
                         ann_path = os.path.join(annotation_dir, base + '.json')
@@ -80,13 +93,12 @@ class VideoDataLoader:
                             print(f"[DEBUG] Аннотация для {file_name} не найдена")
                         self.labels.append(ann_path if os.path.exists(ann_path) else None)
                 
-                if not infinite_loop:
+                if self.max_videos is not None and self.video_count >= self.max_videos:
                     break
                 
-            if video_count == 0:
-                raise ValueError(f"В директории {self.data_path} не найдено видео файлов")
+            self.video_count = len(self.video_paths)
             
-            print(f"[DEBUG] Загружено {video_count} видео файлов")
+            print(f"[DEBUG] Загружено {self.video_count} видео файлов")
             
             # Ограничиваем количество видео до Config.MAX_VIDEOS
             if hasattr(Config, "MAX_VIDEOS") and len(self.video_paths) > Config.MAX_VIDEOS:
@@ -329,4 +341,10 @@ class VideoDataLoader:
         Returns:
             generator: Генератор данных
         """
-        return self.data_generator() 
+        return self.data_generator()
+    
+    def _calculate_total_batches(self):
+        """
+        Рассчитывает общее количество батчей для данных.
+        """
+        self.total_batches = sum(1 for _ in self.data_generator()) 
