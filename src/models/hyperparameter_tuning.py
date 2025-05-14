@@ -568,32 +568,39 @@ def tune_hyperparameters(n_trials=100):
     """
     Подбор гиперпараметров с использованием Optuna
     """
+    global train_loader, val_loader
     try:
         print("\n[DEBUG] Начало подбора гиперпараметров...")
         start_time = time.time()
-        
+
+        # Инициализация загрузчиков данных
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
+        print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
+
         # Рассчитываем веса классов для всего датасета
         positive_class_weight = calculate_balanced_weights(train_loader)
         if positive_class_weight is None:
             raise ValueError("Не удалось рассчитать веса классов")
-        
+
         # Сохраняем вес в конфигурации
         Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight'] = positive_class_weight
-        
+
         # Создаем study
         study = optuna.create_study(
             direction='maximize',
             study_name=f'hyperparameter_tuning_{Config.MODEL_TYPE}'
         )
-        
+
         # Запускаем оптимизацию
         study.optimize(objective, n_trials=n_trials)
-        
+
         # Сохраняем результаты
         save_tuning_results(study, time.time() - start_time, n_trials)
-        
+
         return study
-        
+
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
