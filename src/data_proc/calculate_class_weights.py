@@ -8,99 +8,90 @@ from tqdm import tqdm
 
 def calculate_dataset_weights():
     """
-    Расчет весов классов для всего датасета
+    Расчет весов классов на всем датасете
     """
-    print("[DEBUG] Начало расчета весов классов для всего датасета...")
+    print("[DEBUG] Начинаем расчет весов классов...")
     
-    # Создаем загрузчик данных без ограничения на количество видео
-    train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
-    val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
+    # Инициализируем счетчики
+    total_frames = 0
+    positive_frames = 0
     
-    total_samples = 0
-    class_counts = {0: 0, 1: 0}
+    # Получаем список всех видео
+    video_paths = []
     
-    # Обрабатываем обучающий датасет
-    print("[DEBUG] Обработка обучающего датасета...")
-    for video_path in tqdm(train_loader.video_paths):
-        try:
-            annotation_path = train_loader.labels[train_loader.video_paths.index(video_path)]
-            if not annotation_path or not os.path.exists(annotation_path):
-                print(f"[WARNING] Аннотация не найдена для {video_path}")
-                continue
-                
-            with open(annotation_path, 'r') as f:
-                annotations = json.load(f)
-            
-            # Подсчитываем количество кадров каждого класса
-            for element in annotations['annotations']:
-                start_frame = element['start_frame']
-                end_frame = element['end_frame']
-                
-                # Все кадры до start_frame - класс 0
-                class_counts[0] += start_frame
-                
-                # Кадры от start_frame до end_frame - класс 1
-                class_counts[1] += (end_frame - start_frame)
-                
-                # Все кадры после end_frame - класс 0
-                total_frames = train_loader.get_video_info(video_path)['total_frames']
-                class_counts[0] += (total_frames - end_frame)
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+    # Добавляем видео из тренировочного набора
+    train_videos = [f for f in os.listdir(Config.TRAIN_DATA_DIR) if f.endswith('.mp4')]
+    video_paths.extend([os.path.join(Config.TRAIN_DATA_DIR, v) for v in train_videos])
+    
+    # Добавляем видео из валидационного набора
+    val_videos = [f for f in os.listdir(Config.VAL_DATA_DIR) if f.endswith('.mp4')]
+    video_paths.extend([os.path.join(Config.VAL_DATA_DIR, v) for v in val_videos])
+    
+    print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
+    
+    # Обрабатываем каждое видео
+    for video_path in video_paths:
+        video_name = os.path.basename(video_path)
+        print(f"[DEBUG] Обработка видео: {video_name}")
+        
+        # Загружаем видео
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"[WARNING] Не удалось открыть видео: {video_path}")
             continue
-    
-    # Обрабатываем валидационный датасет
-    print("[DEBUG] Обработка валидационного датасета...")
-    for video_path in tqdm(val_loader.video_paths):
-        try:
-            annotation_path = val_loader.labels[val_loader.video_paths.index(video_path)]
-            if not annotation_path or not os.path.exists(annotation_path):
-                print(f"[WARNING] Аннотация не найдена для {video_path}")
-                continue
-                
-            with open(annotation_path, 'r') as f:
-                annotations = json.load(f)
             
-            # Подсчитываем количество кадров каждого класса
-            for element in annotations['annotations']:
-                start_frame = element['start_frame']
-                end_frame = element['end_frame']
-                
-                # Все кадры до start_frame - класс 0
-                class_counts[0] += start_frame
-                
-                # Кадры от start_frame до end_frame - класс 1
-                class_counts[1] += (end_frame - start_frame)
-                
-                # Все кадры после end_frame - класс 0
-                total_frames = val_loader.get_video_info(video_path)['total_frames']
-                class_counts[0] += (total_frames - end_frame)
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
+        # Загружаем аннотации
+        annotation_path = os.path.join(
+            os.path.dirname(video_path),
+            'annotations',
+            f"{os.path.splitext(video_name)[0]}.json"
+        )
+        
+        if not os.path.exists(annotation_path):
+            print(f"[WARNING] Аннотации не найдены для видео: {video_name}")
+            cap.release()
             continue
-    
-    total_samples = sum(class_counts.values())
-    
-    if total_samples == 0:
-        print("[ERROR] Не удалось подсчитать количество примеров")
-        return None
-    
-    print("[DEBUG] Распределение классов:")
-    print(f"  - Всего примеров: {total_samples}")
-    print(f"  - Класс 0 (фон): {class_counts[0]}")
-    print(f"  - Класс 1 (элемент): {class_counts[1]}")
+            
+        with open(annotation_path, 'r') as f:
+            annotations = json.load(f)
+            
+        # Считаем кадры для каждого класса
+        frame_count = 0
+        video_positive_frames = 0
+        
+        while True:
+            ret, _ = cap.read()
+            if not ret:
+                break
+                
+            frame_count += 1
+            frame_time = frame_count / cap.get(cv2.CAP_PROP_FPS)
+            
+            # Проверяем, есть ли аннотация для текущего кадра
+            for annotation in annotations:
+                if annotation['start_time'] <= frame_time <= annotation['end_time']:
+                    video_positive_frames += 1
+                    break
+        
+        # Обновляем общие счетчики
+        total_frames += frame_count
+        positive_frames += video_positive_frames
+        
+        print(f"[DEBUG] Видео {video_name}:")
+        print(f"  - Всего кадров: {frame_count}")
+        print(f"  - Позитивных кадров: {video_positive_frames}")
+        
+        cap.release()
     
     # Рассчитываем веса
-    weights = {
-        0: total_samples / (2 * class_counts[0]),
-        1: total_samples / (2 * class_counts[1])
-    }
+    negative_frames = total_frames - positive_frames
+    weights = [1.0, negative_frames / positive_frames if positive_frames > 0 else 1.0]
     
-    print("[DEBUG] Рассчитанные веса:")
-    print(f"  - Вес класса 0: {weights[0]:.2f}")
-    print(f"  - Вес класса 1: {weights[1]:.2f}")
+    print("\n[DEBUG] Итоговая статистика:")
+    print(f"Всего кадров: {total_frames}")
+    print(f"Позитивных кадров: {positive_frames}")
+    print(f"Негативных кадров: {negative_frames}")
+    print(f"Веса классов: {weights}")
     
     return weights
 
@@ -112,9 +103,32 @@ def save_weights_to_config(weights):
         # Создаем директорию для конфигурации, если её нет
         os.makedirs(os.path.dirname(Config.CONFIG_PATH), exist_ok=True)
         
-        # Читаем текущий конфиг
-        with open(Config.CONFIG_PATH, 'r') as f:
-            config = json.load(f)
+        # Базовый конфиг, если файл не существует
+        default_config = {
+            'MODEL_PARAMS': {
+                'v3': {
+                    'dropout_rate': 0.3,
+                    'lstm_units': 128,
+                    'positive_class_weight': None,
+                    'base_input_shape': [224, 224, 3]
+                },
+                'v4': {
+                    'dropout_rate': 0.3,
+                    'expansion_factor': 4,
+                    'se_ratio': 0.25,
+                    'positive_class_weight': None,
+                    'base_input_shape': [224, 224, 3]
+                }
+            }
+        }
+        
+        # Читаем текущий конфиг или используем дефолтный
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+        else:
+            config = default_config
+            print(f"[DEBUG] Создаем новый конфигурационный файл: {Config.CONFIG_PATH}")
         
         # Обновляем веса в конфиге
         config['MODEL_PARAMS']['v3']['positive_class_weight'] = weights[1]
