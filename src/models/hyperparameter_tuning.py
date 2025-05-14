@@ -125,59 +125,60 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(batch_size, data_loader, is_train=True):
-    """Создание pipeline данных"""
-    print(f"\n[DEBUG] ===== Создание pipeline данных =====")
-    print(f"[DEBUG] Параметры:")
-    print(f"  - batch_size: {batch_size}")
-    print(f"  - sequence_length: {Config.SEQUENCE_LENGTH}")
-    print(f"  - input_size: {Config.INPUT_SIZE}")
-    print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+def create_data_pipeline(data_loader, batch_size, sequence_length, input_size, is_training=True):
+    """
+    Создание оптимизированного пайплайна данных.
     
-    try:
-        # Проверка VideoDataLoader на загрузку всех видео
-        if hasattr(data_loader, 'video_count') and data_loader.video_count > 50:
-            print(f"[WARNING] VideoDataLoader содержит {data_loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
+    Args:
+        data_loader: Загрузчик данных
+        batch_size: Размер батча
+        sequence_length: Длина последовательности
+        input_size: Размер входного изображения
+        is_training: Флаг обучения
         
-        # Устанавливаем размер батча в data_loader
+    Returns:
+        tf.data.Dataset: Оптимизированный датасет
+    """
+    try:
+        print("\n[DEBUG] ===== Создание пайплайна данных =====")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - input_size: {input_size}")
+        print(f"  - is_training: {is_training}")
+        
+        # Проверяем количество загруженных видео
+        if hasattr(data_loader, 'video_count'):
+            print(f"[DEBUG] Количество загруженных видео: {data_loader.video_count}")
+            if data_loader.video_count > Config.MAX_VIDEOS:
+                print(f"[WARNING] Загружено слишком много видео: {data_loader.video_count} > {Config.MAX_VIDEOS}")
+        
+        # Устанавливаем размер батча в загрузчике данных
         data_loader.batch_size = batch_size
-            
-        # Создаем tf.data.Dataset из генератора
-        print("[DEBUG] Создание tf.data.Dataset из генератора...")
+        
+        # Создаем датасет из генератора
         dataset = tf.data.Dataset.from_generator(
             data_loader.data_generator,
             output_signature=(
-                tf.TensorSpec(shape=(batch_size, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(batch_size, Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
+                tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
             )
         )
         
-        print("[DEBUG] Применяем оптимизации к dataset...")
-        
-        # Оптимизация производительности
-        if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(data_loader, 'video_count') or data_loader.video_count <= 50):
-            print("[DEBUG] Кэширование датасета...")
+        # Применяем оптимизации
+        if Config.MEMORY_OPTIMIZATION['cache_dataset']:
             dataset = dataset.cache()
-            
-        if is_train:
-            print("[DEBUG] Перемешивание датасета...")
-            dataset = dataset.shuffle(buffer_size=64)
-            
-        print("[DEBUG] Настройка prefetch...")
+        
+        if is_training:
+            dataset = dataset.shuffle(buffer_size=1000)
+        
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
-        # Проверяем первый батч
-        print("[DEBUG] Проверка первого батча...")
-        for x, y in dataset.take(1):
-            print(f"[DEBUG] Форма X: {x.shape}")
-            print(f"[DEBUG] Форма y: {y.shape}")
-        
-        print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
+        print(f"[ERROR] Ошибка при создании пайплайна данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
         raise
@@ -272,8 +273,8 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(batch_size, train_loader)
-        val_dataset = create_data_pipeline(batch_size, val_loader)
+        train_dataset = create_data_pipeline(train_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, True)
+        val_dataset = create_data_pipeline(val_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, False)
         
         return train_dataset, val_dataset
     except Exception as e:
@@ -320,15 +321,8 @@ def objective(trial):
         global train_loader, val_loader
         
         # Создаем оптимизированные pipeline данных
-        train_dataset = create_data_pipeline(
-            batch_size=Config.BATCH_SIZE,
-            data_loader=train_loader
-        )
-        
-        val_dataset = create_data_pipeline(
-            batch_size=Config.BATCH_SIZE,
-            data_loader=val_loader
-        )
+        train_dataset = create_data_pipeline(train_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, True)
+        val_dataset = create_data_pipeline(val_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, False)
         
         # Создаем callbacks
         callbacks = [

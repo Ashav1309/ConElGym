@@ -336,76 +336,93 @@ class GradientAccumulationModel(tf.keras.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.gradient_accumulation_steps = Config.GRADIENT_ACCUMULATION['steps']
-        self.accumulated_gradients = []
+        self._accumulated_gradients = None
         self._train_counter = tf.Variable(0, trainable=False, dtype=tf.int32)
         
+    @tf.function
     def train_step(self, data):
-        """Шаг обучения с градиентной аккумуляцией"""
-        # Распаковываем данные
+        """
+        Шаг обучения с градиентной аккумуляцией.
+        
+        Args:
+            data: Кортеж (x, y) или (x, y, sample_weight)
+            
+        Returns:
+            dict: Словарь с метриками
+        """
         try:
             print("\n[DEBUG] ===== Шаг обучения =====")
             print(f"[DEBUG] Тип входных данных: {type(data)}")
             
-            if isinstance(data, tuple):
-                if len(data) == 2:
-                    x, y = data
-                    print(f"[DEBUG] Успешно распакованы x и y")
-                elif len(data) == 3:
-                    x, y, _ = data  # Игнорируем третий элемент
-                    print(f"[DEBUG] Распакованы x, y и игнорирован третий элемент")
-                else:
-                    print(f"[DEBUG] Неожиданное количество элементов в кортеже: {len(data)}")
-                    raise ValueError(f"Ожидается кортеж из 2 или 3 элементов, получено {len(data)}")
+            # Распаковываем данные
+            if len(data) == 2:
+                x, y = data
+                print("[DEBUG] Распакованы x и y")
+            elif len(data) == 3:
+                x, y, _ = data
+                print("[DEBUG] Распакованы x, y и игнорирован третий элемент")
             else:
-                print(f"[DEBUG] Неожиданный тип данных: {type(data)}")
-                raise ValueError("Ожидается кортеж (x, y)")
+                raise ValueError(f"Неожиданный формат данных: {len(data)} элементов")
             
             print(f"[DEBUG] Форма x: {x.shape}")
             print(f"[DEBUG] Форма y: {y.shape}")
             
-            batch_size = tf.shape(x)[0]
-            
-            # Нормализуем loss на количество шагов аккумуляции
-            loss_scale = 1.0 / self.gradient_accumulation_steps
+            # Нормализуем потери на количество шагов аккумуляции
+            loss_scale = 1.0 / tf.cast(self.gradient_accumulation_steps, tf.float32)
             
             # Вычисляем градиенты
             with tf.GradientTape() as tape:
-                y_pred = self(x, training=True)
-                loss = self.compiled_loss(y, y_pred)
+                predictions = self(x, training=True)
+                loss = self.compiled_loss(y, predictions)
                 scaled_loss = loss * loss_scale
             
-            # Получаем градиенты
+            # Вычисляем градиенты
             gradients = tape.gradient(scaled_loss, self.trainable_variables)
             
-            # Аккумулируем градиенты
-            if not self.accumulated_gradients:
-                self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            # Накопление градиентов
+            if self._accumulated_gradients is None:
+                self._accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
             
-            for i, grad in enumerate(gradients):
-                if grad is not None:  # Проверяем на None
-                    self.accumulated_gradients[i] += grad
+            # Добавляем градиенты к накопленным
+            self._accumulated_gradients = [
+                acc_grad + grad for acc_grad, grad in zip(self._accumulated_gradients, gradients)
+            ]
             
             # Обновляем веса после накопления достаточного количества градиентов
-            if self._train_counter % self.gradient_accumulation_steps == 0:
-                # Применяем градиенты только если они не None
-                valid_gradients = [(grad, var) for grad, var in zip(self.accumulated_gradients, self.trainable_variables) if grad is not None]
-                if valid_gradients:
-                    self.optimizer.apply_gradients(valid_gradients)
-                # Сбрасываем накопленные градиенты
-                self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            should_apply_gradients = tf.equal(
+                tf.math.floormod(self._train_counter, self.gradient_accumulation_steps),
+                0
+            )
             
-            # Увеличиваем счетчик шагов
+            def apply_gradients():
+                # Применяем накопленные градиенты
+                self.optimizer.apply_gradients(
+                    zip(self._accumulated_gradients, self.trainable_variables)
+                )
+                # Сбрасываем накопленные градиенты
+                self._accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+                return True
+            
+            def no_op():
+                return False
+            
+            # Применяем градиенты или пропускаем шаг
+            tf.cond(should_apply_gradients, apply_gradients, no_op)
+            
+            # Обновляем счетчик шагов
             self._train_counter.assign_add(1)
             
             # Обновляем метрики
-            self.compiled_metrics.update_state(y, y_pred)
+            self.compiled_metrics.update_state(y, predictions)
             
-            # Возвращаем словарь с метриками
+            # Возвращаем метрики
             return {m.name: m.result() for m in self.metrics}
             
         except Exception as e:
             print(f"[ERROR] Ошибка при вычислении градиента: {str(e)}")
-            print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
             raise
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
