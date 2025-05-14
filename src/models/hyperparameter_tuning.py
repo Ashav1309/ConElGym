@@ -38,45 +38,14 @@ val_loader = None
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
-        # Преобразуем входные данные в тензоры
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
-        
-        # Добавляем отладочную информацию
-        print(f"[DEBUG] Focal Loss - Формы входных данных:")
-        print(f"  - y_true shape: {y_true.shape}")
-        print(f"  - y_pred shape: {y_pred.shape}")
-        
-        # Преобразуем one-hot encoded метки в индексы классов
-        y_true = tf.argmax(y_true, axis=-1)
-        y_pred = tf.argmax(y_pred, axis=-1)
-        
-        # Преобразуем 3D в 2D
-        y_true = tf.reshape(y_true, [-1])
-        y_pred = tf.reshape(y_pred, [-1])
-        
-        # Преобразуем обратно в one-hot
-        y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-        y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
-        
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
-        
-        # Вычисляем веса для каждого класса
-        alpha_weight = alpha * y_true + (1 - alpha) * (1 - y_true)
-        
-        # Вычисляем фокусный вес
-        pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-        focal_weight = tf.pow(1 - pt, gamma)
-        
-        # Вычисляем кросс-энтропию
-        cross_entropy = -y_true * tf.math.log(y_pred) - (1 - y_true) * tf.math.log(1 - y_pred)
-        
-        # Применяем веса
-        loss = alpha_weight * focal_weight * cross_entropy
-        
-        # Возвращаем среднее значение по батчу
-        return tf.reduce_mean(loss)
+        cross_entropy = -y_true * tf.math.log(y_pred)
+        weight = alpha * tf.pow(1 - y_pred, gamma)
+        loss = weight * cross_entropy
+        return tf.reduce_sum(loss, axis=-1)
     return focal_loss_fixed
 
 def clear_memory():
@@ -559,11 +528,9 @@ def save_tuning_results(study, total_time, n_trials):
         raise
 
 def plot_tuning_results(study):
-    """
-    Визуализация результатов подбора гиперпараметров
-    """
     try:
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        os.makedirs(tuning_dir, exist_ok=True)
         
         # График истории оптимизации
         fig = optuna.visualization.plot_optimization_history(study)
@@ -572,23 +539,53 @@ def plot_tuning_results(study):
         # График важности параметров
         fig = optuna.visualization.plot_param_importances(study)
         fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
+        
+        # График распределения гиперпараметров
+        for param in study.best_params.keys():
+            fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.params[param])
+            fig.write_image(os.path.join(tuning_dir, f'param_distribution_{param}.png'))
+        
+        # Сохранение графиков в формате PDF
+        fig = optuna.visualization.plot_optimization_history(study)
+        fig.write_image(os.path.join(tuning_dir, 'optimization_history.pdf'))
+        fig = optuna.visualization.plot_param_importances(study)
+        fig.write_image(os.path.join(tuning_dir, 'param_importances.pdf'))
     except Exception as e:
         print(f"Warning: Could not create visualization plots: {str(e)}")
+
+def plot_training_metrics(history, save_path):
+    try:
+        metrics_dir = os.path.join(save_path, 'metrics')
+        os.makedirs(metrics_dir, exist_ok=True)
+        
+        # Графики метрик
+        metrics = ['loss', 'accuracy', 'f1_score_element']
+        for metric in metrics:
+            plt.figure(figsize=(10, 5))
+            plt.plot(history.history[metric], label=f'Training {metric}')
+            plt.plot(history.history[f'val_{metric}'], label=f'Validation {metric}')
+            plt.title(f'{metric.capitalize()} Over Time')
+            plt.xlabel('Epoch')
+            plt.ylabel(metric.capitalize())
+            plt.legend()
+            plt.savefig(os.path.join(metrics_dir, f'{metric}.png'))
+            plt.close()
+    except Exception as e:
+        print(f"Warning: Could not create training metrics plots: {str(e)}")
 
 def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
     """
     Подбор гиперпараметров с использованием Optuna
     """
-    global train_loader, val_loader
     try:
         print("\n[DEBUG] Начало подбора гиперпараметров...")
         start_time = time.time()
 
-        # Инициализация загрузчиков данных без ограничения на количество видео
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
-        print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
-        print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
+        # Просто для информации, без загрузки видео
+        train_videos = [f for f in os.listdir(Config.TRAIN_DATA_PATH) if f.endswith('.mp4')]
+        val_videos = [f for f in os.listdir(Config.VALID_DATA_PATH) if f.endswith('.mp4')]
+        print(f"[DEBUG] Найдено {len(train_videos)} обучающих видео")
+        print(f"[DEBUG] Найдено {len(val_videos)} валидационных видео")
 
         # Создаем study
         study = optuna.create_study(
