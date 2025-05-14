@@ -101,9 +101,12 @@ def save_weights_to_config(weights):
     """
     try:
         # Создаем директорию для конфигурации, если её нет
-        os.makedirs(os.path.dirname(Config.CONFIG_PATH), exist_ok=True)
+        config_dir = os.path.dirname(Config.CONFIG_PATH)
+        if config_dir:  # Если путь содержит директории
+            os.makedirs(config_dir, exist_ok=True)
+            print(f"[DEBUG] Создана директория для конфигурации: {config_dir}")
         
-        # Базовый конфиг, если файл не существует
+        # Базовый конфиг
         default_config = {
             'MODEL_PARAMS': {
                 'v3': {
@@ -122,13 +125,19 @@ def save_weights_to_config(weights):
             }
         }
         
-        # Читаем текущий конфиг или используем дефолтный
+        # Проверяем существование файла
         if os.path.exists(Config.CONFIG_PATH):
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
+            print(f"[DEBUG] Найден существующий конфигурационный файл: {Config.CONFIG_PATH}")
+            try:
+                with open(Config.CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                print("[DEBUG] Успешно загружен существующий конфиг")
+            except json.JSONDecodeError:
+                print("[WARNING] Ошибка чтения конфигурационного файла, создаем новый")
+                config = default_config
         else:
+            print(f"[DEBUG] Конфигурационный файл не найден, создаем новый: {Config.CONFIG_PATH}")
             config = default_config
-            print(f"[DEBUG] Создаем новый конфигурационный файл: {Config.CONFIG_PATH}")
         
         # Обновляем веса в конфиге
         config['MODEL_PARAMS']['v3']['positive_class_weight'] = weights[1]
