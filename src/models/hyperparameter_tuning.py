@@ -257,30 +257,28 @@ def load_and_prepare_data(batch_size):
         raise
 
 def objective(trial):
-    """Функция оптимизации для Optuna"""
-    print(f"\n[DEBUG] ===== Начало Trial {trial.number} =====")
-    
+    """
+    Целевая функция для оптимизации гиперпараметров
+    """
     try:
-        # Определение гиперпараметров
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        batch_size = trial.suggest_int('batch_size', 8, 32)
-        lstm_units = trial.suggest_int('lstm_units', 32, 256) if Config.MODEL_TYPE == 'v3' else None
+        print(f"\n[DEBUG] Начало триала {trial.number}")
         
-        print(f"[DEBUG] Параметры trial {trial.number}:")
+        # Очищаем память перед каждым триалом
+        clear_memory()
+        
+        # Определяем гиперпараметры для текущего триала
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        lstm_units = trial.suggest_int('lstm_units', 32, 128)
+            
+        print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
-        print(f"  - batch_size: {batch_size}")
-        if lstm_units:
-            print(f"  - lstm_units: {lstm_units}")
-            
-        # Загрузка данных
-        train_dataset, val_dataset = load_and_prepare_data(batch_size)
+        print(f"  - lstm_units: {lstm_units}")
         
-        # Создание модели
-        input_shape = (Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3)
+        # Создаем и компилируем модель
         model, class_weights = create_and_compile_model(
-            input_shape=input_shape,
+            input_shape=Config.INPUT_SHAPE,
             num_classes=Config.NUM_CLASSES,
             learning_rate=learning_rate,
             dropout_rate=dropout_rate,
@@ -288,32 +286,68 @@ def objective(trial):
             model_type=Config.MODEL_TYPE
         )
         
-        # Обучение модели
-        print(f"[DEBUG] Начало обучения trial {trial.number}...")
-        history = model.fit(
-            train_dataset,
-            validation_data=val_dataset,
-            epochs=Config.EPOCHS,
-            class_weight=class_weights,  # Добавляем веса классов
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(
-                    monitor='val_loss',
-                    patience=5,
-                    restore_best_weights=True
-                )
-            ]
+        # Используем глобальный загрузчик данных
+        global train_loader, val_loader
+        
+        # Создаем оптимизированные pipeline данных
+        train_dataset = create_data_pipeline(
+            loader=train_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=Config.BATCH_SIZE,
+            target_size=Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
         )
         
-        # Оценка результатов
-        val_loss = min(history.history['val_loss'])
-        print(f"[DEBUG] Trial {trial.number} завершен. Лучшая val_loss: {val_loss}")
+        val_dataset = create_data_pipeline(
+            loader=val_loader,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            batch_size=Config.BATCH_SIZE,
+            target_size=Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=False,
+            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
+        )
         
-        return val_loss
+        # Создаем callbacks
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_f1_score_element',
+                patience=5,
+                restore_best_weights=True,
+                mode='max'
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_f1_score_element',
+                factor=0.5,
+                patience=3,
+                min_lr=1e-6,
+                mode='max'
+            )
+        ]
+        
+        # Обучаем модель
+        history = model.fit(
+            train_dataset,
+            epochs=Config.EPOCHS,
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_data=val_dataset,
+            validation_steps=Config.VALIDATION_STEPS,
+            callbacks=callbacks,
+            class_weight=class_weights
+        )
+        
+        # Получаем лучший результат
+        best_val_f1 = max(history.history['val_f1_score_element'])
+        
+        print(f"[DEBUG] Триал {trial.number} завершен. Лучший val_f1: {best_val_f1:.4f}")
+        
+        return best_val_f1
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в trial {trial.number}: {str(e)}")
+        print(f"[ERROR] Ошибка в триале {trial.number}: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         raise optuna.TrialPruned()
 
@@ -381,76 +415,48 @@ def plot_tuning_results(study):
 
 def tune_hyperparameters():
     """
-    Подбор оптимальных гиперпараметров модели
+    Подбор гиперпараметров с использованием Optuna
     """
-    print("[DEBUG] Начало подбора гиперпараметров")
-    
-    if not device_available:
-        print("Warning: Device setup failed. This will be very slow.")
-    
-    # Создание директории для сохранения результатов
-    os.makedirs(os.path.join(Config.MODEL_SAVE_PATH, 'tuning'), exist_ok=True)
-    
-    # Очищаем память перед началом оптимизации
-    clear_memory()
-    
-    # Создание study с оптимизированными настройками
-    study = optuna.create_study(
-        direction='maximize',
-        sampler=optuna.samplers.TPESampler(n_startup_trials=5),
-        pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
-            interval_steps=1
+    try:
+        print("\n[DEBUG] Начало подбора гиперпараметров...")
+        
+        # Создаем глобальные загрузчики данных
+        global train_loader, val_loader
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+        
+        # Создаем study
+        study = optuna.create_study(
+            direction='maximize',
+            study_name='model_hyperparameter_tuning'
         )
-    )
-    
-    # Запуск оптимизации
-    start_time = time.time()
-    n_trials = Config.HYPERPARAM_TUNING['n_trials']
-    
-    print(f"\nStarting hyperparameter tuning with {n_trials} trials...")
-    
-    try:
-        study.optimize(objective, n_trials=n_trials)
+        
+        # Запускаем оптимизацию
+        study.optimize(
+            objective,
+            n_trials=Config.HYPERPARAM_TUNING['n_trials'],
+            timeout=Config.HYPERPARAM_TUNING['timeout'],
+            n_jobs=Config.HYPERPARAM_TUNING['n_jobs']
+        )
+        
+        # Сохраняем результаты
+        save_tuning_results(study)
+        
+        print("[DEBUG] Подбор гиперпараметров завершен")
+        return study
+        
     except Exception as e:
-        print(f"\nError during optimization: {str(e)}")
-        print(f"[DEBUG] Stack trace:", flush=True)
-        import traceback
+        print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
-        clear_memory()
-    finally:
-        clear_memory()
-    
-    total_time = time.time() - start_time
-    
-    # Проверяем, есть ли успешные trials
-    successful_trials = [t for t in study.trials if t.value is not None and t.value != float('-inf')]
-    if not successful_trials:
-        print("\nNo successful trials completed. Check the error messages above.")
-        return None
-    
-    # Сохранение результатов
-    save_tuning_results(study, total_time, n_trials)
-    
-    # Визуализация результатов
-    try:
-        plot_tuning_results(study)
-    except Exception as e:
-        print(f"\nWarning: Could not create visualization plots: {str(e)}")
-    
-    # Возвращаем лучшие параметры
-    return {
-        'best_params': study.best_params,
-        'best_value': study.best_value
-    }
+        raise
 
 if __name__ == "__main__":
     try:
         result = tune_hyperparameters()
         if result is not None:
-            print("\nBest parameters:", result['best_params'])
-            print("Best validation accuracy:", result['best_value'])
+            print("\nBest parameters:", result.best_params)
+            print("Best validation accuracy:", result.best_value)
         else:
             print("\nFailed to find best parameters. Check the error messages above.")
     except Exception as e:
