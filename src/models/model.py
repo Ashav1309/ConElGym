@@ -485,29 +485,38 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             weights='imagenet'
         )
         
-        # Создаем модель
-        model = tf.keras.Sequential([
-            # Входной слой
-            tf.keras.layers.Input(shape=full_input_shape),
-            
-            # Обработка последовательности кадров
-            tf.keras.layers.TimeDistributed(base_model),
-            
-            # Глобальное усреднение по пространственным измерениям
-            tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D()),
-            
-            # Временная обработка
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True)),
-            tf.keras.layers.Dropout(dropout_rate),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2)),
-            tf.keras.layers.Dropout(dropout_rate),
-            
-            # Выходной слой
-            tf.keras.layers.Dense(num_classes, activation='softmax')
-        ])
+        # Создаем модель с отладочными слоями для проверки размерностей
+        inputs = tf.keras.layers.Input(shape=full_input_shape)
+        print(f"[DEBUG] Входной слой: {inputs.shape}")
+        
+        x = tf.keras.layers.TimeDistributed(base_model)(inputs)
+        print(f"[DEBUG] После TimeDistributed(base_model): {x.shape}")
+        
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
+        print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
+        
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True))(x)
+        print(f"[DEBUG] После первого Bidirectional LSTM: {x.shape}")
+        
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2))(x)
+        print(f"[DEBUG] После второго Bidirectional LSTM: {x.shape}")
+        
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        print(f"[DEBUG] Выходной слой: {outputs.shape}")
+        
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
         print("[DEBUG] MobileNetV3 успешно создана")
-        return model, {1: positive_class_weight} if positive_class_weight else None
+        
+        # Создаем словарь весов классов
+        class_weights = {1: positive_class_weight} if positive_class_weight else None
+        print(f"[DEBUG] Веса классов: {class_weights}")
+        
+        return model, class_weights
         
     except Exception as e:
         print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
