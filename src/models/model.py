@@ -340,7 +340,12 @@ class GradientAccumulationModel(tf.keras.Model):
         self._train_counter = tf.Variable(0, trainable=False, dtype=tf.int32)
         
     def train_step(self, data):
-        x, y = data
+        # Распаковываем данные
+        if isinstance(data, tuple) and len(data) == 2:
+            x, y = data
+        else:
+            raise ValueError(f"Ожидался кортеж (x, y), получено: {type(data)}")
+            
         batch_size = tf.shape(x)[0]
         
         # Нормализуем loss на количество шагов аккумуляции
@@ -360,11 +365,15 @@ class GradientAccumulationModel(tf.keras.Model):
             self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
             
         for i, grad in enumerate(gradients):
-            self.accumulated_gradients[i] += grad
+            if grad is not None:  # Проверяем на None
+                self.accumulated_gradients[i] += grad
             
         # Обновляем веса после накопления достаточного количества градиентов
         if self._train_counter % self.gradient_accumulation_steps == 0:
-            self.optimizer.apply_gradients(zip(self.accumulated_gradients, self.trainable_variables))
+            # Применяем градиенты только если они не None
+            valid_gradients = [(grad, var) for grad, var in zip(self.accumulated_gradients, self.trainable_variables) if grad is not None]
+            if valid_gradients:
+                self.optimizer.apply_gradients(valid_gradients)
             # Сбрасываем накопленные градиенты
             self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
             
@@ -374,6 +383,7 @@ class GradientAccumulationModel(tf.keras.Model):
         # Обновляем метрики
         self.compiled_metrics.update_state(y, y_pred)
         
+        # Возвращаем словарь с метриками
         return {m.name: m.result() for m in self.metrics}
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
