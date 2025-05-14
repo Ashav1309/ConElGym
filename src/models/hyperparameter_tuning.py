@@ -32,6 +32,10 @@ import cv2
 from tensorflow.keras.optimizers import Adam
 import psutil
 
+# Объявляем глобальные переменные в начале файла
+train_loader = None
+val_loader = None
+
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
         y_true = tf.convert_to_tensor(y_true, tf.float32)
@@ -418,9 +422,6 @@ def objective(trial):
             model_type=Config.MODEL_TYPE,
             positive_class_weight=positive_class_weight
         )
-        
-        # Используем глобальный загрузчик данных
-        global train_loader, val_loader
         
         # Создаем оптимизированные pipeline данных
         train_dataset = create_data_pipeline(train_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, True)
