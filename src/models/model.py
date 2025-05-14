@@ -574,10 +574,14 @@ def focal_loss(gamma=2., alpha=0.25):
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, model_type='v3', model_size='small', positive_class_weight=200.0):
     """
-    Создание модели MobileNetV3 с LSTM и градиентной аккумуляцией
+    Создание модели MobileNetV3 с LSTM и оптимизацией памяти
     """
     try:
         print("\n[DEBUG] Создание модели MobileNetV3...")
+        
+        # Включаем mixed precision для оптимизации памяти
+        tf.keras.mixed_precision.set_global_policy('mixed_float16')
+        print("[DEBUG] Включен mixed precision")
         
         # Валидация входных параметров
         if not isinstance(input_shape, tuple) or len(input_shape) != 4:
@@ -645,15 +649,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         
         # Добавляем выходной слой для каждого кадра
         outputs = tf.keras.layers.TimeDistributed(
-            tf.keras.layers.Dense(num_classes, activation='softmax')
+            tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
         )(x)
         
-        # Создаем модель с градиентной аккумуляцией если она включена
-        if Config.GRADIENT_ACCUMULATION['enabled']:
-            print("[DEBUG] Используем модель с градиентной аккумуляцией")
-            model = GradientAccumulationModel(inputs=inputs, outputs=outputs)
-        else:
-            model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        # Создаем модель
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
         # Компилируем модель с focal loss и метриками
         model.compile(

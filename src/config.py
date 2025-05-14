@@ -21,7 +21,7 @@ class Config:
     NUM_CLASSES = 2  # Фон и элемент
     INPUT_SIZE = (224, 224)  # Размер входного изображения
     SEQUENCE_LENGTH = 16  # Уменьшаем с 32 до 16 кадров для экономии памяти
-    BATCH_SIZE = 4  # Физический размер батча
+    BATCH_SIZE = 2  # Уменьшаем размер батча
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
@@ -59,6 +59,8 @@ class Config:
     MEMORY_OPTIMIZATION = {
         'use_mixed_precision': True,
         'clear_memory_after_epoch': True,
+        'use_gradient_checkpointing': True,
+        'use_xla': True,
         'gradient_accumulation_steps': 4,
         'cache_dataset': True
     }
@@ -107,9 +109,8 @@ class Config:
     
     # Параметры градиентной аккумуляции
     GRADIENT_ACCUMULATION = {
-        'enabled': True,
-        'steps': 4,  # Количество шагов для накопления градиентов
-        'effective_batch_size': 16  # Эффективный размер батча (BATCH_SIZE * steps)
+        'enabled': False,
+        'steps': 1
     }
     
     @classmethod
