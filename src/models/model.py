@@ -15,6 +15,7 @@ import gc
 from tensorflow.keras.optimizers import Adam
 import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
+from tensorflow.keras.callbacks import Callback
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,11 @@ class UniversalInvertedBottleneck(Layer):
             width = input_shape[2]
         return (input_shape[0], height, width, self.filters)
 
+class MemoryClearCallback(Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        gc.collect()
+        print("[DEBUG] Очистка памяти после эпохи")
+
 class ModelTrainer:
     def __init__(self, model, data_loader):
         self.model = model
@@ -260,7 +266,8 @@ class ModelTrainer:
                             tf.keras.callbacks.ModelCheckpoint(
                                 'best_model.h5',
                                 save_best_only=True
-                            )
+                            ),
+                            MemoryClearCallback()
                         ]
                     )
                     return history
@@ -427,9 +434,21 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         traceback.print_exc()
         raise
 
+def focal_loss(gamma=2., alpha=0.25):
+    def focal_loss_fixed(y_true, y_pred):
+        y_true = tf.convert_to_tensor(y_true, tf.float32)
+        y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+        epsilon = tf.keras.backend.epsilon()
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+        cross_entropy = -y_true * tf.math.log(y_pred)
+        weight = alpha * tf.pow(1 - y_pred, gamma)
+        loss = weight * cross_entropy
+        return tf.reduce_sum(loss, axis=-1)
+    return focal_loss_fixed
+
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, positive_class_weight=200.0):
     """
-    Создание MobileNetV3 с возможностью задания веса положительного класса.
+    Создание MobileNetV3 с возможностью задания веса положительного класса и использованием focal loss.
     Args:
         input_shape: форма входных данных
         num_classes: количество классов
@@ -492,10 +511,10 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.5, lstm_un
                 }
                 model.compile(
                     optimizer=optimizer,
-                    loss='categorical_crossentropy',
+                    loss=focal_loss(gamma=2., alpha=0.25),
                     metrics=['accuracy']
                 )
-                print("[DEBUG] MobileNetV3 успешно создана")
+                print("[DEBUG] MobileNetV3 успешно создана (focal loss)")
                 return model, class_weights
             except Exception as e:
                 print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
