@@ -426,83 +426,143 @@ def objective(trial):
     Целевая функция для оптимизации гиперпараметров
     """
     try:
-        print(f"\n[DEBUG] Начало триала {trial.number}")
+        print("\n[DEBUG] Начало нового trial...")
         
-        # Очищаем память перед каждым триалом
+        # Очищаем память перед каждым trial
         clear_memory()
         
-        # Определяем гиперпараметры
+        # Определяем тип модели
+        model_type = Config.MODEL_TYPE
+        
+        # Загружаем веса из конфигурационного файла
+        if os.path.exists(Config.CONFIG_PATH):
+            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                print(f"[DEBUG] Загружен вес положительного класса: {positive_class_weight}")
+        else:
+            print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
+            positive_class_weight = None
+        
+        # Определяем гиперпараметры для оптимизации
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        lstm_units = trial.suggest_int('lstm_units', 32, 256)
         
-        # Используем предварительно рассчитанный вес для положительного класса
-        positive_class_weight = Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
+        if model_type == 'v3':
+            lstm_units = trial.suggest_int('lstm_units', 32, 256)
+        else:
+            lstm_units = None
         
-        print(f"[DEBUG] Параметры триала:")
+        print(f"[DEBUG] Параметры trial:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
-        print(f"  - lstm_units: {lstm_units}")
+        if lstm_units:
+            print(f"  - lstm_units: {lstm_units}")
         print(f"  - positive_class_weight: {positive_class_weight}")
         
-        # Создаем и компилируем модель
-        model, class_weights = create_and_compile_model(
-            input_shape=Config.INPUT_SHAPE,
+        # Создаем модель
+        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
+        model, class_weights = create_model(
+            input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
             learning_rate=learning_rate,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            model_type=Config.MODEL_TYPE,
+            model_type=model_type,
             positive_class_weight=positive_class_weight
         )
         
-        # Создаем оптимизированные pipeline данных
-        train_dataset = create_data_pipeline(train_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, True)
-        val_dataset = create_data_pipeline(val_loader, Config.BATCH_SIZE, Config.SEQUENCE_LENGTH, Config.INPUT_SIZE, False)
+        # Создаем загрузчики данных
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=None)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=None)
         
-        # Создаем callbacks
+        # Создаем оптимизированные pipeline данных
+        train_dataset = create_data_pipeline(
+            train_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            is_training=True
+        )
+        
+        val_dataset = create_data_pipeline(
+            val_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            is_training=False
+        )
+        
+        # Создаем метрики
+        metrics = [
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
+        ]
+        
+        # Создаем адаптер для F1Score
+        class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def update_state(self, y_true, y_pred, sample_weight=None):
+                # Преобразуем one-hot encoded метки в индексы классов
+                y_true = tf.argmax(y_true, axis=-1)
+                y_pred = tf.argmax(y_pred, axis=-1)
+                
+                # Преобразуем 3D в 2D
+                y_true = tf.reshape(y_true, [-1])
+                y_pred = tf.reshape(y_pred, [-1])
+                
+                # Вызываем родительский метод
+                super().update_state(y_true, y_pred, sample_weight)
+        
+        # Добавляем F1Score в метрики
+        metrics.append(F1ScoreAdapter(name='f1_score_element', class_id=1, threshold=0.5))
+        
+        # Компилируем модель
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            loss=focal_loss(),
+            metrics=metrics
+        )
+        
+        # Создаем колбэки
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
-                patience=5,
-                restore_best_weights=True,
-                mode='max',
-                verbose=1
+                patience=3,
+                restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
-                factor=0.5,
-                patience=3,
-                min_lr=1e-6,
-                mode='max',
-                verbose=1
+                factor=0.2,
+                patience=2,
+                min_lr=1e-6
             )
         ]
         
         # Обучаем модель
         history = model.fit(
             train_dataset,
-            epochs=Config.EPOCHS,
-            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            epochs=Config.EPOCHS,  # Используем количество эпох из конфигурации
             validation_data=val_dataset,
-            validation_steps=Config.VALIDATION_STEPS,
             callbacks=callbacks,
-            class_weight=class_weights
+            verbose=1
         )
         
-        # Получаем лучший результат
-        best_val_f1 = max(history.history['val_f1_score_element'])
+        # Получаем лучший F1-score
+        best_f1 = max(history.history['val_f1_score_element'])
         
-        print(f"[DEBUG] Триал {trial.number} завершен. Лучший val_f1: {best_val_f1:.4f}")
+        # Очищаем память
+        clear_memory()
         
-        return best_val_f1
+        return best_f1
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в триале {trial.number}: {str(e)}")
+        print(f"[ERROR] Ошибка в trial: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        raise optuna.TrialPruned()
+        return None
 
 def save_tuning_results(study, total_time, n_trials):
     """

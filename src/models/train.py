@@ -250,7 +250,7 @@ def f1_score_element(y_true, y_pred):
 
 def load_best_params(model_type=None):
     """
-    Загрузка лучших параметров из файла optuna_results.txt
+    Загрузка лучших параметров из файла optuna_results.txt и весов из config.json
     Args:
         model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
     """
@@ -264,12 +264,24 @@ def load_best_params(model_type=None):
             print(f"[DEBUG] Создание директории для результатов: {results_dir}")
             os.makedirs(results_dir, exist_ok=True)
         
+        # Загружаем веса из конфигурационного файла
+        if os.path.exists(Config.CONFIG_PATH):
+            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                print(f"[DEBUG] Загружен вес положительного класса: {positive_class_weight}")
+        else:
+            print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
+            positive_class_weight = None
+        
         if not os.path.exists(results_path):
             print(f"[DEBUG] Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию для {model_type}.")
             default_params = {
                 'learning_rate': 1e-4,
                 'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                'batch_size': 16
+                'batch_size': 16,
+                'positive_class_weight': positive_class_weight
             }
             if model_type == 'v3':
                 default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
@@ -305,10 +317,14 @@ def load_best_params(model_type=None):
                 best_params = {
                     'learning_rate': 1e-4,
                     'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                    'batch_size': 16
+                    'batch_size': 16,
+                    'positive_class_weight': positive_class_weight
                 }
                 if model_type == 'v3':
                     best_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+            
+            # Добавляем вес положительного класса из конфигурации
+            best_params['positive_class_weight'] = positive_class_weight
             
             print(f"[DEBUG] Загружены лучшие параметры для {model_type}: {best_params}")
             return best_params
@@ -323,7 +339,8 @@ def load_best_params(model_type=None):
     default_params = {
         'learning_rate': 1e-4,
         'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-        'batch_size': 16
+        'batch_size': 16,
+        'positive_class_weight': positive_class_weight
     }
     if model_type == 'v3':
         default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
