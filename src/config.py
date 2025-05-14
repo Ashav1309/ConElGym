@@ -9,7 +9,7 @@ class Config:
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
-    VALID_DATA_PATH = os.path.join(DATA_DIR, 'validation')
+    VALID_DATA_PATH = os.path.join(DATA_DIR, 'valid')
     TEST_DATA_PATH = os.path.join(DATA_DIR, 'test')
     
     # Параметры модели
