@@ -445,7 +445,21 @@ class TemporalF1Score(tf.keras.metrics.Metric):
         self.false_positives.assign(0)
         self.false_negatives.assign(0)
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25, positive_class_weight=None):
+    """
+    Создание модели MobileNetV4
+    """
+    print("[DEBUG] Создание модели MobileNetV4...")
+    
+    # Получаем параметры модели из конфигурации
+    model_params = Config.MODEL_PARAMS['v4']
+    
+    # Используем параметры из конфигурации, если не указаны явно
+    dropout_rate = dropout_rate or model_params['dropout_rate']
+    expansion_factor = expansion_factor or model_params['expansion_factor']
+    se_ratio = se_ratio or model_params['se_ratio']
+    positive_class_weight = positive_class_weight or model_params['positive_class_weight']
+    
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
         
@@ -548,49 +562,67 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         print(f"[ERROR] Stack trace: {traceback.format_exc()}")
         raise
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25, positive_class_weight=200.0):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None):
     """
-    Создание модели с выбором типа архитектуры
+    Создание модели с заданными параметрами
     Args:
         input_shape: форма входных данных
         num_classes: количество классов
         dropout_rate: коэффициент dropout
-        lstm_units: количество юнитов в LSTM слоях
-        model_type: тип модели ('v3' или 'v4') - временно используется только v3
-        model_size: размер модели ('small', 'medium', 'large')
-        expansion_factor: коэффициент расширения для UIB блоков (только для v4)
-        se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
+        lstm_units: количество юнитов в LSTM слое
+        model_type: тип модели ('v3' или 'v4')
         positive_class_weight: вес положительного класса
     """
-    print(f"\n[DEBUG] ===== Создание модели =====")
-    print(f"[DEBUG] Параметры:")
-    print(f"  - model_type: {model_type} (временно используется только v3)")
-    print(f"  - model_size: {model_size}")
-    print(f"  - input_shape: {input_shape}")
-    print(f"  - num_classes: {num_classes}")
+    print("\n[DEBUG] Создание модели...")
+    print(f"[DEBUG] Параметры создания модели:")
+    print(f"  - model_type: {model_type}")
     print(f"  - dropout_rate: {dropout_rate}")
     print(f"  - lstm_units: {lstm_units}")
     print(f"  - positive_class_weight: {positive_class_weight}")
     
-    try:
-        # Временно используем только MobileNetV3
-        print("[DEBUG] Создание MobileNetV3...")
-        model, class_weights = create_mobilenetv3_model(
+    # Получаем параметры модели из конфигурации
+    model_params = Config.MODEL_PARAMS[model_type]
+    
+    if model_type == 'v3':
+        return create_mobilenetv3_model(
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
             positive_class_weight=positive_class_weight
         )
-        
-        print("[DEBUG] Модель успешно создана")
-        return model, class_weights
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании модели: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        raise
+    elif model_type == 'v4':
+        return create_mobilenetv4_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=dropout_rate,
+            expansion_factor=model_params['expansion_factor'],
+            se_ratio=model_params['se_ratio'],
+            positive_class_weight=positive_class_weight
+        )
+    else:
+        raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
+
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None):
+    """
+    Создание модели MobileNetV3
+    """
+    print("[DEBUG] Создание модели MobileNetV3...")
+    
+    # Получаем параметры модели из конфигурации
+    model_params = Config.MODEL_PARAMS['v3']
+    
+    # Используем параметры из конфигурации, если не указаны явно
+    dropout_rate = dropout_rate or model_params['dropout_rate']
+    lstm_units = lstm_units or model_params['lstm_units']
+    positive_class_weight = positive_class_weight or model_params['positive_class_weight']
+    
+    # Создаем модель
+    model = tf.keras.Sequential([
+        # ... existing code ...
+    ])
+    
+    return model, {1: positive_class_weight} if positive_class_weight else None
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
@@ -603,151 +635,6 @@ def focal_loss(gamma=2., alpha=0.25):
         loss = weight * cross_entropy
         return tf.reduce_sum(loss, axis=-1)
     return focal_loss_fixed
-
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, model_type='v3', model_size='small', positive_class_weight=200.0):
-    """
-    Создание модели MobileNetV3 с LSTM и оптимизацией памяти
-    """
-    try:
-        print("\n[DEBUG] Создание модели MobileNetV3...")
-        
-        # Включаем mixed precision для оптимизации памяти
-        tf.keras.mixed_precision.set_global_policy('mixed_float16')
-        print("[DEBUG] Включен mixed precision")
-        
-        # Валидация входных параметров
-        if not isinstance(input_shape, tuple) or len(input_shape) != 4:
-            raise ValueError(f"Неверный формат input_shape: {input_shape}. Ожидается (sequence_length, height, width, channels)")
-            
-        if num_classes <= 0:
-            raise ValueError(f"Количество классов должно быть положительным: {num_classes}")
-            
-        if not 0 <= dropout_rate <= 1:
-            raise ValueError(f"Коэффициент dropout должен быть в диапазоне [0, 1]: {dropout_rate}")
-            
-        if lstm_units <= 0:
-            raise ValueError(f"Количество LSTM юнитов должно быть положительным: {lstm_units}")
-            
-        if model_type not in ['v3', 'v4']:
-            raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
-            
-        if model_size not in ['small', 'medium', 'large']:
-            raise ValueError(f"Неверный размер модели: {model_size}. Допустимые значения: small, medium, large")
-        
-        # Получаем параметры модели
-        model_params = Config.MODEL_PARAMS[model_type]
-        
-        # Создаем базовую модель MobileNetV3
-        if model_type == 'v3':
-            base_model = MobileNetV3Small(
-                input_shape=input_shape[1:],
-                alpha=1.0,
-                minimalistic=False,
-                include_top=False,
-                weights='imagenet',
-                pooling=None,
-                classes=num_classes,
-                classifier_activation=None
-            )
-        else:  # v4
-            base_model = MobileNetV3Small(
-                input_shape=input_shape[1:],
-                alpha=1.0,
-                minimalistic=False,
-                include_top=False,
-                weights='imagenet',
-                pooling=None,
-                classes=num_classes,
-                classifier_activation=None,
-                expansion_factor=model_params.get('expansion_factor', 4),
-                se_ratio=model_params.get('se_ratio', 0.25)
-            )
-        
-        # Создаем входной слой
-        inputs = tf.keras.layers.Input(shape=input_shape)
-        
-        # Применяем базовую модель к каждому кадру
-        x = tf.keras.layers.TimeDistributed(base_model)(inputs)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
-        
-        # Добавляем LSTM слои с BatchNormalization
-        x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(dropout_rate)(x)
-        
-        x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Dropout(dropout_rate)(x)
-        
-        # Добавляем выходной слой для каждого кадра
-        outputs = tf.keras.layers.TimeDistributed(
-            tf.keras.layers.Dense(num_classes, activation='softmax', dtype='float32')
-        )(x)
-        
-        # Создаем модель
-        model = tf.keras.Model(inputs=inputs, outputs=outputs)
-        
-        # Создаем метрики
-        print("[DEBUG] Создание метрик...")
-        metrics = [
-            'accuracy',
-            tf.keras.metrics.Precision(name='precision_element', class_id=1),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1)
-        ]
-
-        print("[DEBUG] Добавление F1Score...")
-        try:
-            # Создаем адаптер для F1Score
-            class F1ScoreAdapter(tf.keras.metrics.F1Score):
-                def update_state(self, y_true, y_pred, sample_weight=None):
-                    # Преобразуем one-hot encoded метки в индексы классов
-                    y_true = tf.argmax(y_true, axis=-1)
-                    y_pred = tf.argmax(y_pred, axis=-1)
-                    
-                    # Преобразуем 3D в 2D
-                    y_true = tf.reshape(y_true, [-1])
-                    y_pred = tf.reshape(y_pred, [-1])
-                    
-                    # Преобразуем обратно в one-hot
-                    y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-                    y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
-                    
-                    return super().update_state(y_true, y_pred, sample_weight)
-            
-            f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
-            print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
-            metrics.append(f1_metric)
-        except Exception as e:
-            print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-
-        print(f"[DEBUG] Итоговый список метрик: {metrics}")
-
-        # Компилируем модель с focal loss и метриками
-        print("[DEBUG] Компиляция модели...")
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
-            loss=focal_loss(gamma=2., alpha=0.25),
-            metrics=metrics
-        )
-        print("[DEBUG] Модель успешно скомпилирована")
-        
-        # Создаем словарь весов классов
-        class_weights = {
-            0: 1.0,  # вес для фонового класса
-            1: positive_class_weight  # вес для класса элемента
-        }
-        
-        print("[DEBUG] Модель MobileNetV3 успешно создана")
-        return model, class_weights
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании модели: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        raise
 
 if __name__ == "__main__":
     try:

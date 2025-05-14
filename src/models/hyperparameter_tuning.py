@@ -189,7 +189,7 @@ def create_data_pipeline(data_loader, batch_size, sequence_length, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=200.0):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -199,7 +199,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях (только для v3)
         model_type: тип модели ('v3' или 'v4')
-        positive_class_weight: вес положительного класса
+        positive_class_weight: вес положительного класса (если None, будет рассчитан автоматически)
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -211,6 +211,11 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         print(f"  - LSTM units: {lstm_units}")
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
+    
+    # Если positive_class_weight не указан, рассчитываем его
+    if positive_class_weight is None:
+        positive_class_weight = calculate_balanced_weights(train_loader)
+    
     print(f"  - Positive class weight: {positive_class_weight}")
     
     # Формируем правильный input_shape с учетом длины последовательности
@@ -320,6 +325,57 @@ def load_and_prepare_data(batch_size):
         clear_memory()
         raise
 
+def calculate_balanced_weights(data_loader):
+    """
+    Расчет сбалансированных весов классов на основе распределения данных
+    """
+    try:
+        print("\n[DEBUG] Расчет сбалансированных весов классов...")
+        
+        # Создаем временный генератор для подсчета
+        temp_generator = data_loader.data_generator()
+        
+        # Инициализируем счетчики
+        total_samples = 0
+        class_counts = {0: 0, 1: 0}  # Для бинарной классификации
+        
+        # Подсчитываем количество примеров каждого класса
+        for _ in range(100):  # Берем первые 100 батчей для оценки
+            try:
+                _, labels = next(temp_generator)
+                # Преобразуем one-hot в индексы классов
+                class_indices = tf.argmax(labels, axis=-1)
+                # Подсчитываем количество примеров каждого класса
+                for class_idx in range(2):
+                    class_counts[class_idx] += tf.reduce_sum(tf.cast(class_indices == class_idx, tf.int32))
+                total_samples += tf.reduce_prod(tf.shape(labels)[:-1])
+            except StopIteration:
+                break
+        
+        print(f"[DEBUG] Распределение классов:")
+        print(f"  - Всего примеров: {total_samples}")
+        print(f"  - Класс 0 (фон): {class_counts[0]}")
+        print(f"  - Класс 1 (элемент): {class_counts[1]}")
+        
+        # Рассчитываем веса
+        n_classes = 2
+        weights = {
+            0: total_samples / (n_classes * class_counts[0]),
+            1: total_samples / (n_classes * class_counts[1])
+        }
+        
+        print(f"[DEBUG] Рассчитанные веса:")
+        print(f"  - Вес класса 0: {weights[0]:.2f}")
+        print(f"  - Вес класса 1: {weights[1]:.2f}")
+        
+        return weights[1]  # Возвращаем вес положительного класса
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при расчете весов: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        traceback.print_exc()
+        return 500.0  # Возвращаем значение по умолчанию в случае ошибки
+
 def objective(trial):
     """
     Целевая функция для оптимизации гиперпараметров
@@ -330,18 +386,19 @@ def objective(trial):
         # Очищаем память перед каждым триалом
         clear_memory()
         
-        # Получаем базовое значение positive_class_weight из конфигурации
-        base_positive_class_weight = Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
+        # Рассчитываем сбалансированный вес для положительного класса
+        balanced_weight = calculate_balanced_weights(train_loader)
         
         # Определяем гиперпараметры для текущего триала
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 128)
-        # Ищем значение только выше базового
+        
+        # Используем рассчитанный вес как базовое значение
         positive_class_weight = trial.suggest_float(
             'positive_class_weight',
-            base_positive_class_weight,  # Минимум - базовое значение (500.0)
-            base_positive_class_weight * 2.0,  # Максимум - двойное от базового (1000.0)
+            balanced_weight * 0.8,  # Минимум - 80% от сбалансированного веса
+            balanced_weight * 1.2,  # Максимум - 120% от сбалансированного веса
             log=True
         )
         
@@ -349,7 +406,7 @@ def objective(trial):
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
         print(f"  - lstm_units: {lstm_units}")
-        print(f"  - positive_class_weight: {positive_class_weight} (базовое: {base_positive_class_weight})")
+        print(f"  - positive_class_weight: {positive_class_weight} (сбалансированный вес: {balanced_weight})")
         
         # Создаем и компилируем модель
         model, class_weights = create_and_compile_model(

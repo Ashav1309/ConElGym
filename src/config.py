@@ -20,6 +20,7 @@ class Config:
     MODEL_TYPE = 'v3'  # 'v3' или 'v4'
     NUM_CLASSES = 2  # Фон и элемент
     INPUT_SIZE = (224, 224)  # Размер входного изображения
+    INPUT_SHAPE = (*INPUT_SIZE, 3)  # Форма входных данных
     SEQUENCE_LENGTH = 16  # Уменьшаем с 32 до 16 кадров для экономии памяти
     BATCH_SIZE = 2  # Уменьшаем размер батча
     EPOCHS = 20
@@ -33,26 +34,19 @@ class Config:
     DROPOUT_RATE = 0.3
     LSTM_UNITS = 128  # Уменьшаем с 256 до 128
     
-    # Параметры модели v3
+    # Параметры модели
     MODEL_PARAMS = {
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 128,  # Уменьшаем с 256 до 128
-            'positive_class_weight': 500.0  # Увеличиваем с 200.0 до 500.0
+            'positive_class_weight': None  # Будет рассчитано автоматически на основе данных
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': 500.0  # Увеличиваем с 200.0 до 500.0
+            'positive_class_weight': None  # Будет рассчитано автоматически на основе данных
         }
-    }
-    
-    # Параметры модели v4
-    MODEL_PARAMS_V4 = {
-        'dropout_rate': 0.3,
-        'expansion_factor': 4,
-        'se_ratio': 0.25
     }
     
     # Параметры оптимизации памяти
@@ -73,12 +67,6 @@ class Config:
         'allow_gpu_memory_growth': True,
         'cpu_threads': 4
     }
-    
-    # Параметры модели
-    INPUT_SHAPE = (224, 224, 3)
-    MODEL_SIZE = 'small'  # Размер модели (small, medium, large)
-    EXPANSION_FACTOR = 4  # Фактор расширения для UIB блоков
-    SE_RATIO = 0.25  # Коэффициент для Squeeze-and-Excitation
     
     # Пути к аннотациям
     TRAIN_ANNOTATION_PATH = os.path.join(DATA_DIR, 'train', 'annotations')
