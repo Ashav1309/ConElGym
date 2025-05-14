@@ -575,7 +575,7 @@ def plot_tuning_results(study):
     except Exception as e:
         print(f"Warning: Could not create visualization plots: {str(e)}")
 
-def tune_hyperparameters(n_trials=100):
+def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
     """
     Подбор гиперпараметров с использованием Optuna
     """

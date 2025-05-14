@@ -500,7 +500,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
-        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2))(x)
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2, return_sequences=True))(x)
         print(f"[DEBUG] После второго Bidirectional LSTM: {x.shape}")
         
         x = tf.keras.layers.Dropout(dropout_rate)(x)
