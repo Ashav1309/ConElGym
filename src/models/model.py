@@ -617,12 +617,41 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     lstm_units = lstm_units or model_params['lstm_units']
     positive_class_weight = positive_class_weight or model_params['positive_class_weight']
     
-    # Создаем модель
-    model = tf.keras.Sequential([
-        # ... existing code ...
-    ])
-    
-    return model, {1: positive_class_weight} if positive_class_weight else None
+    try:
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
+        
+        # Создаем базовую модель MobileNetV3
+        base_model = MobileNetV3Small(
+            input_shape=input_shape[1:],  # Убираем размерность последовательности
+            include_top=False,
+            weights='imagenet'
+        )
+        
+        # Создаем модель
+        model = tf.keras.Sequential([
+            # Входной слой
+            tf.keras.layers.Input(shape=input_shape),
+            
+            # Обработка последовательности кадров
+            tf.keras.layers.TimeDistributed(base_model),
+            
+            # Временная обработка
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True)),
+            tf.keras.layers.Dropout(dropout_rate),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2)),
+            tf.keras.layers.Dropout(dropout_rate),
+            
+            # Выходной слой
+            tf.keras.layers.Dense(num_classes, activation='softmax')
+        ])
+        
+        print("[DEBUG] MobileNetV3 успешно создана")
+        return model, {1: positive_class_weight} if positive_class_weight else None
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
+        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+        raise
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
