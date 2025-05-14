@@ -469,7 +469,7 @@ def objective(trial):
                 return super().update_state(y_true, y_pred, sample_weight)
         
         # Добавляем F1Score в метрики
-        metrics.append(F1ScoreAdapter(name='f1_score_element', class_id=1, threshold=0.5))
+        metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
         # Компилируем модель
         model.compile(
