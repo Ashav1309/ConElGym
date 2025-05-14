@@ -368,47 +368,45 @@ def objective(trial):
 def save_tuning_results(study, total_time, n_trials):
     """
     Сохранение результатов подбора гиперпараметров
-    
-    Args:
-        study: Объект study Optuna
-        total_time: Общее время выполнения
-        n_trials: Количество испытаний
     """
-    tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
-    os.makedirs(tuning_dir, exist_ok=True)
-    
-    # Сохраняем результаты в файл
-    with open(os.path.join(tuning_dir, 'tuning_results.txt'), 'w') as f:
-        f.write(f"Best trial: {study.best_trial.number}\n")
-        f.write(f"Best value: {study.best_trial.value:.4f}\n")
-        f.write("\nBest parameters:\n")
-        for param, value in study.best_trial.params.items():
-            f.write(f"{param}: {value}\n")
+    try:
+        print("\n[DEBUG] Сохранение результатов подбора гиперпараметров...")
         
-        f.write(f"\nTotal trials: {n_trials}\n")
-        f.write(f"Total time: {timedelta(seconds=int(total_time))}\n")
-        f.write(f"Average time per trial: {timedelta(seconds=int(total_time/n_trials))}\n")
+        # Создаем директорию для результатов
+        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        os.makedirs(tuning_dir, exist_ok=True)
         
-        # Добавляем статистику по типам моделей
-        v3_trials = sum(1 for t in study.trials if t.params.get('model_type') == 'v3')
-        v4_trials = sum(1 for t in study.trials if t.params.get('model_type') == 'v4')
-        f.write(f"\nModel type distribution:\n")
-        f.write(f"MobileNetV3 trials: {v3_trials}\n")
-        f.write(f"MobileNetV4 trials: {v4_trials}\n")
+        # Сохраняем результаты в текстовый файл
+        with open(os.path.join(tuning_dir, 'tuning_results.txt'), 'w') as f:
+            f.write(f"Время выполнения: {total_time:.2f} секунд\n")
+            f.write(f"Количество триалов: {n_trials}\n\n")
+            
+            # Получаем лучший триал
+            best_trial = study.best_trial
+            f.write(f"Лучший триал: {best_trial.number}\n")
+            f.write(f"Лучшее значение: {best_trial.value}\n")
+            f.write("\nПараметры лучшего триала:\n")
+            for key, value in best_trial.params.items():
+                f.write(f"{key}: {value}\n")
+            
+            # Сохраняем историю всех триалов
+            f.write("\nИстория всех триалов:\n")
+            for trial in study.trials:
+                if trial.state == optuna.trial.TrialState.COMPLETE:
+                    f.write(f"\nТриал {trial.number}:\n")
+                    f.write(f"Значение: {trial.value}\n")
+                    f.write("Параметры:\n")
+                    for key, value in trial.params.items():
+                        f.write(f"{key}: {value}\n")
         
-        # Добавляем статистику успешных trials
-        successful_trials = sum(1 for t in study.trials if t.value is not None)
-        f.write(f"\nSuccessful trials: {successful_trials}/{n_trials}\n")
+        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
         
-        # Добавляем лучшие результаты для каждого типа модели
-        v3_best = max((t.value for t in study.trials if t.params.get('model_type') == 'v3' and t.value is not None), default=None)
-        v4_best = max((t.value for t in study.trials if t.params.get('model_type') == 'v4' and t.value is not None), default=None)
-        
-        f.write("\nBest results by model type:\n")
-        if v3_best is not None:
-            f.write(f"MobileNetV3 best accuracy: {v3_best:.4f}\n")
-        if v4_best is not None:
-            f.write(f"MobileNetV4 best accuracy: {v4_best:.4f}\n")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 def plot_tuning_results(study):
     """
