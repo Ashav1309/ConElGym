@@ -543,6 +543,22 @@ def train(model_type=None):
         # Визуализация результатов
         plot_training_results(history, model_save_path)
         
+        # Визуализация confusion matrix на валидации
+        print("[DEBUG] Визуализация confusion matrix на валидации...")
+        # Собираем все предсказания и истинные значения на валидации
+        val_y_true = []
+        val_y_pred = []
+        for x_batch, y_batch in val_dataset:
+            y_pred_batch = model.predict(x_batch)
+            # Объединяем классы (как в merge_classes)
+            y_true_bin = (y_batch.numpy()[...,0] == 1) | (y_batch.numpy()[...,1] == 1)
+            y_pred_bin = (y_pred_batch[...,0] > 0.5) | (y_pred_batch[...,1] > 0.5)
+            val_y_true.extend(y_true_bin.flatten())
+            val_y_pred.extend(y_pred_bin.flatten())
+            if len(val_y_true) > 10000:  # ограничим количество для скорости
+                break
+        plot_confusion_matrix(val_y_true, val_y_pred, model_save_path)
+        
         return model, history
         
     except Exception as e:

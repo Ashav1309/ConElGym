@@ -17,21 +17,30 @@ import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
 from src.config import Config
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+def merge_classes(y):
+    """
+    Объединяет классы [1, 0] и [0, 1] в один положительный класс (1), фон — 0.
+    y: shape (..., 2)
+    Возвращает: shape (..., 1)
+    """
+    # Если хотя бы один из двух классов равен 1, то это положительный класс
+    return tf.cast(tf.reduce_any(y == 1, axis=-1), tf.int32)
 
 def f1_score_element(y_true, y_pred):
     """
     Вычисление F1-score для элемента с учетом временной размерности и one-hot encoded меток
     """
-    # Преобразуем one-hot encoded метки в индексы классов
-    y_true = tf.argmax(y_true, axis=-1)
-    y_pred = tf.argmax(y_pred, axis=-1)
+    # Объединяем классы
+    y_true_bin = merge_classes(y_true)
+    y_pred_bin = merge_classes(y_pred)
     
-    # Вычисляем метрики с учетом временной размерности
-    true_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
-    predicted_positives = tf.reduce_sum(tf.cast(tf.equal(y_pred, 1), tf.float32))
-    possible_positives = tf.reduce_sum(tf.cast(tf.equal(y_true, 1), tf.float32))
+    true_positives = tf.reduce_sum(tf.cast((y_true_bin == 1) & (y_pred_bin == 1), tf.float32))
+    predicted_positives = tf.reduce_sum(tf.cast(y_pred_bin == 1, tf.float32))
+    possible_positives = tf.reduce_sum(tf.cast(y_true_bin == 1, tf.float32))
     
     # Добавляем epsilon для предотвращения деления на ноль
     epsilon = tf.keras.backend.epsilon()
@@ -679,17 +688,57 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     else:
         raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
 
-def focal_loss(gamma=2., alpha=0.25):
+def focal_loss(gamma=2., alpha=None):
+    """
+    Focal loss с поддержкой разных alpha для каждого класса.
+    alpha: массив длины num_classes или число (если одинаковый вес)
+    """
     def focal_loss_fixed(y_true, y_pred):
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+        
+        # Если alpha не задан, используем 0.25 для всех классов
+        if alpha is None:
+            alpha_factor = tf.ones_like(y_true) * 0.25
+        elif isinstance(alpha, (list, tuple, np.ndarray)):
+            alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
+            alpha_factor = tf.reshape(alpha_factor, (1, 1, -1))
+            alpha_factor = tf.ones_like(y_true) * alpha_factor
+        else:
+            alpha_factor = tf.ones_like(y_true) * float(alpha)
+        
         cross_entropy = -y_true * tf.math.log(y_pred)
-        weight = alpha * tf.pow(1 - y_pred, gamma)
+        weight = alpha_factor * tf.pow(1 - y_pred, gamma)
         loss = weight * cross_entropy
-        return tf.reduce_sum(loss, axis=-1)
+        return tf.reduce_mean(tf.reduce_sum(loss, axis=-1))
     return focal_loss_fixed
+
+def postprocess_predictions(preds, threshold=0.5):
+    """
+    Извлекает индексы кадров (или времени) начала и конца упражнения из предсказаний модели.
+    preds: np.ndarray или tf.Tensor формы (frames, 2) или (batch, frames, 2)
+    threshold: float, порог вероятности
+    Возвращает: start_indices, end_indices (списки индексов кадров)
+    """
+    if isinstance(preds, tf.Tensor):
+        preds = preds.numpy()
+    if preds.ndim == 3:
+        # Если батч, берём первый элемент
+        preds = preds[0]
+    start_indices = np.where(preds[:, 0] > threshold)[0]
+    end_indices = np.where(preds[:, 1] > threshold)[0]
+    return start_indices.tolist(), end_indices.tolist()
+
+def indices_to_seconds(indices, fps):
+    """
+    Переводит индексы кадров в секунды по fps.
+    indices: список индексов кадров
+    fps: частота кадров (float или int)
+    Возвращает: список секунд (float)
+    """
+    return [round(idx / fps, 3) for idx in indices]
 
 if __name__ == "__main__":
     try:

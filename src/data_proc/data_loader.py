@@ -189,6 +189,10 @@ class VideoDataLoader:
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     if self.current_video_index >= len(self.video_paths):
+                        # Если достигли конца всех видео и не собрали полный батч
+                        if len(batch_sequences) > 0:
+                            print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
+                            return None
                         break
                     video_path = self.video_paths[self.current_video_index]
                     cap, total_frames = self.load_video(video_path)
@@ -218,11 +222,17 @@ class VideoDataLoader:
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     if self.current_video_index >= len(self.video_paths):
+                        # Если достигли конца всех видео и не собрали полный батч
+                        if len(batch_sequences) > 0:
+                            print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
+                            return None
                         break
                     video_path = self.video_paths[self.current_video_index]
                     cap, total_frames = self.load_video(video_path)
             
-            if len(batch_sequences) == 0:
+            # Проверяем, что собрали полный батч
+            if len(batch_sequences) != batch_size:
+                print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                 return None
             
             # Преобразуем в numpy массивы
@@ -358,6 +368,12 @@ class VideoDataLoader:
                     print("[WARNING] Получен пустой батч")
                     continue
                     
+                # DEBUG: считаем количество положительных примеров (class 1)
+                # y shape: (batch, seq, num_classes)
+                # Суммируем по всем кадрам и батчам, где класс 1 (индекс 1) равен 1
+                num_positive = int((y[...,1] == 1).sum())
+                print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
+                
                 # Преобразуем в тензоры
                 x = tf.convert_to_tensor(X, dtype=tf.float32)
                 y = tf.convert_to_tensor(y, dtype=tf.float32)
