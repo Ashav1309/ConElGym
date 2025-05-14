@@ -413,7 +413,7 @@ def objective(trial):
         
         # Создаем модель
         input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
-        model, class_weights = create_model(
+        model, class_weights = create_and_compile_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
             learning_rate=learning_rate,
