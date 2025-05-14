@@ -368,21 +368,36 @@ def train(model_type=None):
             optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
         
         # Создаем метрики
+        print("[DEBUG] Создание метрик...")
         metrics = [
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1),
-            tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5, num_classes=2)
+            tf.keras.metrics.Recall(name='recall_element', class_id=1)
         ]
-        
+
+        print("[DEBUG] Добавление F1Score...")
+        try:
+            f1_metric = tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5)
+            print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
+            metrics.append(f1_metric)
+        except Exception as e:
+            print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+
+        print(f"[DEBUG] Итоговый список метрик: {metrics}")
+
         # Компиляция модели
+        print("[DEBUG] Компиляция модели...")
         model.compile(
             optimizer=optimizer,
             loss=focal_loss(gamma=2., alpha=0.25),
             metrics=metrics
         )
+        print("[DEBUG] Модель успешно скомпилирована")
         
-        # Создание callbacks
+        # Создаем callbacks
         callbacks = [
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=os.path.join(model_save_path, 'best_model.h5'),

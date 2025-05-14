@@ -656,19 +656,34 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
         # Создаем метрики
+        print("[DEBUG] Создание метрик...")
         metrics = [
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1),
-            tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5, num_classes=2)
+            tf.keras.metrics.Recall(name='recall_element', class_id=1)
         ]
-        
+
+        print("[DEBUG] Добавление F1Score...")
+        try:
+            f1_metric = tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5)
+            print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
+            metrics.append(f1_metric)
+        except Exception as e:
+            print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+
+        print(f"[DEBUG] Итоговый список метрик: {metrics}")
+
         # Компилируем модель с focal loss и метриками
+        print("[DEBUG] Компиляция модели...")
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
             loss=focal_loss(gamma=2., alpha=0.25),
             metrics=metrics
         )
+        print("[DEBUG] Модель успешно скомпилирована")
         
         # Создаем словарь весов классов
         class_weights = {

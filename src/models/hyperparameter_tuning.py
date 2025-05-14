@@ -208,18 +208,32 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
     # Создаем метрики
+    print("[DEBUG] Создание метрик...")
     metrics = [
         'accuracy',
         tf.keras.metrics.Precision(name='precision_element', class_id=1),
-        tf.keras.metrics.Recall(name='recall_element', class_id=1),
-        tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5, num_classes=2)
+        tf.keras.metrics.Recall(name='recall_element', class_id=1)
     ]
-    
+
+    print("[DEBUG] Добавление F1Score...")
+    try:
+        f1_metric = tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5)
+        print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
+        metrics.append(f1_metric)
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+
+    print(f"[DEBUG] Итоговый список метрик: {metrics}")
+
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
         metrics=metrics
     )
+    print("[DEBUG] Модель успешно скомпилирована")
     
     return model, class_weights
 
