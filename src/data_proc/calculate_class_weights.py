@@ -53,7 +53,8 @@ def calculate_dataset_weights():
             continue
             
         with open(annotation_path, 'r') as f:
-            annotations = json.load(f)
+            annotations_data = json.load(f)
+            annotations = annotations_data.get('annotations', [])
             
         # Считаем кадры для каждого класса
         frame_count = 0
@@ -65,11 +66,10 @@ def calculate_dataset_weights():
                 break
                 
             frame_count += 1
-            frame_time = frame_count / cap.get(cv2.CAP_PROP_FPS)
             
             # Проверяем, есть ли аннотация для текущего кадра
             for annotation in annotations:
-                if annotation['start_time'] <= frame_time <= annotation['end_time']:
+                if annotation['start_frame'] <= frame_count <= annotation['end_frame']:
                     video_positive_frames += 1
                     break
         

@@ -547,7 +547,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
         elif len(input_shape) == 5:  # Если есть лишняя размерность
             input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
         
-        print(f"[DEBUG] Исправленный input_shape: {input_shape}")
+            print(f"[DEBUG] Исправленный input_shape: {input_shape}")
         
         # Конфигурация для small модели
         config = {
@@ -559,57 +559,57 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
                 {'filters': 512, 'expansion': 4, 'stride': 2},
             ]
         }
-        
-        # Входной слой
-        inputs = Input(shape=input_shape)
-        print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
-        
-        # Обработка последовательности кадров
+                
+                # Входной слой
+                inputs = Input(shape=input_shape)
+                print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
+                
+                # Обработка последовательности кадров
         x = inputs
         
-        # Начальный слой
-        x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
-        print(f"[DEBUG] После начального Conv2D: {x.shape}")
-        
-        x = TimeDistributed(BatchNormalization())(x)
-        x = TimeDistributed(ReLU())(x)
-        
-        # UIB блоки
-        for i, block in enumerate(config['blocks']):
-            try:
-                x = TimeDistributed(UniversalInvertedBottleneck(
-                    filters=block['filters'],
-                    expansion=block['expansion'],
-                    stride=block['stride'],
-                    se_ratio=se_ratio
-                ))(x)
-                print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
-            except Exception as e:
-                print(f"[ERROR] Ошибка в UIB блоке {i+1}: {str(e)}")
-                print(f"[DEBUG] Форма данных перед блоком: {x.shape}")
-                raise
-        
-        # Временная обработка
-        x = TimeDistributed(GlobalAveragePooling2D())(x)
-        print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
-        
-        x = Bidirectional(LSTM(64, return_sequences=True))(x)
-        x = Dropout(dropout_rate)(x)
-        x = Bidirectional(LSTM(32))(x)
-        x = Dropout(dropout_rate)(x)
-        
-        # Выходной слой
-        outputs = Dense(num_classes, activation='softmax')(x)
-        
-        model = Model(inputs=inputs, outputs=outputs)
-        print("[DEBUG] MobileNetV4 успешно создана")
+                    # Начальный слой
+                    x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
+                    print(f"[DEBUG] После начального Conv2D: {x.shape}")
+                    
+                    x = TimeDistributed(BatchNormalization())(x)
+                    x = TimeDistributed(ReLU())(x)
+                    
+                    # UIB блоки
+                    for i, block in enumerate(config['blocks']):
+                        try:
+                            x = TimeDistributed(UniversalInvertedBottleneck(
+                                filters=block['filters'],
+                                expansion=block['expansion'],
+                                stride=block['stride'],
+                                se_ratio=se_ratio
+                            ))(x)
+                            print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
+                        except Exception as e:
+                            print(f"[ERROR] Ошибка в UIB блоке {i+1}: {str(e)}")
+                            print(f"[DEBUG] Форма данных перед блоком: {x.shape}")
+                            raise
+                    
+                    # Временная обработка
+                    x = TimeDistributed(GlobalAveragePooling2D())(x)
+                    print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
+                    
+                    x = Bidirectional(LSTM(64, return_sequences=True))(x)
+                    x = Dropout(dropout_rate)(x)
+                    x = Bidirectional(LSTM(32))(x)
+                    x = Dropout(dropout_rate)(x)
+                    
+                    # Выходной слой
+                    outputs = Dense(num_classes, activation='softmax')(x)
+                    
+                    model = Model(inputs=inputs, outputs=outputs)
+                    print("[DEBUG] MobileNetV4 успешно создана")
         return model, {1: positive_class_weight} if positive_class_weight else None
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
-        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
-        raise
-
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
+                print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+                raise
+                
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None):
     """
     Создание модели с заданными параметрами
