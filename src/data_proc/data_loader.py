@@ -55,6 +55,8 @@ class VideoDataLoader:
             self.labels = self.labels[:self.max_videos]
             self.video_count = self.max_videos
             print(f"[DEBUG] Оставлено {self.video_count} видео")
+        
+        self.positive_indices_cache = {}  # Кэш для индексов положительных кадров
     
     def _load_videos(self):
         """
@@ -161,11 +163,9 @@ class VideoDataLoader:
                 with open(annotations, 'r') as f:
                     ann_data = json.load(f)
                     frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-                    
                     for annotation in ann_data['annotations']:
                         start_frame = annotation['start_frame']
                         end_frame = annotation['end_frame']
-                        
                         for frame_idx in range(start_frame, end_frame + 1):
                             if frame_idx < len(frame_labels):
                                 if frame_idx == start_frame:
@@ -181,14 +181,17 @@ class VideoDataLoader:
             batch_labels = []
             used_indices = set()
             
+            # --- Кэширование индексов положительных кадров ---
+            if video_path not in self.positive_indices_cache:
+                positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
+                self.positive_indices_cache[video_path] = positive_indices
+            else:
+                positive_indices = self.positive_indices_cache[video_path]
+            
             # --- Новый sampling: хотя бы одна последовательность с положительным кадром ---
             if force_positive:
-                # Находим индексы всех положительных кадров
-                positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
                 if len(positive_indices) > 0:
-                    # Случайно выбираем один положительный кадр
                     pos_idx = np.random.choice(positive_indices)
-                    # Формируем последовательность вокруг него
                     start_idx = max(0, pos_idx - sequence_length // 2)
                     end_idx = min(total_frames, start_idx + sequence_length)
                     start_idx = end_idx - sequence_length  # гарантируем длину
@@ -210,7 +213,6 @@ class VideoDataLoader:
             # --- Остальные последовательности как обычно ---
             self.current_frame_index = 0
             while len(batch_sequences) < batch_size:
-                # Проверяем, можем ли мы прочитать sequence_length кадров
                 if self.current_frame_index + sequence_length > total_frames:
                     cap.release()
                     self.current_video_index += 1
@@ -220,7 +222,15 @@ class VideoDataLoader:
                             print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                             return None
                         break
-                # Пропускаем уже использованные индексы (чтобы не дублировать положительную последовательность)
+                    video_path = self.video_paths[self.current_video_index]
+                    cap, total_frames = self.load_video(video_path)
+                    # --- обновляем кэш для нового видео ---
+                    if video_path not in self.positive_indices_cache:
+                        positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
+                        self.positive_indices_cache[video_path] = positive_indices
+                    else:
+                        positive_indices = self.positive_indices_cache[video_path]
+                    continue
                 if any(idx in used_indices for idx in range(self.current_frame_index, self.current_frame_index + sequence_length)):
                     self.current_frame_index += sequence_length
                     continue
@@ -248,6 +258,12 @@ class VideoDataLoader:
                         break
                     video_path = self.video_paths[self.current_video_index]
                     cap, total_frames = self.load_video(video_path)
+                    # --- обновляем кэш для нового видео ---
+                    if video_path not in self.positive_indices_cache:
+                        positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
+                        self.positive_indices_cache[video_path] = positive_indices
+                    else:
+                        positive_indices = self.positive_indices_cache[video_path]
             if len(batch_sequences) != batch_size:
                 print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
                 return None
