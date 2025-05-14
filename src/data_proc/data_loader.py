@@ -88,6 +88,12 @@ class VideoDataLoader:
             
             print(f"[DEBUG] Загружено {video_count} видео файлов")
             
+            # Ограничиваем количество видео до Config.MAX_VIDEOS
+            if hasattr(Config, "MAX_VIDEOS") and len(self.video_paths) > Config.MAX_VIDEOS:
+                print(f"[DEBUG] Ограничиваем количество видео до {Config.MAX_VIDEOS}")
+                self.video_paths = self.video_paths[:Config.MAX_VIDEOS]
+                self.labels = self.labels[:Config.MAX_VIDEOS]
+            
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)

@@ -30,6 +30,7 @@ import sys
 import json
 import cv2
 from tensorflow.keras.optimizers import Adam
+import psutil
 
 def clear_memory():
     """Очистка памяти"""
@@ -132,9 +133,11 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
     print(f"  - sequence_length: {Config.SEQUENCE_LENGTH}")
     print(f"  - input_size: {Config.INPUT_SIZE}")
     print(f"  - ожидаемая форма: ({Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
-    
-    print("[DEBUG] Запуск генератора данных...")
+    print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
     try:
+        # Проверка VideoDataLoader на загрузку всех видео
+        if hasattr(data_loader, 'video_count') and data_loader.video_count > 50:
+            print(f"[WARNING] VideoDataLoader содержит {data_loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
         # Создаем tf.data.Dataset из генератора
         dataset = tf.data.Dataset.from_generator(
             data_loader.data_generator,
@@ -147,13 +150,16 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
         def process_data(x, y):
             return x, y
         dataset = dataset.map(process_data)
-        dataset = dataset.cache()
-        dataset = dataset.shuffle(buffer_size=1000)
+        # cache только если разрешено и видео немного
+        if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(data_loader, 'video_count') or data_loader.video_count <= 50):
+            dataset = dataset.cache()
         if is_train:
+            dataset = dataset.shuffle(buffer_size=64)
             dataset = dataset.batch(batch_size, drop_remainder=True)
         else:
             dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
     except Exception as e:

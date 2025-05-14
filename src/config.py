@@ -26,6 +26,7 @@ class Config:
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 100  # Ограничиваем количество последовательностей
+    MAX_VIDEOS = 3  # Максимум видео для одновременной обработки
     
     # Параметры оптимизации
     LEARNING_RATE = 0.00005

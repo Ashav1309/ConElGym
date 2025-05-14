@@ -17,6 +17,7 @@ from tqdm.keras import TqdmCallback
 from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
+import psutil
 
 # Включаем eager execution
 tf.config.run_functions_eagerly(True)
@@ -68,7 +69,10 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
     """
     try:
         print("\n[DEBUG] Создание pipeline данных...")
-        
+        print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+        # Проверка VideoDataLoader на загрузку всех видео
+        if hasattr(loader, 'video_count') and loader.video_count > 50:
+            print(f"[WARNING] VideoDataLoader содержит {loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
         # Валидация входных параметров
         if not isinstance(loader, VideoDataLoader):
             raise ValueError("loader должен быть экземпляром VideoDataLoader")
@@ -133,15 +137,15 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         )
         
         # Оптимизация производительности
-        if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+        if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(loader, 'video_count') or loader.video_count <= 50):
             dataset = dataset.cache()
         if is_train:
-            dataset = dataset.shuffle(512)
+            dataset = dataset.shuffle(64)
             dataset = dataset.batch(batch_size, drop_remainder=True)
         else:
             dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
-        
+        print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
         
