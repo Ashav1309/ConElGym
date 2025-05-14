@@ -250,7 +250,7 @@ def f1_score_element(y_true, y_pred):
 
 def load_best_params(model_type=None):
     """
-    Загрузка лучших параметров из файла optuna_results.txt и весов из config.json
+    Загрузка лучших параметров из файла optuna_results.txt и весов из config_weights.json
     Args:
         model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
     """

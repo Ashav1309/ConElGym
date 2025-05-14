@@ -10,7 +10,7 @@ class Config:
     DATA_DIR = 'data'
     MODEL_SAVE_PATH = 'models'
     LOG_DIR = 'logs'
-    CONFIG_PATH = 'config.json'  # Путь к конфигурационному файлу
+    CONFIG_PATH = 'config_weights.json'  # Путь к конфигурационному файлу
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
