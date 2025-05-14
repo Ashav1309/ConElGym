@@ -217,9 +217,9 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
         return config
 
 class MemoryClearCallback(Callback):
-    def on_epoch_end(self, epoch, logs=None):
+    def on_epoch_begin(self, epoch, logs=None):
         gc.collect()
-        print("[DEBUG] Очистка памяти после эпохи")
+        print("[DEBUG] Очистка памяти перед эпохой")
 
 class ModelTrainer:
     def __init__(self, model, data_loader):
