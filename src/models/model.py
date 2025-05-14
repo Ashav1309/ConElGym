@@ -340,54 +340,60 @@ class GradientAccumulationModel(tf.keras.Model):
         self._train_counter = tf.Variable(0, trainable=False, dtype=tf.int32)
         
     def train_step(self, data):
+        """Шаг обучения с градиентной аккумуляцией"""
         # Распаковываем данные
         try:
-            x, y = data
-        except (TypeError, ValueError) as e:
-            print(f"[DEBUG] Ошибка распаковки данных: {str(e)}")
-            print(f"[DEBUG] Тип данных: {type(data)}")
-            print(f"[DEBUG] Содержимое данных: {data}")
-            raise ValueError(f"Некорректный формат данных: {str(e)}")
+            if isinstance(data, tuple) and len(data) == 2:
+                x, y = data
+            else:
+                print(f"[DEBUG] Неожиданный формат данных: {type(data)}")
+                print(f"[DEBUG] Содержимое данных: {data}")
+                raise ValueError("Ожидается кортеж (x, y)")
             
-        batch_size = tf.shape(x)[0]
-        
-        # Нормализуем loss на количество шагов аккумуляции
-        loss_scale = 1.0 / self.gradient_accumulation_steps
-        
-        # Вычисляем градиенты
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)
-            loss = self.compiled_loss(y, y_pred)
-            scaled_loss = loss * loss_scale
+            batch_size = tf.shape(x)[0]
             
-        # Получаем градиенты
-        gradients = tape.gradient(scaled_loss, self.trainable_variables)
-        
-        # Аккумулируем градиенты
-        if not self.accumulated_gradients:
-            self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            # Нормализуем loss на количество шагов аккумуляции
+            loss_scale = 1.0 / self.gradient_accumulation_steps
             
-        for i, grad in enumerate(gradients):
-            if grad is not None:  # Проверяем на None
-                self.accumulated_gradients[i] += grad
+            # Вычисляем градиенты
+            with tf.GradientTape() as tape:
+                y_pred = self(x, training=True)
+                loss = self.compiled_loss(y, y_pred)
+                scaled_loss = loss * loss_scale
             
-        # Обновляем веса после накопления достаточного количества градиентов
-        if self._train_counter % self.gradient_accumulation_steps == 0:
-            # Применяем градиенты только если они не None
-            valid_gradients = [(grad, var) for grad, var in zip(self.accumulated_gradients, self.trainable_variables) if grad is not None]
-            if valid_gradients:
-                self.optimizer.apply_gradients(valid_gradients)
-            # Сбрасываем накопленные градиенты
-            self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            # Получаем градиенты
+            gradients = tape.gradient(scaled_loss, self.trainable_variables)
             
-        # Увеличиваем счетчик шагов
-        self._train_counter.assign_add(1)
+            # Аккумулируем градиенты
+            if not self.accumulated_gradients:
+                self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
             
-        # Обновляем метрики
-        self.compiled_metrics.update_state(y, y_pred)
-        
-        # Возвращаем словарь с метриками
-        return {m.name: m.result() for m in self.metrics}
+            for i, grad in enumerate(gradients):
+                if grad is not None:  # Проверяем на None
+                    self.accumulated_gradients[i] += grad
+            
+            # Обновляем веса после накопления достаточного количества градиентов
+            if self._train_counter % self.gradient_accumulation_steps == 0:
+                # Применяем градиенты только если они не None
+                valid_gradients = [(grad, var) for grad, var in zip(self.accumulated_gradients, self.trainable_variables) if grad is not None]
+                if valid_gradients:
+                    self.optimizer.apply_gradients(valid_gradients)
+                # Сбрасываем накопленные градиенты
+                self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            
+            # Увеличиваем счетчик шагов
+            self._train_counter.assign_add(1)
+            
+            # Обновляем метрики
+            self.compiled_metrics.update_state(y, y_pred)
+            
+            # Возвращаем словарь с метриками
+            return {m.name: m.result() for m in self.metrics}
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при вычислении градиента: {str(e)}")
+            print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+            raise
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     try:

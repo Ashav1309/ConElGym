@@ -209,12 +209,15 @@ class VideoDataLoader:
                 frames = frames[:min_len]
                 annotations = annotations[:min_len]
             
+            # Создаем последовательности
             for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
                 sequence = frames[i:i + self.sequence_length]
                 sequence_labels = annotations[i:i + self.sequence_length]
                 
-                sequences.append(sequence)
-                labels.append(sequence_labels)
+                # Проверяем размерности последовательности
+                if len(sequence) == self.sequence_length and len(sequence_labels) == self.sequence_length:
+                    sequences.append(sequence)
+                    labels.append(sequence_labels)
                 
                 # Очищаем память каждые 10 последовательностей
                 if len(sequences) % 10 == 0:
@@ -288,7 +291,8 @@ class VideoDataLoader:
                             print(f"[DEBUG] Размерность X: {x.shape}")
                             print(f"[DEBUG] Размерность y: {y.shape}")
                             
-                            yield x, y
+                            # Возвращаем кортеж (x, y)
+                            yield (x, y)
                         
                         # Очищаем память после каждого батча
                         if i % (self.batch_size * 10) == 0:

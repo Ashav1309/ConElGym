@@ -132,8 +132,8 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
     print(f"  - batch_size: {batch_size}")
     print(f"  - sequence_length: {Config.SEQUENCE_LENGTH}")
     print(f"  - input_size: {Config.INPUT_SIZE}")
-    print(f"  - ожидаемая форма: ({Config.SEQUENCE_LENGTH}, {Config.INPUT_SIZE[0]}, {Config.INPUT_SIZE[1]}, 3)")
     print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+    
     try:
         # Проверка VideoDataLoader на загрузку всех видео
         if hasattr(data_loader, 'video_count') and data_loader.video_count > 50:
