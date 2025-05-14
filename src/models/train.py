@@ -18,6 +18,9 @@ from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
 
+# Включаем eager execution
+tf.config.run_functions_eagerly(True)
+
 # Настройка GPU
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
