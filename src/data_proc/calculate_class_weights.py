@@ -20,12 +20,12 @@ def calculate_dataset_weights():
     video_paths = []
     
     # Добавляем видео из тренировочного набора
-    train_videos = [f for f in os.listdir(Config.TRAIN_DATA_DIR) if f.endswith('.mp4')]
-    video_paths.extend([os.path.join(Config.TRAIN_DATA_DIR, v) for v in train_videos])
+    train_videos = [f for f in os.listdir(Config.TRAIN_DATA_PATH) if f.endswith('.mp4')]
+    video_paths.extend([os.path.join(Config.TRAIN_DATA_PATH, v) for v in train_videos])
     
     # Добавляем видео из валидационного набора
-    val_videos = [f for f in os.listdir(Config.VAL_DATA_DIR) if f.endswith('.mp4')]
-    video_paths.extend([os.path.join(Config.VAL_DATA_DIR, v) for v in val_videos])
+    val_videos = [f for f in os.listdir(Config.VALID_DATA_PATH) if f.endswith('.mp4')]
+    video_paths.extend([os.path.join(Config.VALID_DATA_PATH, v) for v in val_videos])
     
     print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
     
