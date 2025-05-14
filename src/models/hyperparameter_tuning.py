@@ -138,6 +138,9 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
         # Проверка VideoDataLoader на загрузку всех видео
         if hasattr(data_loader, 'video_count') and data_loader.video_count > 50:
             print(f"[WARNING] VideoDataLoader содержит {data_loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
+        
+        # Устанавливаем размер батча в data_loader
+        data_loader.batch_size = batch_size
             
         # Создаем tf.data.Dataset из генератора
         print("[DEBUG] Создание tf.data.Dataset из генератора...")

@@ -34,7 +34,7 @@ class VideoDataLoader:
         # Инициализация параметров из конфигурации
         self.sequence_length = Config.SEQUENCE_LENGTH
         self.max_sequences_per_video = Config.MAX_SEQUENCES_PER_VIDEO
-        self.batch_size = 32  # Добавляем размер батча по умолчанию
+        self.batch_size = Config.BATCH_SIZE  # Используем размер батча из конфигурации
         
         self._load_data()
     
@@ -284,7 +284,7 @@ class VideoDataLoader:
                     sequences = sequences[indices]
                     labels = labels[indices]
                     
-                    # Возвращаем последовательности
+                    # Возвращаем последовательности батчами нужного размера
                     for i in range(0, len(sequences), self.batch_size):
                         batch_sequences = sequences[i:i + self.batch_size]
                         batch_labels = labels[i:i + self.batch_size]
