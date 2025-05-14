@@ -217,7 +217,15 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
 
     print("[DEBUG] Добавление F1Score...")
     try:
-        f1_metric = tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5)
+        # Создаем адаптер для F1Score
+        class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def update_state(self, y_true, y_pred, sample_weight=None):
+                # Преобразуем 3D в 2D, усредняя по временной размерности
+                y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+                y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+                return super().update_state(y_true, y_pred, sample_weight)
+        
+        f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
         print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
         metrics.append(f1_metric)
     except Exception as e:

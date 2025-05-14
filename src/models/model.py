@@ -413,6 +413,38 @@ class GradientAccumulationModel(tf.keras.Model):
             traceback.print_exc()
             raise
 
+class TemporalF1Score(tf.keras.metrics.Metric):
+    def __init__(self, name='f1_score_element', threshold=0.5, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.threshold = threshold
+        self.true_positives = self.add_weight(name='tp', initializer='zeros')
+        self.false_positives = self.add_weight(name='fp', initializer='zeros')
+        self.false_negatives = self.add_weight(name='fn', initializer='zeros')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # Преобразуем one-hot encoded метки в индексы классов
+        y_true = tf.argmax(y_true, axis=-1)
+        y_pred = tf.argmax(y_pred, axis=-1)
+        
+        # Вычисляем метрики с учетом временной размерности
+        true_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
+        false_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 0), tf.equal(y_pred, 1)), tf.float32))
+        false_negatives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 0)), tf.float32))
+        
+        self.true_positives.assign_add(true_positives)
+        self.false_positives.assign_add(false_positives)
+        self.false_negatives.assign_add(false_negatives)
+
+    def result(self):
+        precision = self.true_positives / (self.true_positives + self.false_positives + tf.keras.backend.epsilon())
+        recall = self.true_positives / (self.true_positives + self.false_negatives + tf.keras.backend.epsilon())
+        return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+
+    def reset_state(self):
+        self.true_positives.assign(0)
+        self.false_positives.assign(0)
+        self.false_negatives.assign(0)
+
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
@@ -665,7 +697,15 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
 
         print("[DEBUG] Добавление F1Score...")
         try:
-            f1_metric = tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5)
+            # Создаем адаптер для F1Score
+            class F1ScoreAdapter(tf.keras.metrics.F1Score):
+                def update_state(self, y_true, y_pred, sample_weight=None):
+                    # Преобразуем 3D в 2D, усредняя по временной размерности
+                    y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+                    y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+                    return super().update_state(y_true, y_pred, sample_weight)
+            
+            f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
             print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
             metrics.append(f1_metric)
         except Exception as e:
