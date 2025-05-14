@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 import time
 import gc
 import traceback
-from tensorflow.keras.metrics import Precision, Recall
+from tensorflow.keras.metrics import Precision, Recall, F1Score
 import subprocess
 import sys
 import json
@@ -37,48 +37,30 @@ def clear_memory():
     print("\n[DEBUG] ===== Начало очистки памяти =====")
     
     try:
-    #    print("[DEBUG] 1. Очистка TensorFlow сессии...")
         # Очищаем все сессии TensorFlow
         tf.keras.backend.clear_session()
-        # print("[DEBUG] ✓ TensorFlow сессия очищена")
         
-        # print("[DEBUG] 2. Запуск garbage collector...")
         # Очистка Python garbage collector
         gc.collect()
-        # print("[DEBUG] ✓ Garbage collector выполнен")
         
         # Очистка CUDA кэша если используется GPU
         if Config.DEVICE_CONFIG['use_gpu']:
-            # print("[DEBUG] 3. Очистка GPU памяти...")
             try:
-                # print("[DEBUG] 3.1. Сброс статистики памяти GPU...")
-                # Пробуем очистить CUDA кэш через TensorFlow
+                # Сброс статистики памяти GPU
                 tf.config.experimental.reset_memory_stats('GPU:0')
-                # print("[DEBUG] ✓ Статистика памяти GPU сброшена")
                 
-                # print("[DEBUG] 3.2. Очистка CUDA кэша...")
                 # Принудительно очищаем CUDA кэш
                 tf.keras.backend.clear_session()
-                # print("[DEBUG] ✓ CUDA кэш очищен")
                 
-                # print("[DEBUG] 3.3. Очистка TensorFlow переменных...")
                 # Очищаем все переменные
                 for var in tf.compat.v1.global_variables():
                     del var
-                # print("[DEBUG] ✓ TensorFlow переменные очищены")
                 
-                # print("[DEBUG] 3.4. Финальная очистка сессии...")
                 # Очищаем все операции
                 tf.keras.backend.clear_session()
-                    # print("[DEBUG] ✓ Финальная очистка сессии выполнена")
                 
             except Exception as e:
                 print(f"[DEBUG] ✗ Ошибка при очистке GPU: {str(e)}")
-        
-        # print("[DEBUG] 4. Финальная очистка...")
-        # # Дополнительная очистка
-        # gc.collect()
-        # print("[DEBUG] ✓ Финальная очистка выполнена")
         
     except Exception as e:
         print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
@@ -183,16 +165,6 @@ def create_data_pipeline(data_loader, batch_size, sequence_length, input_size, i
         traceback.print_exc()
         raise
 
-def f1_score_element(y_true, y_pred):
-    y_true = tf.argmax(y_true, axis=-1)
-    y_pred = tf.argmax(y_pred, axis=-1)
-    true_positives = tf.reduce_sum(tf.cast((y_true == 1) & (y_pred == 1), tf.float32))
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred == 1, tf.float32))
-    possible_positives = tf.reduce_sum(tf.cast(y_true == 1, tf.float32))
-    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
-    return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
-
 def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=200.0):
     """
     Создание и компиляция модели с заданными параметрами
@@ -235,15 +207,18 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
+    # Создаем метрики
+    metrics = [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_element', class_id=1),
+        tf.keras.metrics.Recall(name='recall_element', class_id=1),
+        tf.keras.metrics.F1Score(name='f1_score_element', class_id=1, threshold=0.5)
+    ]
+    
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=[
-            'accuracy',
-            Precision(class_id=1, name='precision_element'),
-            Recall(class_id=1, name='recall_element'),
-            f1_score_element
-        ]
+        metrics=metrics
     )
     
     return model, class_weights

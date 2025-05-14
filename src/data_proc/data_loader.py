@@ -295,8 +295,8 @@ class VideoDataLoader:
                             y = tf.convert_to_tensor(batch_labels, dtype=tf.float32)
                             
                             # Проверяем размерности
-                            print(f"\n[DEBUG] Размерность X: {x.shape}")
-                            print(f"[DEBUG] Размерность y: {y.shape}")
+                            # print(f"\n[DEBUG] Размерность X: {x.shape}")
+                            # print(f"[DEBUG] Размерность y: {y.shape}")
                             
                             # Возвращаем только x и y
                             yield (x, y)

@@ -655,11 +655,19 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         # Создаем модель
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
+        # Создаем метрики
+        metrics = [
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision_element', class_id=1),
+            tf.keras.metrics.Recall(name='recall_element', class_id=1),
+            tf.keras.metrics.F1Score(name='f1_score_element', class_id=1, threshold=0.5)
+        ]
+        
         # Компилируем модель с focal loss и метриками
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
             loss=focal_loss(gamma=2., alpha=0.25),
-            metrics=['accuracy', f1_score_element]
+            metrics=metrics
         )
         
         # Создаем словарь весов классов

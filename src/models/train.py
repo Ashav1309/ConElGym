@@ -367,11 +367,19 @@ def train(model_type=None):
         if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
             optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
         
+        # Создаем метрики
+        metrics = [
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision_element', class_id=1),
+            tf.keras.metrics.Recall(name='recall_element', class_id=1),
+            tf.keras.metrics.F1Score(name='f1_score_element', class_id=1, threshold=0.5)
+        ]
+        
         # Компиляция модели
         model.compile(
             optimizer=optimizer,
             loss=focal_loss(gamma=2., alpha=0.25),
-            metrics=['accuracy', f1_score_element]
+            metrics=metrics
         )
         
         # Создание callbacks
