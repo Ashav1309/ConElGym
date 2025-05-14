@@ -138,30 +138,31 @@ def create_data_pipeline(batch_size, data_loader, is_train=True):
         # Проверка VideoDataLoader на загрузку всех видео
         if hasattr(data_loader, 'video_count') and data_loader.video_count > 50:
             print(f"[WARNING] VideoDataLoader содержит {data_loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
+            
         # Создаем tf.data.Dataset из генератора
         dataset = tf.data.Dataset.from_generator(
             data_loader.data_generator,
             output_signature=(
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
+                tf.TensorSpec(shape=(batch_size, Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(batch_size, Config.SEQUENCE_LENGTH, Config.NUM_CLASSES), dtype=tf.float32)
             )
         )
+        
         print("[DEBUG] Применяем оптимизации к dataset...")
-        def process_data(x, y):
-            return x, y
-        dataset = dataset.map(process_data)
-        # cache только если разрешено и видео немного
+        
+        # Оптимизация производительности
         if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(data_loader, 'video_count') or data_loader.video_count <= 50):
             dataset = dataset.cache()
+            
         if is_train:
             dataset = dataset.shuffle(buffer_size=64)
-            dataset = dataset.batch(batch_size, drop_remainder=True)
-        else:
-            dataset = dataset.batch(batch_size)
+            
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
+        
     except Exception as e:
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
