@@ -471,8 +471,12 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Исправленный input_shape: {input_shape}")
         
         # Создаем базовую модель MobileNetV3
+        # Для базовой модели нужна форма (height, width, channels)
+        base_input_shape = input_shape[1:]  # Убираем размерность последовательности
+        print(f"[DEBUG] Форма входных данных для базовой модели: {base_input_shape}")
+        
         base_model = MobileNetV3Small(
-            input_shape=input_shape[1:],  # Убираем размерность последовательности
+            input_shape=base_input_shape,  # (height, width, channels)
             include_top=False,
             weights='imagenet'
         )

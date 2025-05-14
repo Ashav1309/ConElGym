@@ -223,12 +223,14 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Positive class weight: {positive_class_weight}")
     
     # Проверяем и корректируем input_shape
-    if len(input_shape) == 4:  # Если нет размерности последовательности
+    if len(input_shape) == 3:  # Если это (height, width, channels)
         full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+    elif len(input_shape) == 4:  # Если это (sequence_length, height, width, channels)
+        full_input_shape = input_shape
     elif len(input_shape) == 5:  # Если есть лишняя размерность
         full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
     else:
-        full_input_shape = input_shape
+        raise ValueError(f"Неверная форма входных данных: {input_shape}")
     
     print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
     
