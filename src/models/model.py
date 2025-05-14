@@ -660,7 +660,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1),
             tf.keras.metrics.Recall(name='recall_element', class_id=1),
-            tf.keras.metrics.F1Score(name='f1_score_element', class_id=1, threshold=0.5)
+            tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5, num_classes=2)
         ]
         
         # Компилируем модель с focal loss и метриками

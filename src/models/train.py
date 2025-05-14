@@ -372,7 +372,7 @@ def train(model_type=None):
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1),
             tf.keras.metrics.Recall(name='recall_element', class_id=1),
-            tf.keras.metrics.F1Score(name='f1_score_element', class_id=1, threshold=0.5)
+            tf.keras.metrics.F1Score(name='f1_score_element', threshold=0.5, num_classes=2)
         ]
         
         # Компиляция модели
