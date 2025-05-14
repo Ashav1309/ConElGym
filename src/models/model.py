@@ -357,10 +357,11 @@ class GradientAccumulationModel(tf.keras.Model):
             # Распаковываем данные
             if len(data) == 2:
                 x, y = data
+                sample_weight = None
                 print("[DEBUG] Распакованы x и y")
             elif len(data) == 3:
-                x, y, _ = data
-                print("[DEBUG] Распакованы x, y и игнорирован третий элемент")
+                x, y, sample_weight = data
+                print("[DEBUG] Распакованы x, y и sample_weight")
             else:
                 raise ValueError(f"Неожиданный формат данных: {len(data)} элементов")
             
@@ -373,7 +374,7 @@ class GradientAccumulationModel(tf.keras.Model):
             # Вычисляем градиенты
             with tf.GradientTape() as tape:
                 predictions = self(x, training=True)
-                loss = self.compiled_loss(y, predictions)
+                loss = self.compute_loss(x, y, predictions, sample_weight)
                 scaled_loss = loss * loss_scale
             
             # Вычисляем градиенты
@@ -414,7 +415,8 @@ class GradientAccumulationModel(tf.keras.Model):
             self._train_counter.assign_add(1)
             
             # Обновляем метрики
-            self.compiled_metrics.update_state(y, predictions)
+            for metric in self.metrics:
+                metric.update_state(y, predictions, sample_weight)
             
             # Возвращаем метрики
             return {m.name: m.result() for m in self.metrics}
