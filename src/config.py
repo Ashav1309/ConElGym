@@ -20,7 +20,7 @@ class Config:
     MODEL_TYPE = 'v3'  # 'v3' или 'v4'
     NUM_CLASSES = 2  # Фон и элемент
     INPUT_SIZE = (224, 224)  # Размер входного изображения
-    SEQUENCE_LENGTH = 8  # Длина последовательности кадров
+    SEQUENCE_LENGTH = 32  # Увеличиваем с 8 до 32 кадров
     BATCH_SIZE = 4  # Уменьшаем размер батча для экономии памяти
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
@@ -38,13 +38,13 @@ class Config:
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 256,
-            'positive_class_weight': 300.0
+            'positive_class_weight': 400.0
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': 300.0
+            'positive_class_weight': 400.0
         }
     }
     
