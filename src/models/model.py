@@ -431,10 +431,15 @@ class GradientAccumulationModel(tf.keras.Model):
             for metric in self.metrics:
                 print(f"[DEBUG] Обновление метрики: {metric.name}")
                 try:
-                    if sample_weight is None:
-                        metric.update_state(y, predictions)
+                    if metric.name == 'loss':
+                        # Для метрики loss используем только значение loss
+                        metric.update_state(loss)
                     else:
-                        metric.update_state(y, predictions, sample_weight)
+                        # Для остальных метрик используем y и predictions
+                        if sample_weight is None:
+                            metric.update_state(y, predictions)
+                        else:
+                            metric.update_state(y, predictions, sample_weight)
                     print(f"[DEBUG] Метрика {metric.name} обновлена")
                 except Exception as e:
                     print(f"[ERROR] Ошибка при обновлении метрики {metric.name}: {str(e)}")
