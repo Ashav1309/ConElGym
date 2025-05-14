@@ -486,22 +486,27 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         )
         
         # Создаем модель
-        model = tf.keras.Sequential([
-            # Входной слой
-            tf.keras.layers.Input(shape=full_input_shape),
-            
-            # Обработка последовательности кадров
-            tf.keras.layers.TimeDistributed(base_model),
-            
-            # Временная обработка
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True)),
-            tf.keras.layers.Dropout(dropout_rate),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2)),
-            tf.keras.layers.Dropout(dropout_rate),
-            
-            # Выходной слой
-            tf.keras.layers.Dense(num_classes, activation='softmax')
-        ])
+        inputs = tf.keras.layers.Input(shape=full_input_shape)
+        
+        # Обработка последовательности кадров
+        x = tf.keras.layers.TimeDistributed(base_model)(inputs)
+        print(f"[DEBUG] Форма после TimeDistributed: {x.shape}")
+        
+        # Преобразуем форму для LSTM
+        # Из (batch_size, sequence_length, height, width, channels) в (batch_size, sequence_length, features)
+        x = tf.keras.layers.Reshape((full_input_shape[0], -1))(x)
+        print(f"[DEBUG] Форма после Reshape: {x.shape}")
+        
+        # Временная обработка
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True))(x)
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2))(x)
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        # Выходной слой
+        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
         print("[DEBUG] MobileNetV3 успешно создана")
         return model, {1: positive_class_weight} if positive_class_weight else None
