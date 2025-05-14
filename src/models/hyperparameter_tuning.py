@@ -330,17 +330,26 @@ def objective(trial):
         # Очищаем память перед каждым триалом
         clear_memory()
         
+        # Получаем базовое значение positive_class_weight из конфигурации
+        base_positive_class_weight = Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
+        
         # Определяем гиперпараметры для текущего триала
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 128)
-        positive_class_weight = trial.suggest_float('positive_class_weight', 200.0, 1000.0, log=True)
+        # Ищем значение только выше базового
+        positive_class_weight = trial.suggest_float(
+            'positive_class_weight',
+            base_positive_class_weight,  # Минимум - базовое значение (500.0)
+            base_positive_class_weight * 2.0,  # Максимум - двойное от базового (1000.0)
+            log=True
+        )
         
         print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
         print(f"  - lstm_units: {lstm_units}")
-        print(f"  - positive_class_weight: {positive_class_weight}")
+        print(f"  - positive_class_weight: {positive_class_weight} (базовое: {base_positive_class_weight})")
         
         # Создаем и компилируем модель
         model, class_weights = create_and_compile_model(
