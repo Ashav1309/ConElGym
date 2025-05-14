@@ -368,7 +368,7 @@ def objective(trial):
     Целевая функция для оптимизации гиперпараметров
     """
     try:
-        print("\n[DEBUG] Начало нового trial...")
+        print("\n[DEBUG] >>> Начало нового trial")
         
         # Очищаем память перед каждым trial
         clear_memory()
@@ -577,7 +577,7 @@ def plot_tuning_results(study):
     except Exception as e:
         print(f"Warning: Could not create visualization plots: {str(e)}")
 
-def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
+def tune_hyperparameters(n_trials=100):
     """
     Подбор гиперпараметров с использованием Optuna
     """
@@ -598,8 +598,10 @@ def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
             study_name=f'hyperparameter_tuning_{Config.MODEL_TYPE}'
         )
 
+        print("[DEBUG] >>> Запуск Optuna study.optimize")
         # Запускаем оптимизацию
         study.optimize(objective, n_trials=n_trials)
+        print("[DEBUG] <<< Optuna завершён")
 
         # Сохраняем результаты
         save_tuning_results(study, time.time() - start_time, n_trials)
