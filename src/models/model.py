@@ -552,11 +552,13 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         # Добавляем LSTM слои
         x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
         x = tf.keras.layers.Dropout(dropout_rate)(x)
-        x = tf.keras.layers.LSTM(lstm_units)(x)
+        x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
-        # Добавляем выходной слой
-        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        # Добавляем выходной слой для каждого кадра
+        outputs = tf.keras.layers.TimeDistributed(
+            tf.keras.layers.Dense(num_classes, activation='softmax')
+        )(x)
         
         # Создаем модель
         model = tf.keras.Model(inputs=inputs, outputs=outputs)

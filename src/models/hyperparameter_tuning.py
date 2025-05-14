@@ -146,12 +146,10 @@ def create_data_pipeline(batch_size, data_loader):
         
         print("[DEBUG] Применяем оптимизации к dataset...")
         
-        # Преобразуем целевые данные в нужную форму
+        # Возвращаем всю последовательность меток
         def process_data(x, y):
-            # Берем последний кадр из последовательности как целевой класс
-            y = y[-1]  # Форма станет (num_classes,)
             return x, y
-            
+        
         dataset = dataset.map(process_data)
         dataset = dataset.cache()
         dataset = dataset.shuffle(buffer_size=1000)
