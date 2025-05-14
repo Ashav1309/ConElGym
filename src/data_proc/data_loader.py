@@ -15,7 +15,7 @@ import gc
 logger = logging.getLogger(__name__)
 
 class VideoDataLoader:
-    def __init__(self, data_path, max_videos=Config.MAX_VIDEOS['max_videos']):
+    def __init__(self, data_path, max_videos=Config.MAX_VIDEOS):
         """
         Инициализация загрузчика данных
         Args:
