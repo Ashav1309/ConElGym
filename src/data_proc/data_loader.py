@@ -182,6 +182,18 @@ class VideoDataLoader:
             batch_labels = []
             
             while len(batch_sequences) < batch_size:
+                # Проверяем, можем ли мы прочитать sequence_length кадров
+                if self.current_frame_index + sequence_length > total_frames:
+                    # Если не можем, переходим к следующему видео
+                    cap.release()
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    if self.current_video_index >= len(self.video_paths):
+                        break
+                    video_path = self.video_paths[self.current_video_index]
+                    cap, total_frames = self.load_video(video_path)
+                    continue
+                
                 # Читаем sequence_length кадров
                 frames = []
                 labels = []
