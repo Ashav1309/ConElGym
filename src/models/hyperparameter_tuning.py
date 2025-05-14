@@ -292,23 +292,13 @@ def objective(trial):
         
         # Создаем оптимизированные pipeline данных
         train_dataset = create_data_pipeline(
-            loader=train_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
             batch_size=Config.BATCH_SIZE,
-            target_size=Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
+            data_loader=train_loader
         )
         
         val_dataset = create_data_pipeline(
-            loader=val_loader,
-            sequence_length=Config.SEQUENCE_LENGTH,
             batch_size=Config.BATCH_SIZE,
-            target_size=Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO
+            data_loader=val_loader
         )
         
         # Создаем callbacks
