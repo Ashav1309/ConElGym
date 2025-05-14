@@ -80,22 +80,29 @@ class VideoDataLoader:
             
             print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
             
-            while True:
-                for file_name in os.listdir(self.data_path):
-                    file_path = os.path.join(self.data_path, file_name)
-                    if file_name.endswith('.mp4') and os.path.isfile(file_path):
-                        self.video_paths.append(file_path)
-                        base = os.path.splitext(file_name)[0]
-                        ann_path = os.path.join(annotation_dir, base + '.json')
-                        if os.path.exists(ann_path):
-                            print(f"[DEBUG] Найдена аннотация для {file_name}")
-                        else:
-                            print(f"[DEBUG] Аннотация для {file_name} не найдена")
-                        self.labels.append(ann_path if os.path.exists(ann_path) else None)
-                
+            self.video_paths = []
+            self.labels = []
+            self.video_count = 0  # Добавляем счетчик
+            
+            for file_name in os.listdir(self.data_path):
                 if self.max_videos is not None and self.video_count >= self.max_videos:
                     break
                 
+                file_path = os.path.join(self.data_path, file_name)
+                if file_name.endswith('.mp4') and os.path.isfile(file_path):
+                    self.video_paths.append(file_path)
+                    base = os.path.splitext(file_name)[0]
+                    ann_path = os.path.join(annotation_dir, base + '.json')
+                    
+                    if os.path.exists(ann_path):
+                        pass
+                        # print(f"[DEBUG] Найдена аннотация для {file_name}")
+                    else:
+                        print(f"[DEBUG] Аннотация для {file_name} не найдена")
+                    
+                    self.labels.append(ann_path if os.path.exists(ann_path) else None)
+                    self.video_count += 1  # Увеличиваем счетчик
+            
             self.video_count = len(self.video_paths)
             
             print(f"[DEBUG] Загружено {self.video_count} видео файлов")
