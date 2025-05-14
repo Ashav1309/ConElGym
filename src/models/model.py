@@ -329,6 +329,53 @@ class ModelTrainer:
                 
         return self.network_handler.handle_network_operation(_train_operation)
 
+class GradientAccumulationModel(tf.keras.Model):
+    """
+    Модель с поддержкой градиентной аккумуляции
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.gradient_accumulation_steps = Config.GRADIENT_ACCUMULATION['steps']
+        self.accumulated_gradients = []
+        self._train_counter = tf.Variable(0, trainable=False, dtype=tf.int32)
+        
+    def train_step(self, data):
+        x, y = data
+        batch_size = tf.shape(x)[0]
+        
+        # Нормализуем loss на количество шагов аккумуляции
+        loss_scale = 1.0 / self.gradient_accumulation_steps
+        
+        # Вычисляем градиенты
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)
+            loss = self.compiled_loss(y, y_pred)
+            scaled_loss = loss * loss_scale
+            
+        # Получаем градиенты
+        gradients = tape.gradient(scaled_loss, self.trainable_variables)
+        
+        # Аккумулируем градиенты
+        if not self.accumulated_gradients:
+            self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            
+        for i, grad in enumerate(gradients):
+            self.accumulated_gradients[i] += grad
+            
+        # Обновляем веса после накопления достаточного количества градиентов
+        if self._train_counter % self.gradient_accumulation_steps == 0:
+            self.optimizer.apply_gradients(zip(self.accumulated_gradients, self.trainable_variables))
+            # Сбрасываем накопленные градиенты
+            self.accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
+            
+        # Увеличиваем счетчик шагов
+        self._train_counter.assign_add(1)
+            
+        # Обновляем метрики
+        self.compiled_metrics.update_state(y, y_pred)
+        
+        return {m.name: m.result() for m in self.metrics}
+
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_type='small', expansion_factor=4, se_ratio=0.25):
     try:
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
@@ -490,7 +537,7 @@ def focal_loss(gamma=2., alpha=0.25):
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, model_type='v3', model_size='small', positive_class_weight=200.0):
     """
-    Создание модели MobileNetV3 с LSTM
+    Создание модели MobileNetV3 с LSTM и градиентной аккумуляцией
     """
     try:
         print("\n[DEBUG] Создание модели MobileNetV3...")
@@ -548,7 +595,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         
         # Применяем базовую модель к каждому кадру
         x = tf.keras.layers.TimeDistributed(base_model)(inputs)
-        # Добавляем слой агрегации признаков по пространству
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
         
         # Добавляем LSTM слои с BatchNormalization
@@ -565,8 +611,12 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             tf.keras.layers.Dense(num_classes, activation='softmax')
         )(x)
         
-        # Создаем модель
-        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        # Создаем модель с градиентной аккумуляцией если она включена
+        if Config.GRADIENT_ACCUMULATION['enabled']:
+            print("[DEBUG] Используем модель с градиентной аккумуляцией")
+            model = GradientAccumulationModel(inputs=inputs, outputs=outputs)
+        else:
+            model = tf.keras.Model(inputs=inputs, outputs=outputs)
         
         # Компилируем модель с focal loss и метриками
         model.compile(

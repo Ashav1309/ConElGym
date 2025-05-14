@@ -25,8 +25,8 @@ class Config:
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
-    MAX_SEQUENCES_PER_VIDEO = 100  # Ограничиваем количество последовательностей
-    MAX_VIDEOS = 3  # Максимум видео для одновременной обработки
+    MAX_SEQUENCES_PER_VIDEO = 100
+    MAX_VIDEOS = 3
     
     # Параметры оптимизации
     LEARNING_RATE = 0.0001
@@ -103,6 +103,13 @@ class Config:
         'n_trials': 10,
         'timeout': 3600,
         'n_jobs': 1
+    }
+    
+    # Параметры градиентной аккумуляции
+    GRADIENT_ACCUMULATION = {
+        'enabled': True,
+        'steps': 4,  # Количество шагов для накопления градиентов
+        'effective_batch_size': 16  # Эффективный размер батча (BATCH_SIZE * steps)
     }
     
     @classmethod
