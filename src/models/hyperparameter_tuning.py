@@ -439,11 +439,19 @@ def objective(trial):
             print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
-                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
-                print(f"[DEBUG] Загружен вес положительного класса: {positive_class_weight}")
+                base_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                # Добавляем случайное отклонение ±20%
+                weight_variation = base_weight * 0.2  # 20% от базового веса
+                positive_class_weight = trial.suggest_float(
+                    'positive_class_weight',
+                    base_weight - weight_variation,
+                    base_weight + weight_variation
+                )
+                print(f"[DEBUG] Базовый вес: {base_weight}")
+                print(f"[DEBUG] Загружен вес положительного класса с вариацией: {positive_class_weight}")
         else:
             print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
-            positive_class_weight = None
+            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
         
         # Определяем гиперпараметры для оптимизации
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
