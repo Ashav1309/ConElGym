@@ -11,9 +11,10 @@ class Config:
     SE_RATIO = 0.25  # Коэффициент для Squeeze-and-Excitation
     
     # Параметры обучения
-    EPOCHS = 20
-    STEPS_PER_EPOCH = 100
-    VALIDATION_STEPS = 20
+    EPOCHS = 20  # Количество эпох обучения (оптимально для стабильной сходимости)
+    BATCH_SIZE = 2  # Минимальный размер батча для экономии памяти
+    STEPS_PER_EPOCH = 20  # Меньше шагов на эпоху для снижения нагрузки
+    VALIDATION_STEPS = 5  # Меньше шагов валидации для экономии памяти
     
     # Параметры данных
     SEQUENCE_LENGTH = 8
@@ -129,6 +130,9 @@ class Config:
         # Проверка параметров обучения
         if cls.EPOCHS <= 0:
             raise ValueError(f"Количество эпох должно быть положительным: {cls.EPOCHS}")
+            
+        if cls.BATCH_SIZE <= 0:
+            raise ValueError(f"Размер батча должен быть положительным: {cls.BATCH_SIZE}")
             
         if cls.STEPS_PER_EPOCH <= 0:
             raise ValueError(f"Количество шагов на эпоху должно быть положительным: {cls.STEPS_PER_EPOCH}")
