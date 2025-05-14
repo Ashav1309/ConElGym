@@ -339,21 +339,23 @@ def train(model_type=None):
         model_save_path = os.path.join('models', f'model_{model_type}')
         os.makedirs(model_save_path, exist_ok=True)
         
-        # Получение параметров модели
-        model_params = Config.MODEL_PARAMS[model_type]
+        # Получение лучших параметров из Optuna (если есть)
+        best_params = load_best_params(model_type)
+        print(f"[DEBUG] Используем параметры для обучения: {best_params}")
         
-        # Создание модели
+        # Создание модели с учетом лучших параметров
         input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
         model, class_weights = create_model(
             input_shape=input_shape,
             num_classes=Config.NUM_CLASSES,
-            dropout_rate=model_params['dropout_rate'],
-            lstm_units=model_params['lstm_units'],
-            model_type=model_type
+            dropout_rate=best_params.get('dropout_rate', Config.MODEL_PARAMS[model_type]['dropout_rate']),
+            lstm_units=best_params.get('lstm_units', Config.MODEL_PARAMS[model_type].get('lstm_units', 64)),
+            model_type=model_type,
+            positive_class_weight=best_params.get('positive_class_weight', 200.0)
         )
         
         # Настройка оптимизатора с mixed precision
-        optimizer = tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=best_params.get('learning_rate', Config.LEARNING_RATE))
         if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
             optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
         
@@ -395,7 +397,7 @@ def train(model_type=None):
         train_dataset = create_data_pipeline(
             loader=train_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=Config.BATCH_SIZE,
+            batch_size=best_params.get('batch_size', Config.BATCH_SIZE),
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
@@ -405,7 +407,7 @@ def train(model_type=None):
         val_dataset = create_data_pipeline(
             loader=val_loader,
             sequence_length=Config.SEQUENCE_LENGTH,
-            batch_size=Config.BATCH_SIZE,
+            batch_size=best_params.get('batch_size', Config.BATCH_SIZE),
             target_size=Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=False,

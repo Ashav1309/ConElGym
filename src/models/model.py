@@ -432,7 +432,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, model_t
         print(f"[ERROR] Stack trace: {traceback.format_exc()}")
         raise
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', model_size='small', expansion_factor=4, se_ratio=0.25, positive_class_weight=200.0):
     """
     Создание модели с выбором типа архитектуры
     Args:
@@ -444,6 +444,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         model_size: размер модели ('small', 'medium', 'large')
         expansion_factor: коэффициент расширения для UIB блоков (только для v4)
         se_ratio: коэффициент для Squeeze-and-Excitation (только для v4)
+        positive_class_weight: вес положительного класса
     """
     print(f"\n[DEBUG] ===== Создание модели =====")
     print(f"[DEBUG] Параметры:")
@@ -453,6 +454,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     print(f"  - num_classes: {num_classes}")
     print(f"  - dropout_rate: {dropout_rate}")
     print(f"  - lstm_units: {lstm_units}")
+    print(f"  - positive_class_weight: {positive_class_weight}")
     
     try:
         # Временно используем только MobileNetV3
@@ -461,7 +463,8 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=dropout_rate,
-            lstm_units=lstm_units
+            lstm_units=lstm_units,
+            positive_class_weight=positive_class_weight
         )
         
         print("[DEBUG] Модель успешно создана")
@@ -485,7 +488,7 @@ def focal_loss(gamma=2., alpha=0.25):
         return tf.reduce_sum(loss, axis=-1)
     return focal_loss_fixed
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=64, model_type='v3', model_size='small'):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=64, model_type='v3', model_size='small', positive_class_weight=200.0):
     """
     Создание модели MobileNetV3 с LSTM
     """
@@ -513,7 +516,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         
         # Получаем параметры модели
         model_params = Config.MODEL_PARAMS[model_type]
-        positive_class_weight = model_params.get('positive_class_weight', 200.0)
         
         # Создаем базовую модель MobileNetV3
         if model_type == 'v3':

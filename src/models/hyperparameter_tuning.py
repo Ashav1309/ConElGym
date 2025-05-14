@@ -175,7 +175,7 @@ def f1_score_element(y_true, y_pred):
     recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
     return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3'):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=200.0):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -185,6 +185,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях (только для v3)
         model_type: тип модели ('v3' или 'v4')
+        positive_class_weight: вес положительного класса
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -196,6 +197,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         print(f"  - LSTM units: {lstm_units}")
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
+    print(f"  - Positive class weight: {positive_class_weight}")
     
     # Формируем правильный input_shape с учетом длины последовательности
     full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
@@ -205,7 +207,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         num_classes=num_classes,
         dropout_rate=dropout_rate,
         lstm_units=lstm_units,
-        model_type=model_type
+        model_type=model_type,
+        positive_class_weight=positive_class_weight
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
@@ -277,11 +280,13 @@ def objective(trial):
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 128)
-            
+        positive_class_weight = trial.suggest_float('positive_class_weight', 10.0, 500.0, log=True)
+        
         print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
         print(f"  - lstm_units: {lstm_units}")
+        print(f"  - positive_class_weight: {positive_class_weight}")
         
         # Создаем и компилируем модель
         model, class_weights = create_and_compile_model(
@@ -290,7 +295,8 @@ def objective(trial):
             learning_rate=learning_rate,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            model_type=Config.MODEL_TYPE
+            model_type=Config.MODEL_TYPE,
+            positive_class_weight=positive_class_weight
         )
         
         # Используем глобальный загрузчик данных
