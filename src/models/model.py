@@ -342,7 +342,7 @@ class GradientAccumulationModel(tf.keras.Model):
     @tf.function
     def train_step(self, data):
         """
-        Шаг обучения с градиентной аккумуляцией.
+        Стандартный шаг обучения без градиентной аккумуляции.
         
         Args:
             data: Кортеж (x, y) или (x, y, sample_weight)
@@ -370,54 +370,17 @@ class GradientAccumulationModel(tf.keras.Model):
             if sample_weight is not None:
                 print(f"[DEBUG] Форма sample_weight: {sample_weight.shape}")
             
-            # Нормализуем потери на количество шагов аккумуляции
-            loss_scale = 1.0 / tf.cast(self.gradient_accumulation_steps, tf.float32)
-            
             # Вычисляем градиенты
             with tf.GradientTape() as tape:
                 predictions = self(x, training=True)
                 print(f"[DEBUG] Форма predictions: {predictions.shape}")
                 loss = self.compute_loss(x, y, predictions, sample_weight)
                 print(f"[DEBUG] Значение loss: {loss}")
-                scaled_loss = loss * loss_scale
-                print(f"[DEBUG] Значение scaled_loss: {scaled_loss}")
             
-            # Вычисляем градиенты
-            gradients = tape.gradient(scaled_loss, self.trainable_variables)
-            print(f"[DEBUG] Количество градиентов: {len(gradients)}")
-            
-            # Накопление градиентов
-            if self._accumulated_gradients is None:
-                self._accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
-                print("[DEBUG] Инициализированы накопленные градиенты")
-            
-            # Добавляем градиенты к накопленным
-            self._accumulated_gradients = [
-                acc_grad + grad for acc_grad, grad in zip(self._accumulated_gradients, gradients)
-            ]
-            print("[DEBUG] Градиенты добавлены к накопленным")
-            
-            # Обновляем веса после накопления достаточного количества градиентов
-            should_apply_gradients = tf.equal(
-                tf.math.floormod(self._train_counter, self.gradient_accumulation_steps),
-                0
-            )
-            print(f"[DEBUG] Счетчик шагов: {self._train_counter}")
-            print(f"[DEBUG] Нужно применять градиенты: {should_apply_gradients}")
-            
-            # Применяем градиенты если нужно
-            if should_apply_gradients:
-                self.optimizer.apply_gradients(
-                    zip(self._accumulated_gradients, self.trainable_variables)
-                )
-                print("[DEBUG] Градиенты применены")
-                # Сбрасываем накопленные градиенты
-                self._accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
-            else:
-                print("[DEBUG] Градиенты не применяются")
-            
-            # Обновляем счетчик шагов
-            self._train_counter.assign_add(1)
+            # Вычисляем и применяем градиенты
+            gradients = tape.gradient(loss, self.trainable_variables)
+            self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+            print("[DEBUG] Градиенты применены")
             
             # Обновляем метрики
             print("[DEBUG] Обновление метрик:")
