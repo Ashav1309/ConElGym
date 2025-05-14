@@ -280,10 +280,10 @@ def objective(trial):
         clear_memory()
         
         # Определяем гиперпараметры для текущего триала
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+        learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 128)
-        positive_class_weight = trial.suggest_float('positive_class_weight', 10.0, 500.0, log=True)
+        positive_class_weight = trial.suggest_float('positive_class_weight', 100.0, 500.0, log=True)
         
         print(f"[DEBUG] Параметры триала:")
         print(f"  - learning_rate: {learning_rate}")
@@ -437,6 +437,9 @@ def tune_hyperparameters():
             study_name='model_hyperparameter_tuning'
         )
         
+        # Засекаем время начала
+        start_time = time.time()
+        
         # Запускаем оптимизацию
         study.optimize(
             objective,
@@ -445,8 +448,14 @@ def tune_hyperparameters():
             n_jobs=Config.HYPERPARAM_TUNING['n_jobs']
         )
         
+        # Вычисляем общее время выполнения
+        total_time = time.time() - start_time
+        
+        # Получаем количество выполненных триалов
+        n_trials = len(study.trials)
+        
         # Сохраняем результаты
-        save_tuning_results(study)
+        save_tuning_results(study, total_time, n_trials)
         
         print("[DEBUG] Подбор гиперпараметров завершен")
         return study

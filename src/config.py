@@ -29,22 +29,22 @@ class Config:
     MAX_VIDEOS = 3  # Максимум видео для одновременной обработки
     
     # Параметры оптимизации
-    LEARNING_RATE = 0.00005
+    LEARNING_RATE = 0.0001
     DROPOUT_RATE = 0.3
-    LSTM_UNITS = 64
+    LSTM_UNITS = 256
     
     # Параметры модели v3
     MODEL_PARAMS = {
         'v3': {
             'dropout_rate': 0.3,
-            'lstm_units': 64,
-            'positive_class_weight': 200.0
+            'lstm_units': 256,
+            'positive_class_weight': 300.0
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': 200.0
+            'positive_class_weight': 300.0
         }
     }
     

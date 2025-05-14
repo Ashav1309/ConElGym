@@ -488,7 +488,7 @@ def focal_loss(gamma=2., alpha=0.25):
         return tf.reduce_sum(loss, axis=-1)
     return focal_loss_fixed
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=64, model_type='v3', model_size='small', positive_class_weight=200.0):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, model_type='v3', model_size='small', positive_class_weight=200.0):
     """
     Создание модели MobileNetV3 с LSTM
     """
@@ -550,11 +550,14 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         x = tf.keras.layers.TimeDistributed(base_model)(inputs)
         # Добавляем слой агрегации признаков по пространству
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
-        # Теперь x имеет форму (batch, seq, features), что подходит для LSTM
-        # Добавляем LSTM слои
+        
+        # Добавляем LSTM слои с BatchNormalization
         x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
+        x = tf.keras.layers.BatchNormalization()(x)
         x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
         x = tf.keras.layers.LSTM(lstm_units, return_sequences=True)(x)
+        x = tf.keras.layers.BatchNormalization()(x)
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
         # Добавляем выходной слой для каждого кадра
