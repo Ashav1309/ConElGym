@@ -23,6 +23,7 @@ import seaborn as sns
 from datetime import datetime, timedelta
 import time
 import gc
+import traceback
 from tensorflow.keras.metrics import Precision, Recall
 import subprocess
 import sys
@@ -81,7 +82,6 @@ def clear_memory():
     except Exception as e:
         print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
     
     print("[DEBUG] ===== Очистка памяти завершена =====\n")
@@ -156,7 +156,6 @@ def create_data_pipeline(batch_size, data_loader):
     except Exception as e:
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         raise
 
@@ -192,8 +191,11 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
     
+    # Формируем правильный input_shape с учетом длины последовательности
+    full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+    
     model, class_weights = create_model(
-        input_shape=input_shape,
+        input_shape=full_input_shape,
         num_classes=num_classes,
         dropout_rate=dropout_rate,
         lstm_units=lstm_units,
@@ -251,7 +253,6 @@ def load_and_prepare_data(batch_size):
     except Exception as e:
         print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         clear_memory()
         raise
