@@ -341,10 +341,13 @@ class GradientAccumulationModel(tf.keras.Model):
         
     def train_step(self, data):
         # Распаковываем данные
-        if isinstance(data, tuple) and len(data) == 2:
+        try:
             x, y = data
-        else:
-            raise ValueError(f"Ожидался кортеж (x, y), получено: {type(data)}")
+        except (TypeError, ValueError) as e:
+            print(f"[DEBUG] Ошибка распаковки данных: {str(e)}")
+            print(f"[DEBUG] Тип данных: {type(data)}")
+            print(f"[DEBUG] Содержимое данных: {data}")
+            raise ValueError(f"Некорректный формат данных: {str(e)}")
             
         batch_size = tf.shape(x)[0]
         

@@ -275,11 +275,15 @@ class VideoDataLoader:
                     labels = labels[indices]
                     
                     # Возвращаем последовательности
-                    for i in range(len(sequences)):
-                        yield sequences[i], labels[i]
+                    for i in range(0, len(sequences), self.batch_size):
+                        batch_sequences = sequences[i:i + self.batch_size]
+                        batch_labels = labels[i:i + self.batch_size]
                         
-                        # Очищаем память после каждой последовательности
-                        if i % 10 == 0:
+                        if len(batch_sequences) == self.batch_size:  # Только полные батчи
+                            yield batch_sequences, batch_labels
+                        
+                        # Очищаем память после каждого батча
+                        if i % (self.batch_size * 10) == 0:
                             gc.collect()
                         
                 except Exception as e:
