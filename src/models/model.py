@@ -445,6 +445,64 @@ class TemporalF1Score(tf.keras.metrics.Metric):
         self.false_positives.assign(0)
         self.false_negatives.assign(0)
 
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None):
+    """
+    Создание модели MobileNetV3
+    """
+    print("[DEBUG] Создание модели MobileNetV3...")
+    
+    # Получаем параметры модели из конфигурации
+    model_params = Config.MODEL_PARAMS['v3']
+    
+    # Используем параметры из конфигурации, если не указаны явно
+    dropout_rate = dropout_rate or model_params['dropout_rate']
+    lstm_units = lstm_units or model_params['lstm_units']
+    positive_class_weight = positive_class_weight or model_params['positive_class_weight']
+    
+    try:
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
+        
+        # Проверяем и корректируем input_shape
+        if len(input_shape) == 4:  # Если нет размерности последовательности
+            input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+        elif len(input_shape) == 5:  # Если есть лишняя размерность
+            input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+        
+        print(f"[DEBUG] Исправленный input_shape: {input_shape}")
+        
+        # Создаем базовую модель MobileNetV3
+        base_model = MobileNetV3Small(
+            input_shape=input_shape[1:],  # Убираем размерность последовательности
+            include_top=False,
+            weights='imagenet'
+        )
+        
+        # Создаем модель
+        model = tf.keras.Sequential([
+            # Входной слой
+            tf.keras.layers.Input(shape=input_shape),
+            
+            # Обработка последовательности кадров
+            tf.keras.layers.TimeDistributed(base_model),
+            
+            # Временная обработка
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True)),
+            tf.keras.layers.Dropout(dropout_rate),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2)),
+            tf.keras.layers.Dropout(dropout_rate),
+            
+            # Выходной слой
+            tf.keras.layers.Dense(num_classes, activation='softmax')
+        ])
+        
+        print("[DEBUG] MobileNetV3 успешно создана")
+        return model, {1: positive_class_weight} if positive_class_weight else None
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
+        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+        raise
+
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25, positive_class_weight=None):
     """
     Создание модели MobileNetV4
@@ -464,10 +522,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
         print(f"\n[DEBUG] Инициализация MobileNetV4: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
         
         # Проверяем и корректируем input_shape
-        if len(input_shape) == 5:  # Если есть лишняя размерность
-            print(f"[DEBUG] Обнаружена лишняя размерность в input_shape: {input_shape}")
+        if len(input_shape) == 4:  # Если нет размерности последовательности
+            input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+        elif len(input_shape) == 5:  # Если есть лишняя размерность
             input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
-            print(f"[DEBUG] Исправленный input_shape: {input_shape}")
+        
+        print(f"[DEBUG] Исправленный input_shape: {input_shape}")
         
         # Конфигурация для small модели
         config = {
@@ -480,85 +540,53 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
             ]
         }
         
-        def _create_model_operation():
+        # Входной слой
+        inputs = Input(shape=input_shape)
+        print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
+        
+        # Обработка последовательности кадров
+        x = inputs
+        
+        # Начальный слой
+        x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
+        print(f"[DEBUG] После начального Conv2D: {x.shape}")
+        
+        x = TimeDistributed(BatchNormalization())(x)
+        x = TimeDistributed(ReLU())(x)
+        
+        # UIB блоки
+        for i, block in enumerate(config['blocks']):
             try:
-                print("[DEBUG] Начало создания модели...")
-                
-                # Входной слой
-                inputs = Input(shape=input_shape)
-                print(f"[DEBUG] Форма входных данных после Input: {inputs.shape}")
-                
-                # Добавляем слой Reshape для гарантии правильной формы
-                x = Reshape(input_shape)(inputs)
-                print(f"[DEBUG] Форма после Reshape: {x.shape}")
-                
-                # Обработка последовательности кадров
-                sequence_length = input_shape[0]
-                height = input_shape[1]
-                width = input_shape[2]
-                channels = input_shape[3]
-                
-                print(f"[DEBUG] Начальные размерности: sequence_length={sequence_length}, height={height}, width={width}, channels={channels}")
-                
-                try:
-                    # Начальный слой
-                    x = TimeDistributed(Conv2D(config['initial_filters'], 3, strides=2, padding='same'))(x)
-                    print(f"[DEBUG] После начального Conv2D: {x.shape}")
-                    
-                    x = TimeDistributed(BatchNormalization())(x)
-                    x = TimeDistributed(ReLU())(x)
-                    
-                    # UIB блоки
-                    for i, block in enumerate(config['blocks']):
-                        try:
-                            x = TimeDistributed(UniversalInvertedBottleneck(
-                                filters=block['filters'],
-                                expansion=block['expansion'],
-                                stride=block['stride'],
-                                se_ratio=se_ratio
-                            ))(x)
-                            print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
-                        except Exception as e:
-                            print(f"[ERROR] Ошибка в UIB блоке {i+1}: {str(e)}")
-                            print(f"[DEBUG] Форма данных перед блоком: {x.shape}")
-                            raise
-                    
-                    # Временная обработка
-                    x = TimeDistributed(GlobalAveragePooling2D())(x)
-                    print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
-                    
-                    x = Bidirectional(LSTM(64, return_sequences=True))(x)
-                    x = Dropout(dropout_rate)(x)
-                    x = Bidirectional(LSTM(32))(x)
-                    x = Dropout(dropout_rate)(x)
-                    
-                    # Выходной слой
-                    outputs = Dense(num_classes, activation='softmax')(x)
-                    
-                    model = Model(inputs=inputs, outputs=outputs)
-                    model.compile(
-                        optimizer=Adam(learning_rate=0.001),
-                        loss='categorical_crossentropy',
-                        metrics=['accuracy']
-                    )
-                    
-                    print("[DEBUG] MobileNetV4 успешно создана")
-                    return model
-                    
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при создании слоев модели: {str(e)}")
-                    print(f"[DEBUG] Текущая форма данных: {x.shape if 'x' in locals() else 'не определена'}")
-                    raise
-                
+                x = TimeDistributed(UniversalInvertedBottleneck(
+                    filters=block['filters'],
+                    expansion=block['expansion'],
+                    stride=block['stride'],
+                    se_ratio=se_ratio
+                ))(x)
+                print(f"[DEBUG] После UIB блока {i+1}: {x.shape}")
             except Exception as e:
-                print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
-                print(f"[ERROR] Stack trace: {traceback.format_exc()}")
+                print(f"[ERROR] Ошибка в UIB блоке {i+1}: {str(e)}")
+                print(f"[DEBUG] Форма данных перед блоком: {x.shape}")
                 raise
-                
-        return _create_model_operation()
+        
+        # Временная обработка
+        x = TimeDistributed(GlobalAveragePooling2D())(x)
+        print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
+        
+        x = Bidirectional(LSTM(64, return_sequences=True))(x)
+        x = Dropout(dropout_rate)(x)
+        x = Bidirectional(LSTM(32))(x)
+        x = Dropout(dropout_rate)(x)
+        
+        # Выходной слой
+        outputs = Dense(num_classes, activation='softmax')(x)
+        
+        model = Model(inputs=inputs, outputs=outputs)
+        print("[DEBUG] MobileNetV4 успешно создана")
+        return model, {1: positive_class_weight} if positive_class_weight else None
         
     except Exception as e:
-        print(f"[ERROR] Критическая ошибка при инициализации MobileNetV4: {str(e)}")
+        print(f"[ERROR] Ошибка при создании MobileNetV4: {str(e)}")
         print(f"[ERROR] Stack trace: {traceback.format_exc()}")
         raise
 
@@ -602,56 +630,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         )
     else:
         raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
-
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None):
-    """
-    Создание модели MobileNetV3
-    """
-    print("[DEBUG] Создание модели MobileNetV3...")
-    
-    # Получаем параметры модели из конфигурации
-    model_params = Config.MODEL_PARAMS['v3']
-    
-    # Используем параметры из конфигурации, если не указаны явно
-    dropout_rate = dropout_rate or model_params['dropout_rate']
-    lstm_units = lstm_units or model_params['lstm_units']
-    positive_class_weight = positive_class_weight or model_params['positive_class_weight']
-    
-    try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
-        
-        # Создаем базовую модель MobileNetV3
-        base_model = MobileNetV3Small(
-            input_shape=input_shape[1:],  # Убираем размерность последовательности
-            include_top=False,
-            weights='imagenet'
-        )
-        
-        # Создаем модель
-        model = tf.keras.Sequential([
-            # Входной слой
-            tf.keras.layers.Input(shape=input_shape),
-            
-            # Обработка последовательности кадров
-            tf.keras.layers.TimeDistributed(base_model),
-            
-            # Временная обработка
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True)),
-            tf.keras.layers.Dropout(dropout_rate),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2)),
-            tf.keras.layers.Dropout(dropout_rate),
-            
-            # Выходной слой
-            tf.keras.layers.Dense(num_classes, activation='softmax')
-        ])
-        
-        print("[DEBUG] MobileNetV3 успешно создана")
-        return model, {1: positive_class_weight} if positive_class_weight else None
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
-        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
-        raise
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):

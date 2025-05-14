@@ -222,8 +222,15 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     
     print(f"  - Positive class weight: {positive_class_weight}")
     
-    # Формируем правильный input_shape с учетом длины последовательности
-    full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+    # Проверяем и корректируем input_shape
+    if len(input_shape) == 4:  # Если нет размерности последовательности
+        full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+    elif len(input_shape) == 5:  # Если есть лишняя размерность
+        full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+    else:
+        full_input_shape = input_shape
+    
+    print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
     
     model, class_weights = create_model(
         input_shape=full_input_shape,
@@ -284,14 +291,15 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
 
     print(f"[DEBUG] Итоговый список метрик: {metrics}")
 
+    # Компилируем модель
     model.compile(
         optimizer=optimizer,
-        loss=focal_loss(gamma=2., alpha=0.25),
+        loss=focal_loss(gamma=2.0, alpha=0.25),
         metrics=metrics
     )
-    print("[DEBUG] Модель успешно скомпилирована")
     
-    return model, class_weights
+    print("[DEBUG] Модель успешно создана и скомпилирована")
+    return model
 
 def load_and_prepare_data(batch_size):
     """
