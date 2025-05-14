@@ -394,20 +394,21 @@ class GradientAccumulationModel(tf.keras.Model):
                 0
             )
             
+            # Применяем градиенты или пропускаем шаг
             def apply_gradients():
-                # Применяем накопленные градиенты
                 self.optimizer.apply_gradients(
                     zip(self._accumulated_gradients, self.trainable_variables)
                 )
-                # Сбрасываем накопленные градиенты
-                self._accumulated_gradients = [tf.zeros_like(grad) for grad in gradients]
-                return True
+                return [tf.zeros_like(grad) for grad in gradients]
             
             def no_op():
-                return False
+                return self._accumulated_gradients
             
-            # Применяем градиенты или пропускаем шаг
-            tf.cond(should_apply_gradients, apply_gradients, no_op)
+            self._accumulated_gradients = tf.cond(
+                should_apply_gradients,
+                apply_gradients,
+                no_op
+            )
             
             # Обновляем счетчик шагов
             self._train_counter.assign_add(1)
