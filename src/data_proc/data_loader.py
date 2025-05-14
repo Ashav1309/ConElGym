@@ -15,7 +15,7 @@ import gc
 logger = logging.getLogger(__name__)
 
 class VideoDataLoader:
-    def __init__(self, data_path, max_videos=3):
+    def __init__(self, data_path, max_videos=Config.MAX_VIDEOS['max_videos']):
         """
         Инициализация загрузчика данных
         Args:
@@ -139,38 +139,92 @@ class VideoDataLoader:
             print(f"  - FPS: {fps}")
             print(f"  - Количество кадров: {total_frames}")
             
-            # Очищаем память перед загрузкой кадров
-            gc.collect()
-            
-            frames = []
-            frame_count = 0
-            
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Изменяем размер кадра сразу при загрузке
-                frame = cv2.resize(frame, (224, 224))
-                frames.append(frame)
-                
-                # Очищаем память каждые 50 кадров
-                if len(frames) % 50 == 0:
-                    gc.collect()
-                
-                frame_count += 1
-            
-            cap.release()
-            
-            # Преобразуем в numpy массив с оптимизированным типом данных
-            frames = np.array(frames, dtype=np.float32) / 255.0
-            
-            print(f"[DEBUG] Загружено {len(frames)} кадров")
-            return frames
+            return cap, total_frames
             
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
+    
+    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None):
+        """Получение батча данных"""
+        try:
+            if self.current_video_index >= len(self.video_paths):
+                self.current_video_index = 0
+                return None
+            
+            video_path = self.video_paths[self.current_video_index]
+            cap, total_frames = self.load_video(video_path)
+            
+            # Загружаем аннотации
+            annotations = self.labels[self.current_video_index]
+            if annotations is not None:
+                with open(annotations, 'r') as f:
+                    ann_data = json.load(f)
+                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                    
+                    for annotation in ann_data['annotations']:
+                        start_frame = annotation['start_frame']
+                        end_frame = annotation['end_frame']
+                        
+                        for frame_idx in range(start_frame, end_frame + 1):
+                            if frame_idx < len(frame_labels):
+                                if frame_idx == start_frame:
+                                    frame_labels[frame_idx] = [1, 0]
+                                elif frame_idx == end_frame:
+                                    frame_labels[frame_idx] = [0, 1]
+                                else:
+                                    frame_labels[frame_idx] = [0, 0]
+            else:
+                frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+            
+            # Создаем батч
+            batch_sequences = []
+            batch_labels = []
+            
+            while len(batch_sequences) < batch_size:
+                # Читаем sequence_length кадров
+                frames = []
+                labels = []
+                
+                for _ in range(sequence_length):
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                        
+                    frame = cv2.resize(frame, target_size)
+                    frames.append(frame)
+                    labels.append(frame_labels[self.current_frame_index])
+                    self.current_frame_index += 1
+                
+                if len(frames) == sequence_length:
+                    batch_sequences.append(frames)
+                    batch_labels.append(labels)
+                
+                # Если достигли конца видео, переходим к следующему
+                if self.current_frame_index >= total_frames:
+                    cap.release()
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    if self.current_video_index >= len(self.video_paths):
+                        break
+                    video_path = self.video_paths[self.current_video_index]
+                    cap, total_frames = self.load_video(video_path)
+            
+            if len(batch_sequences) == 0:
+                return None
+            
+            # Преобразуем в numpy массивы
+            X = np.array(batch_sequences, dtype=np.float32) / 255.0
+            y = np.array(batch_labels, dtype=np.float32)
+            
+            return X, y
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при получении батча: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            return None
     
     def create_sequences(self, frames, annotations):
         """Создание последовательностей с оптимизацией памяти"""
@@ -269,69 +323,40 @@ class VideoDataLoader:
         """Генератор данных с оптимизацией памяти"""
         try:
             print("\n[DEBUG] ===== Запуск генератора данных =====")
-            # Создаем копию списка видео для текущей эпохи
-            current_videos = self.video_paths.copy()
-            print(f"[DEBUG] Количество видео для обработки: {len(current_videos)}")
+            print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
             
-            while current_videos:  # Пока есть необработанные видео
-                # Берем случайное видео из оставшихся
-                video_idx = np.random.randint(0, len(current_videos))
-                video_path = current_videos.pop(video_idx)
+            while True:
+                # Получаем батч данных
+                batch_data = self.get_batch(
+                    batch_size=self.batch_size,
+                    sequence_length=self.sequence_length,
+                    target_size=Config.INPUT_SIZE,
+                    one_hot=True,
+                    max_sequences_per_video=self.max_sequences_per_video
+                )
                 
-                try:
-                    print(f"\n[DEBUG] Обработка видео: {os.path.basename(video_path)}")
-                    # Загружаем видео
-                    frames = self.load_video(video_path)
-                    print(f"[DEBUG] Загружено кадров: {len(frames)}")
+                if batch_data is None:
+                    print("[DEBUG] Достигнут конец эпохи")
+                    break
                     
-                    # Получаем аннотации
-                    annotations = self.labels[self.video_paths.index(video_path)]
-                    print(f"[DEBUG] Путь к аннотациям: {annotations}")
-                    
-                    # Создаем последовательности
-                    sequences, labels = self.create_sequences(frames, annotations)
-                    print(f"[DEBUG] Создано последовательностей: {len(sequences)}")
-                    print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
-                    print(f"[DEBUG] Форма меток: {labels.shape}")
-                    
-                    # Очищаем память после обработки видео
-                    del frames
-                    gc.collect()
-                    
-                    # Перемешиваем последовательности
-                    indices = np.random.permutation(len(sequences))
-                    sequences = sequences[indices]
-                    labels = labels[indices]
-                    
-                    # Возвращаем последовательности батчами нужного размера
-                    for i in range(0, len(sequences), self.batch_size):
-                        batch_sequences = sequences[i:i + self.batch_size]
-                        batch_labels = labels[i:i + self.batch_size]
-                        
-                        if len(batch_sequences) == self.batch_size:  # Только полные батчи
-                            # Преобразуем в тензоры
-                            x = tf.convert_to_tensor(batch_sequences, dtype=tf.float32)
-                            y = tf.convert_to_tensor(batch_labels, dtype=tf.float32)
-                            
-                            # Проверяем размерности
-                            # print(f"\n[DEBUG] Размерность X: {x.shape}")
-                            # print(f"[DEBUG] Размерность y: {y.shape}")
-                            
-                            # Возвращаем только x и y
-                            yield (x, y)
-                        
-                        # Очищаем память после каждого батча
-                        if i % (self.batch_size * 10) == 0:
-                            gc.collect()
-                        
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при обработке видео {video_path}: {str(e)}")
-                    print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+                X, y = batch_data
+                
+                # Проверяем размерности
+                if X.shape[0] == 0 or y.shape[0] == 0:
+                    print("[WARNING] Получен пустой батч")
                     continue
-            
+                    
+                # Преобразуем в тензоры
+                x = tf.convert_to_tensor(X, dtype=tf.float32)
+                y = tf.convert_to_tensor(y, dtype=tf.float32)
+                
+                yield (x, y)
+                
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
-            print(f"[DEBUG] Stack trace: {traceback.format_exc()}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
             raise
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
