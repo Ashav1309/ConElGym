@@ -100,7 +100,7 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 10,
+        'n_trials': 1,
         'timeout': 3600,
         'n_jobs': 1
     }

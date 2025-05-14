@@ -280,7 +280,15 @@ class VideoDataLoader:
                         batch_labels = labels[i:i + self.batch_size]
                         
                         if len(batch_sequences) == self.batch_size:  # Только полные батчи
-                            yield batch_sequences, batch_labels
+                            # Преобразуем в тензоры
+                            x = tf.convert_to_tensor(batch_sequences, dtype=tf.float32)
+                            y = tf.convert_to_tensor(batch_labels, dtype=tf.float32)
+                            
+                            # Проверяем размерности
+                            print(f"[DEBUG] Размерность X: {x.shape}")
+                            print(f"[DEBUG] Размерность y: {y.shape}")
+                            
+                            yield x, y
                         
                         # Очищаем память после каждого батча
                         if i % (self.batch_size * 10) == 0:
