@@ -481,7 +481,7 @@ def objective(trial):
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        return None
+        return float('-inf')  # Возвращаем -inf вместо None при ошибке
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -596,6 +596,11 @@ def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
         # Запускаем оптимизацию
         study.optimize(objective, n_trials=n_trials)
         print("[DEBUG] <<< Optuna завершён")
+
+        # Проверяем, есть ли успешные trials
+        if len(study.trials) == 0 or all(trial.value is None or trial.value == float('-inf') for trial in study.trials):
+            print("[WARNING] Нет успешных trials. Проверьте логи на наличие ошибок.")
+            return None
 
         # Сохраняем результаты
         save_tuning_results(study, time.time() - start_time, n_trials)
