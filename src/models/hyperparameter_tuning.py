@@ -1,3 +1,41 @@
+<<<<<<< HEAD
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.2'
+os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_DISABLE_JIT'] = '1'
+os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+import tensorflow as tf
+# Отключаем JIT компиляцию
+tf.config.optimizer.set_jit(False)
+
+import optuna
+from src.models.model import create_mobilenetv3_model, create_mobilenetv4_model, create_model, focal_loss
+from src.data_proc.data_loader import VideoDataLoader
+from src.config import Config
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from datetime import datetime, timedelta
+import time
+import gc
+import traceback
+from tensorflow.keras.metrics import Precision, Recall, F1Score
+import subprocess
+import sys
+import json
+import cv2
+from tensorflow.keras.optimizers import Adam
+import psutil
+from src.data_proc.data_augmentation import VideoAugmenter
+from optuna.trial import Trial
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+=======
 import cv2
 import numpy as np
 from typing import Tuple, List, Generator
@@ -11,6 +49,7 @@ import threading
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import logging
 import gc
+>>>>>>> 14f4b73b718e50c32cc5e9db2625586f89c8a60c
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +128,493 @@ class VideoDataLoader:
                 if self.max_videos is not None and self.video_count >= self.max_videos:
                     break
                 
+<<<<<<< HEAD
+                # Принудительно очищаем CUDA кэш
+                tf.keras.backend.clear_session()
+                
+                # Очищаем все переменные
+                for var in tf.compat.v1.global_variables():
+                    del var
+                
+                # Очищаем все операции
+                tf.keras.backend.clear_session()
+                
+            except Exception as e:
+                print(f"[DEBUG] ✗ Ошибка при очистке GPU: {str(e)}")
+        
+    except Exception as e:
+        print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        traceback.print_exc()
+    
+    print("[DEBUG] ===== Очистка памяти завершена =====\n")
+
+def setup_device():
+    """Настройка устройства (CPU/GPU)"""
+    try:
+        if Config.DEVICE_CONFIG['use_gpu']:
+            # Настройка GPU
+            gpus = tf.config.list_physical_devices('GPU')
+            if not gpus:
+                print("No GPU devices found")
+                return False
+            
+            # Настройка памяти GPU
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
+            
+            # Включаем mixed precision если нужно
+            if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+                from tensorflow.keras.mixed_precision import Policy
+                policy = Policy('mixed_float16')
+                tf.keras.mixed_precision.set_global_policy(policy)
+                print("Mixed precision policy set:", policy.name)
+            
+            print("GPU optimization enabled")
+            return True
+        else:
+            # Настройка CPU
+            tf.config.set_visible_devices([], 'GPU')
+            tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
+            print("CPU optimization enabled")
+            return True
+            
+    except RuntimeError as e:
+        print(f"Error setting up device: {e}")
+        return False
+
+# Инициализация устройства
+device_available = setup_device()
+
+def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
+    """
+    Создание оптимизированного пайплайна данных.
+    Args:
+        data_loader: Загрузчик данных
+        sequence_length: Длина последовательности
+        batch_size: Размер батча
+        input_size: Размер входного изображения
+        is_training: Флаг обучения
+        force_positive: Флаг принудительного включения положительных примеров
+    Returns:
+        tf.data.Dataset: Оптимизированный датасет
+    """
+    try:
+        print("\n[DEBUG] ===== Создание пайплайна данных =====")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - input_size: {input_size}")
+        print(f"  - is_training: {is_training}")
+        print(f"  - force_positive: {force_positive}")
+        
+        # Проверяем количество загруженных видео
+        if hasattr(data_loader, 'video_count'):
+            print(f"[DEBUG] Количество загруженных видео: {data_loader.video_count}")
+            if data_loader.video_count > Config.MAX_VIDEOS:
+                print(f"[WARNING] Загружено слишком много видео: {data_loader.video_count} > {Config.MAX_VIDEOS}")
+        
+        # Устанавливаем размер батча в загрузчике данных
+        data_loader.batch_size = batch_size
+        
+        # Создаем датасет из генератора
+        dataset = tf.data.Dataset.from_generator(
+            data_loader.data_generator,
+            output_signature=(
+                tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
+            )
+        )
+        
+        # Применяем оптимизации
+        if Config.MEMORY_OPTIMIZATION['cache_dataset']:
+            dataset = dataset.cache()
+        
+        if is_training:
+            dataset = dataset.shuffle(buffer_size=1000)
+        
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
+        print("[DEBUG] Pipeline данных успешно создан")
+        return dataset
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании пайплайна данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        traceback.print_exc()
+        raise
+
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None):
+    """
+    Создание и компиляция модели с заданными параметрами
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        learning_rate: скорость обучения
+        dropout_rate: коэффициент dropout
+        lstm_units: количество юнитов в LSTM слоях (только для v3)
+        model_type: тип модели ('v3' или 'v4')
+        positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
+    """
+    clear_memory()  # Очищаем память перед созданием модели
+    
+    print(f"[DEBUG] Creating model with parameters:")
+    print(f"  - Model type: {model_type}")
+    print(f"  - Learning rate: {learning_rate}")
+    print(f"  - Dropout rate: {dropout_rate}")
+    if model_type == 'v3':
+        print(f"  - LSTM units: {lstm_units}")
+    print(f"  - Input shape: {input_shape}")
+    print(f"  - Number of classes: {num_classes}")
+    
+    # Если positive_class_weight не указан, загружаем из конфига
+    if positive_class_weight is None:
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+        else:
+            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
+    
+    print(f"  - Positive class weight: {positive_class_weight}")
+    
+    # Проверяем и корректируем input_shape
+    if len(input_shape) == 3:  # Если это (height, width, channels)
+        full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
+    elif len(input_shape) == 4:  # Если это (sequence_length, height, width, channels)
+        full_input_shape = input_shape
+    elif len(input_shape) == 5:  # Если есть лишняя размерность
+        full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
+    else:
+        raise ValueError(f"Неверная форма входных данных: {input_shape}")
+    
+    print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
+    
+    model, class_weights = create_model(
+        input_shape=full_input_shape,
+        num_classes=num_classes,
+        dropout_rate=dropout_rate,
+        lstm_units=lstm_units,
+        model_type=model_type,
+        positive_class_weight=positive_class_weight
+    )
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    
+    # Включаем mixed precision если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    
+    # Создаем метрики
+    print("[DEBUG] Создание метрик...")
+    metrics = [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
+    ]
+
+    print("[DEBUG] Добавление F1Score...")
+    try:
+        # Создаем адаптер для F1Score
+        class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def update_state(self, y_true, y_pred, sample_weight=None):
+                y_true = tf.argmax(y_true, axis=-1)
+                y_pred = tf.argmax(y_pred, axis=-1)
+                y_true = tf.reshape(y_true, [-1])
+                y_pred = tf.reshape(y_pred, [-1])
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                return super().update_state(y_true, y_pred, sample_weight)
+            
+            def result(self):
+                # Получаем результат от родительского класса
+                result = super().result()
+                # Возвращаем среднее значение по всем классам
+                return tf.reduce_mean(result)
+        
+        f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
+        print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
+        metrics.append(f1_metric)
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+
+    print(f"[DEBUG] Итоговый список метрик: {metrics}")
+
+    # Компилируем модель
+    model.compile(
+        optimizer=optimizer,
+        loss=focal_loss(gamma=2.0, alpha=0.25),
+        metrics=metrics
+    )
+    
+    print("[DEBUG] Модель успешно создана и скомпилирована")
+    return model, class_weights
+
+def load_and_prepare_data(batch_size):
+    """
+    Загрузка и подготовка данных для обучения
+    """
+    print("[DEBUG] Начало загрузки данных...")
+    clear_memory()  # Очищаем память перед загрузкой данных
+    
+    try:
+        # Проверяем существование директорий
+        if not os.path.exists(Config.TRAIN_DATA_PATH):
+            raise FileNotFoundError(f"Директория с обучающими данными не найдена: {Config.TRAIN_DATA_PATH}")
+        if not os.path.exists(Config.VALID_DATA_PATH):
+            raise FileNotFoundError(f"Директория с валидационными данными не найдена: {Config.VALID_DATA_PATH}")
+            
+        print(f"[DEBUG] Проверка директорий успешна:")
+        print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
+        print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
+        
+        train_loader = VideoDataLoader(
+            Config.TRAIN_DATA_PATH,
+            max_videos=None
+        )
+        val_loader = VideoDataLoader(
+            Config.VALID_DATA_PATH,
+            max_videos=None
+        )
+        print("[DEBUG] VideoDataLoader создан успешно")
+        
+        target_size = Config.INPUT_SIZE
+        
+        # Создание оптимизированных pipeline данных
+        train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True)
+        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False, True)
+        
+        return train_dataset, val_dataset
+    except Exception as e:
+        print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        traceback.print_exc()
+        clear_memory()
+        raise
+
+def objective(trial):
+    """
+    Функция для оптимизации гиперпараметров
+    """
+    try:
+        # Очищаем память перед каждым испытанием
+        clear_memory()
+        
+        # Определяем гиперпараметры для поиска
+        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.8)
+        lstm_units = trial.suggest_int('lstm_units', 128, 256)  # Увеличиваем диапазон для первого LSTM слоя
+        positive_class_weight = trial.suggest_float('positive_class_weight', 
+                                                  Config.FOCAL_LOSS['class_weights'][1] * 0.7,
+                                                  Config.FOCAL_LOSS['class_weights'][1] * 1.3)
+        
+        # Добавляем гиперпараметры аугментации
+        augment_probability = trial.suggest_float('augment_probability', 0.3, 0.7)
+        rotation_range = trial.suggest_int('rotation_range', 5, 20)
+        width_shift_range = trial.suggest_float('width_shift_range', 0.05, 0.2)
+        height_shift_range = trial.suggest_float('height_shift_range', 0.05, 0.2)
+        brightness_range = trial.suggest_float('brightness_range', 0.8, 1.2)
+        contrast_range = trial.suggest_float('contrast_range', 0.8, 1.2)
+        saturation_range = trial.suggest_float('saturation_range', 0.8, 1.2)
+        hue_range = trial.suggest_float('hue_range', 0.0, 0.1)
+        zoom_range = trial.suggest_float('zoom_range', 0.8, 1.2)
+        horizontal_flip_prob = trial.suggest_float('horizontal_flip_prob', 0.0, 0.5)
+        vertical_flip_prob = trial.suggest_float('vertical_flip_prob', 0.0, 0.3)
+        
+        # Параметры focal loss
+        gamma = trial.suggest_float('gamma', 0.5, 5.0)
+        alpha = trial.suggest_float('alpha', 0.05, 0.5)
+        
+        # Создаем загрузчики данных
+        train_loader = VideoDataLoader(
+            Config.TRAIN_DATA_PATH,
+            max_videos=None
+        )
+        
+        val_loader = VideoDataLoader(
+            Config.VALID_DATA_PATH,
+            max_videos=None
+        )
+        
+        # Создаем аугментатор с оптимизированными параметрами
+        augmenter = VideoAugmenter(
+            augment_probability=augment_probability,
+            rotation_range=rotation_range,
+            width_shift_range=width_shift_range,
+            height_shift_range=height_shift_range,
+            brightness_range=brightness_range,
+            contrast_range=contrast_range,
+            saturation_range=saturation_range,
+            hue_range=hue_range,
+            zoom_range=zoom_range,
+            horizontal_flip=horizontal_flip_prob,
+            vertical_flip=vertical_flip_prob
+        )
+        
+        # Создаем пайплайны данных
+        train_data = create_data_pipeline(
+            train_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=None,
+            is_train=True,
+            force_positive=True,
+            augmenter=augmenter
+        )
+        
+        val_data = create_data_pipeline(
+            val_loader,
+            Config.SEQUENCE_LENGTH,
+            Config.BATCH_SIZE,
+            Config.INPUT_SIZE,
+            one_hot=True,
+            infinite_loop=False,
+            max_sequences_per_video=None,
+            is_train=False,
+            force_positive=True
+        )
+        
+        # Создаем и компилируем модель
+        model = create_mobilenetv3_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
+        )
+        
+        # Создаем метрики
+        metrics = [
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
+            tf.keras.metrics.AUC(name='auc')
+        ]
+        
+        # Создаем адаптер для F1Score
+        class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def update_state(self, y_true, y_pred, sample_weight=None):
+                y_true = tf.argmax(y_true, axis=-1)
+                y_pred = tf.argmax(y_pred, axis=-1)
+                y_true = tf.reshape(y_true, [-1])
+                y_pred = tf.reshape(y_pred, [-1])
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                return super().update_state(y_true, y_pred, sample_weight)
+            
+            def result(self):
+                result = super().result()
+                return tf.reduce_mean(result)
+        
+        # Добавляем F1Score в метрики
+        metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
+        
+        # Компилируем модель
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            loss=focal_loss(gamma=gamma, alpha=alpha),
+            metrics=metrics
+        )
+        
+        # Создаем колбэки
+        callbacks = [
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_f1_score_element',
+                patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
+                restore_best_weights=True,
+                mode='max'
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_f1_score_element',
+                factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
+                patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
+                min_lr=Config.OVERFITTING_PREVENTION['min_lr'],
+                mode='max'
+            ),
+            AdaptiveThresholdCallback(validation_data=(val_data[0], val_data[1]))
+        ]
+        
+        # Обучаем модель
+        history = model.fit(
+            train_data,
+            epochs=Config.EPOCHS,
+            validation_data=val_data,
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Получаем лучший F1-score
+        best_f1 = max(history.history['val_f1_score_element'])
+        
+        # Очищаем память после обучения
+        clear_memory()
+        
+        return best_f1
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в испытании {trial.number}: {str(e)}")
+        print("[DEBUG] Полный стек ошибки:")
+        import traceback
+        traceback.print_exc()
+        return float('-inf')
+
+def save_tuning_results(study, total_time, n_trials):
+    """
+    Сохранение результатов подбора гиперпараметров
+    """
+    try:
+        print("\n[DEBUG] Сохранение результатов подбора гиперпараметров...")
+        
+        # Создаем директорию для результатов
+        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        os.makedirs(tuning_dir, exist_ok=True)
+        
+        # Загружаем базовые веса из конфигурации
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                base_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
+        else:
+            base_weight = None
+        
+        # Сохраняем результаты в текстовый файл
+        with open(os.path.join(tuning_dir, 'optuna_results.txt'), 'w') as f:
+            f.write(f"Время выполнения: {total_time:.2f} секунд\n")
+            f.write(f"Количество триалов: {n_trials}\n")
+            if base_weight:
+                f.write(f"Базовый вес положительного класса: {base_weight}\n")
+            f.write("\n")
+            
+            # Получаем лучший триал
+            best_trial = study.best_trial
+            f.write(f"Лучший триал: {best_trial.number}\n")
+            f.write(f"Лучшее значение: {best_trial.value}\n")
+            f.write("\nПараметры лучшего триала:\n")
+            for key, value in best_trial.params.items():
+                f.write(f"{key}: {value}\n")
+            
+            # Сохраняем историю всех триалов
+            f.write("\nИстория всех триалов:\n")
+            for trial in study.trials:
+                if trial.state == optuna.trial.TrialState.COMPLETE:
+                    f.write(f"\nТриал {trial.number}:\n")
+                    f.write(f"Значение: {trial.value}\n")
+                    f.write("Параметры:\n")
+                    for key, value in trial.params.items():
+                        f.write(f"{key}: {value}\n")
+=======
                 file_path = os.path.join(self.data_path, file_name)
                 if file_name.endswith('.mp4') and os.path.isfile(file_path):
                     self.video_paths.append(file_path)
                     base = os.path.splitext(file_name)[0]
                     ann_path = os.path.join(annotation_dir, base + '.json')
+>>>>>>> 14f4b73b718e50c32cc5e9db2625586f89c8a60c
                     
                     if os.path.exists(ann_path):
                         pass
