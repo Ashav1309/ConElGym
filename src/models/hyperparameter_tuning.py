@@ -255,18 +255,12 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         # Создаем адаптер для F1Score
         class F1ScoreAdapter(tf.keras.metrics.F1Score):
             def update_state(self, y_true, y_pred, sample_weight=None):
-                # Преобразуем one-hot encoded метки в индексы классов
                 y_true = tf.argmax(y_true, axis=-1)
                 y_pred = tf.argmax(y_pred, axis=-1)
-                
-                # Преобразуем 3D в 2D
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
-                
-                # Преобразуем обратно в one-hot
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
-                
                 return super().update_state(y_true, y_pred, sample_weight)
             
             def result(self):
@@ -460,13 +454,15 @@ def objective(trial):
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
                 patience=5,  # Увеличиваем с 3 до 5
-                restore_best_weights=True
+                restore_best_weights=True,
+                mode='max'  # Явно указываем режим максимизации
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
                 factor=0.1,  # Уменьшаем с 0.2 до 0.1
                 patience=3,  # Увеличиваем с 2 до 3
-                min_lr=1e-7  # Уменьшаем с 1e-6 до 1e-7
+                min_lr=1e-7,  # Уменьшаем с 1e-6 до 1e-7
+                mode='max'  # Явно указываем режим максимизации
             )
         ]
         

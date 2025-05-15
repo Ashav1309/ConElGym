@@ -88,9 +88,9 @@ class Config:
     # Настройки предотвращения переобучения
     OVERFITTING_PREVENTION = {
         'early_stopping_patience': 5,
-        'reduce_lr_factor': 0.2,
+        'reduce_lr_factor': 0.1,  # Уменьшаем с 0.2 до 0.1
         'reduce_lr_patience': 3,
-        'min_lr': 1e-6,
+        'min_lr': 1e-7,  # Уменьшаем с 1e-6 до 1e-7
         'max_overfitting_threshold': 0.1
     }
     
@@ -109,15 +109,27 @@ class Config:
     
     # Параметры focal loss
     FOCAL_LOSS = {
-        'gamma': 2.0,  # Будет оптимизироваться в objective
-        'alpha': 0.25  # Будет оптимизироваться в objective
+        'gamma': 2.0,
+        'alpha': 0.25,
+        'use_class_weights': True,  # Добавляем использование весов классов
+        'class_weights': {0: 1.0, 1: 50.0}  # Добавляем веса классов
     }
     
     # Параметры адаптивного порога
     ADAPTIVE_THRESHOLD = {
         'enabled': True,
         'threshold_range': (0.1, 1.0),
-        'threshold_step': 0.05
+        'threshold_step': 0.05,
+        'use_validation': True,  # Добавляем использование валидационного набора
+        'update_frequency': 1  # Обновляем порог каждую эпоху
+    }
+    
+    # Параметры метрик
+    METRICS = {
+        'use_auc': True,  # Добавляем AUC
+        'use_f1': True,  # Используем F1-score
+        'use_precision_recall': True,  # Используем Precision и Recall
+        'threshold': 0.5  # Порог для бинарной классификации
     }
     
     @classmethod

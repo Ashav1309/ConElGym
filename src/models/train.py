@@ -450,52 +450,67 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = 32):
             se_ratio=best_params.get('se_ratio', 0.25)
         )
     
+    # Создаем метрики
+    metrics = [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
+        tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
+    ]
+    
+    # Создаем адаптер для F1Score
+    class F1ScoreAdapter(tf.keras.metrics.F1Score):
+        def update_state(self, y_true, y_pred, sample_weight=None):
+            y_true = tf.argmax(y_true, axis=-1)
+            y_pred = tf.argmax(y_pred, axis=-1)
+            y_true = tf.reshape(y_true, [-1])
+            y_pred = tf.reshape(y_pred, [-1])
+            y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
+            y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+            return super().update_state(y_true, y_pred, sample_weight)
+        
+        def result(self):
+            # Получаем результат от родительского класса
+            result = super().result()
+            # Возвращаем среднее значение по всем классам
+            return tf.reduce_mean(result)
+    
+    # Добавляем F1Score в метрики
+    metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
+    
     # Компилируем модель с focal loss
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-        loss=focal_loss(gamma=2.0, alpha=0.25),
-        metrics=[
-            'accuracy',
-            tf.keras.metrics.Precision(),
-            tf.keras.metrics.Recall(),
-            tf.keras.metrics.AUC()
-        ]
+        loss=focal_loss(gamma=Config.FOCAL_LOSS['gamma'], alpha=Config.FOCAL_LOSS['alpha']),
+        metrics=metrics
     )
     
-    # Создаем callbacks
+    # Создаем колбэки
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=5,
-            restore_best_weights=True
+            monitor='val_f1_score_element',
+            patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
+            restore_best_weights=True,
+            mode='max'  # Явно указываем режим максимизации
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=3,
-            min_lr=1e-6
+            monitor='val_f1_score_element',
+            factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
+            patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
+            min_lr=Config.OVERFITTING_PREVENTION['min_lr'],
+            mode='max'  # Явно указываем режим максимизации
         ),
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath=Config.MODEL_SAVE_PATH,
-            monitor='val_loss',
-            save_best_only=True
-        ),
-        AdaptiveThresholdCallback(val_data)
+        AdaptiveThresholdCallback(validation_data=(val_data[0], val_data[1]))  # Добавляем адаптивный порог
     ]
     
     # Обучаем модель
     history = model.fit(
         train_data,
-        validation_data=val_data,
         epochs=epochs,
-        callbacks=callbacks
+        validation_data=val_data,
+        callbacks=callbacks,
+        verbose=1
     )
-    
-    # Сохраняем модель
-    model.save(Config.MODEL_SAVE_PATH)
-    
-    # Визуализируем результаты
-    plot_training_results(history)
     
     return model, history
 
