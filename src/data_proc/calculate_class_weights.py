@@ -13,8 +13,6 @@ def calculate_dataset_weights():
     print("[DEBUG] Начинаем расчет весов классов...")
     
     # Инициализируем счетчики
-    total_frames = 0
-    positive_frames = 0
     total_sequences = 0
     positive_sequences = 0
     
@@ -32,7 +30,7 @@ def calculate_dataset_weights():
     print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
     
     # Обрабатываем каждое видео
-    for video_path in video_paths:
+    for video_path in tqdm(video_paths, desc="Обработка видео"):
         video_name = os.path.basename(video_path)
         print(f"[DEBUG] Обработка видео: {video_name}")
         
@@ -58,14 +56,9 @@ def calculate_dataset_weights():
             annotations_data = json.load(f)
             annotations = annotations_data.get('annotations', [])
             
-        # Считаем кадры и последовательности для каждого класса
-        frame_count = 0
-        video_positive_frames = 0
-        video_sequences = 0
-        video_positive_sequences = 0
-        
         # Создаем массив меток для каждого кадра
-        frame_labels = np.zeros((int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), Config.NUM_CLASSES), dtype=np.float32)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
         
         # Заполняем метки
         for annotation in annotations:
@@ -80,36 +73,50 @@ def calculate_dataset_weights():
                     else:
                         frame_labels[frame_idx] = [0, 0]
         
-        # Считаем последовательности
+        # Считаем последовательности с учетом пропуска проблемных участков
         sequence_length = Config.SEQUENCE_LENGTH
-        for i in range(0, len(frame_labels) - sequence_length + 1, sequence_length // 2):
-            sequence = frame_labels[i:i + sequence_length]
-            if len(sequence) == sequence_length:
-                video_sequences += 1
-                if np.any(sequence == 1):
-                    video_positive_sequences += 1
+        current_frame = 0
         
-        # Обновляем общие счетчики
-        total_frames += frame_count
-        positive_frames += video_positive_frames
-        total_sequences += video_sequences
-        positive_sequences += video_positive_sequences
-        
-        print(f"[DEBUG] Видео {video_name}:")
-        print(f"  - Всего кадров: {frame_count}")
-        print(f"  - Позитивных кадров: {video_positive_frames}")
-        print(f"  - Всего последовательностей: {video_sequences}")
-        print(f"  - Позитивных последовательностей: {video_positive_sequences}")
+        while current_frame < total_frames:
+            # Проверяем, можем ли мы прочитать последовательность
+            if current_frame + sequence_length > total_frames:
+                break
+                
+            # Пытаемся прочитать последовательность
+            frames_read = 0
+            sequence_labels = []
+            
+            for i in range(sequence_length):
+                ret, _ = cap.read()
+                if not ret:
+                    # Если не удалось прочитать кадр, пропускаем этот участок
+                    print(f"[DEBUG] Пропуск проблемного участка с кадра {current_frame}")
+                    current_frame += sequence_length
+                    break
+                frames_read += 1
+                sequence_labels.append(frame_labels[current_frame + i])
+            
+            if frames_read == sequence_length:
+                # Проверяем, есть ли положительные примеры в последовательности
+                sequence_labels = np.array(sequence_labels)
+                if np.any(sequence_labels == 1):
+                    positive_sequences += 1
+                total_sequences += 1
+                current_frame += sequence_length // 2  # Перекрытие последовательностей
+            else:
+                current_frame += sequence_length  # Пропускаем проблемный участок
         
         cap.release()
+        
+        print(f"[DEBUG] Видео {video_name}:")
+        print(f"  - Всего последовательностей: {total_sequences}")
+        print(f"  - Позитивных последовательностей: {positive_sequences}")
     
     # Рассчитываем веса на основе последовательностей
     negative_sequences = total_sequences - positive_sequences
     weights = [1.0, negative_sequences / positive_sequences if positive_sequences > 0 else 1.0]
     
     print("\n[DEBUG] Итоговая статистика:")
-    print(f"Всего кадров: {total_frames}")
-    print(f"Позитивных кадров: {positive_frames}")
     print(f"Всего последовательностей: {total_sequences}")
     print(f"Позитивных последовательностей: {positive_sequences}")
     print(f"Негативных последовательностей: {negative_sequences}")
