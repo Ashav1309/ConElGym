@@ -122,20 +122,59 @@ class VideoDataLoader:
             raise
     
     def load_video(self, video_path):
-        """Загрузка видео с оптимизацией памяти"""
+        """Загрузка видео с оптимизацией памяти и подробным логированием"""
         try:
             print(f"[DEBUG] Загрузка видео: {os.path.basename(video_path)}")
-            cap = cv2.VideoCapture(video_path)
             
+            # Проверяем существование файла
+            if not os.path.exists(video_path):
+                raise FileNotFoundError(f"Видеофайл не найден: {video_path}")
+            
+            # Проверяем размер файла
+            file_size = os.path.getsize(video_path)
+            print(f"[DEBUG] Размер файла: {file_size / (1024*1024):.2f} MB")
+            
+            # Открываем видео с таймаутом
+            cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 raise ValueError(f"Не удалось открыть видео: {video_path}")
             
-            # Получаем информацию о видео
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            print("[DEBUG] Видео успешно открыто")
             
+            # Получаем информацию о видео с проверкой каждого свойства
+            try:
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                print(f"[DEBUG] Ширина: {width}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении ширины: {str(e)}")
+                width = 0
+            
+            try:
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"[DEBUG] Высота: {height}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении высоты: {str(e)}")
+                height = 0
+            
+            try:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                print(f"[DEBUG] FPS: {fps}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении FPS: {str(e)}")
+                fps = 0
+            
+            try:
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                print(f"[DEBUG] Количество кадров: {total_frames}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении количества кадров: {str(e)}")
+                total_frames = 0
+            
+            # Проверяем корректность полученных данных
+            if width <= 0 or height <= 0 or fps <= 0 or total_frames <= 0:
+                raise ValueError(f"Некорректные параметры видео: width={width}, height={height}, fps={fps}, frames={total_frames}")
+            
+            print(f"[DEBUG] Видео успешно загружено:")
             print(f"  - Размер: {width}x{height}")
             print(f"  - FPS: {fps}")
             print(f"  - Количество кадров: {total_frames}")
@@ -144,6 +183,8 @@ class VideoDataLoader:
             
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
+            if 'cap' in locals():
+                cap.release()
             raise
     
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):

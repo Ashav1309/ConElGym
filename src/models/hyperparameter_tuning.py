@@ -13,7 +13,7 @@ import tensorflow as tf
 tf.config.optimizer.set_jit(False)
 
 import optuna
-from src.models.model import create_model
+from src.models.model import create_mobilenetv3_model, create_mobilenetv4_model, create_model, focal_loss
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
 import numpy as np
@@ -31,6 +31,9 @@ import json
 import cv2
 from tensorflow.keras.optimizers import Adam
 import psutil
+from src.data_proc.data_augmentation import VideoAugmenter
+from optuna.trial import Trial
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
