@@ -261,6 +261,8 @@ class VideoDataLoader:
                     ret, frame = cap.read()
                     if not ret:
                         print(f"[DEBUG] get_batch: Не удалось прочитать кадр {self.current_frame_index}")
+                        # Пропускаем проблемный участок и продолжаем со следующего кадра
+                        self.current_frame_index += sequence_length
                         break
                     frame = cv2.resize(frame, target_size)
                     frames.append(frame)
@@ -271,6 +273,9 @@ class VideoDataLoader:
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
                     batches_for_this_video += 1
+                else:
+                    # Если не удалось собрать полную последовательность, пропускаем этот участок
+                    print(f"[DEBUG] get_batch: Пропускаем проблемный участок с кадра {self.current_frame_index - len(frames)}")
             
             if len(batch_sequences) != batch_size:
                 print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
