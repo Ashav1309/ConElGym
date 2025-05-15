@@ -12,9 +12,6 @@ class Config:
     LOG_DIR = 'logs'
     CONFIG_PATH = 'config_weights.json'  # Путь к конфигурационному файлу
     
-    # Алиас для весов классов
-    CLASS_WEIGHTS = FOCAL_LOSS['class_weights']
-    
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
     VALID_DATA_PATH = os.path.join(DATA_DIR, 'valid')
@@ -117,6 +114,9 @@ class Config:
         'use_class_weights': True,  # Добавляем использование весов классов
         'class_weights': {0: 1.0, 1: 50.0}  # Добавляем веса классов
     }
+    
+    # Алиас для весов классов
+    CLASS_WEIGHTS = FOCAL_LOSS['class_weights']
     
     # Параметры адаптивного порога
     ADAPTIVE_THRESHOLD = {
