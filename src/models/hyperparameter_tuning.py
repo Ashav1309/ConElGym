@@ -335,8 +335,7 @@ def objective(trial):
     Целевая функция для оптимизации гиперпараметров
     """
     try:
-        print("\n[DEBUG] >>> Начало нового trial")
-        
+        print(f"\n[DEBUG] >>> Начало нового trial #{trial.number}")
         # Очищаем память перед каждым trial
         clear_memory()
         
