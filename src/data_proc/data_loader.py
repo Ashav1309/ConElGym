@@ -284,38 +284,47 @@ class VideoDataLoader:
                 print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
                 return None
             
-            print(f"[DEBUG] get_batch: Батч успешно собран. batch_sequences={len(batch_sequences)}")
-            print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
-            print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index}, текущий индекс кадра: {self.current_frame_index}")
-            
-            # Проверяем наличие положительных примеров в батче
-            positive_in_batch = [np.any(np.array(lbl)[:,1] == 1) for lbl in batch_labels]
-            num_positive = sum(positive_in_batch)
-            print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
-            print(f"[DEBUG] Индексы последовательностей с положительным примером в батче: {[i for i, v in enumerate(positive_in_batch) if v]}")
-            
-            # Конвертируем в numpy массивы с оптимизированным типом данных
-            X = np.array(batch_sequences, dtype=np.float32) / 255.0
-            y = np.array(batch_labels, dtype=np.float32)
-            
-            # Очищаем память
-            del batch_sequences
-            del batch_labels
-            gc.collect()
-            
-            print(f"[DEBUG] get_batch: Прогресс обработки видео: {self.current_frame_index}/{total_frames} кадров")
-            
-            if self.current_frame_index >= total_frames:
-                print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}, переходим к следующему")
-                self.current_video_index += 1
-                self.current_frame_index = 0
-                cap.release()
-                if self.current_video_index >= len(self.video_paths):
-                    print(f"[DEBUG] get_batch: Обработаны все видео")
-                    self.current_video_index = 0
-                    return None
-            
-            return X, y
+            # После успешного формирования батча обновляем индекс кадра
+            if len(batch_sequences) == batch_size:
+                print(f"[DEBUG] get_batch: Батч успешно собран. batch_sequences={len(batch_sequences)}")
+                print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
+                print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index}, текущий индекс кадра: {self.current_frame_index}")
+                
+                # Проверяем наличие положительных примеров в батче
+                positive_in_batch = [np.any(np.array(lbl)[:,1] == 1) for lbl in batch_labels]
+                num_positive = sum(positive_in_batch)
+                print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
+                print(f"[DEBUG] Индексы последовательностей с положительным примером в батче: {[i for i, v in enumerate(positive_in_batch) if v]}")
+                
+                # Конвертируем в numpy массивы с оптимизированным типом данных
+                X = np.array(batch_sequences, dtype=np.float32) / 255.0
+                y = np.array(batch_labels, dtype=np.float32)
+                
+                # Очищаем память
+                del batch_sequences
+                del batch_labels
+                gc.collect()
+                
+                # Обновляем индекс кадра после формирования батча
+                self.current_frame_index += sequence_length
+                
+                print(f"[DEBUG] get_batch: Прогресс обработки видео: {self.current_frame_index}/{total_frames} кадров")
+                
+                if self.current_frame_index >= total_frames:
+                    print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}, переходим к следующему")
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    cap.release()
+                    if self.current_video_index >= len(self.video_paths):
+                        print(f"[DEBUG] get_batch: Обработаны все видео")
+                        self.current_video_index = 0
+                        return None
+                
+                return X, y
+            else:
+                print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
+                print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
+                return None
             
         except Exception as e:
             print(f"[ERROR] Ошибка при получении батча: {str(e)}")
