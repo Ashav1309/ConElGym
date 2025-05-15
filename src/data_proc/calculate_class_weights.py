@@ -99,7 +99,10 @@ def calculate_dataset_weights():
             
             # Проверяем наличие положительных примеров в последовательности
             sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            if np.any(sequence_labels[:, 0] | sequence_labels[:, 1]):  # Проверяем любой положительный класс
+            # Используем np.maximum вместо побитового OR для проверки наличия положительных классов
+            has_positive = np.any(np.maximum(sequence_labels[:, 0], sequence_labels[:, 1]) > 0)
+            
+            if has_positive:
                 positive_sequences += 1
                 video_stats[video_name]['positive_sequences'] += 1
             total_sequences += 1
