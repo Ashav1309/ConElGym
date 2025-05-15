@@ -364,7 +364,7 @@ def objective(trial):
             Config.TRAIN_DATA_PATH,
             Config.TRAIN_ANNOTATION_PATH,
             sequence_length=Config.SEQUENCE_LENGTH,
-            target_size=Config.TARGET_SIZE,
+            target_size=Config.INPUT_SIZE,
             max_videos=None
         )
         
@@ -372,7 +372,7 @@ def objective(trial):
             Config.VALID_DATA_PATH,
             Config.VALID_ANNOTATION_PATH,
             sequence_length=Config.SEQUENCE_LENGTH,
-            target_size=Config.TARGET_SIZE,
+            target_size=Config.INPUT_SIZE,
             max_videos=None
         )
         
@@ -396,7 +396,7 @@ def objective(trial):
             train_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
-            Config.TARGET_SIZE,
+            Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=True,
             max_sequences_per_video=None,
@@ -409,7 +409,7 @@ def objective(trial):
             val_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
-            Config.TARGET_SIZE,
+            Config.INPUT_SIZE,
             one_hot=True,
             infinite_loop=False,
             max_sequences_per_video=None,
@@ -419,7 +419,7 @@ def objective(trial):
         
         # Создаем и компилируем модель
         model = create_mobilenetv3_model(
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units
