@@ -48,7 +48,7 @@ def focal_loss(gamma=2., alpha=0.25):
         cross_entropy = -y_true * tf.math.log(y_pred)
         weight = alpha * tf.pow(1 - y_pred, gamma)
         loss = weight * cross_entropy
-        return tf.reduce_sum(loss, axis=-1)
+        return tf.reduce_mean(loss)
     return focal_loss_fixed
 
 def clear_memory():
@@ -365,16 +365,16 @@ def objective(trial):
             raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
         
         # Определяем гиперпараметры для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-6, 1e-3, log=True)  # Расширяем диапазон
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.7)  # Увеличиваем верхнюю границу
+        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)  # Расширяем диапазон
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)  # Увеличиваем верхнюю границу
         
         if model_type == 'v3':
-            lstm_units = trial.suggest_int('lstm_units', 16, 128)  # Уменьшаем диапазон для экономии памяти
+            lstm_units = trial.suggest_int('lstm_units', 16, 512)  # Уменьшаем диапазон для экономии памяти
         else:
             lstm_units = None
         
         # Оптимизируем параметры focal loss
-        gamma = trial.suggest_float('gamma', 1.0, 3.0)
+        gamma = trial.suggest_float('gamma', 0.5, 5.0)
         alpha = trial.suggest_float('alpha', 0.1, 0.4)
         
         print(f"[DEBUG] Параметры trial:")
