@@ -16,7 +16,8 @@ def calculate_dataset_weights():
     total_sequences = 0
     positive_sequences = 0
     total_frames = 0
-    positive_frames = 0
+    positive_frames = set()  # Используем множество для уникальных кадров
+    video_stats = {}  # Словарь для хранения статистики по каждому видео
     
     # Получаем список всех видео
     video_paths = []
@@ -32,9 +33,14 @@ def calculate_dataset_weights():
     print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
     
     # Обрабатываем каждое видео
-    for video_path in video_paths:
+    for video_path in tqdm(video_paths, desc="Обработка видео"):
         video_name = os.path.basename(video_path)
-        print(f"\n[DEBUG] Обработка видео: {video_name}")
+        video_stats[video_name] = {
+            'total_frames': 0,
+            'positive_frames': set(),
+            'total_sequences': 0,
+            'positive_sequences': 0
+        }
         
         # Загружаем видео
         cap = cv2.VideoCapture(video_path)
@@ -42,8 +48,9 @@ def calculate_dataset_weights():
             print(f"[WARNING] Не удалось открыть видео: {video_name}")
             continue
         
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        print(f"  - Количество кадров: {total_frames}")
+        video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames += video_frames
+        video_stats[video_name]['total_frames'] = video_frames
         
         # Загружаем аннотации
         base = os.path.splitext(video_name)[0]
@@ -60,14 +67,17 @@ def calculate_dataset_weights():
         # Загружаем аннотации
         with open(ann_path, 'r') as f:
             ann_data = json.load(f)
-            frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+            frame_labels = np.zeros((video_frames, Config.NUM_CLASSES), dtype=np.float32)
             
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
                 
-                # Считаем положительные кадры
-                positive_frames += 2  # Начало и конец элемента
+                # Добавляем уникальные положительные кадры
+                positive_frames.add(start_frame)
+                positive_frames.add(end_frame)
+                video_stats[video_name]['positive_frames'].add(start_frame)
+                video_stats[video_name]['positive_frames'].add(end_frame)
                 
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
@@ -82,48 +92,67 @@ def calculate_dataset_weights():
         sequence_length = Config.SEQUENCE_LENGTH
         current_frame = 0
         
-        while current_frame < total_frames:
+        while current_frame < video_frames:
             # Проверяем, можем ли мы прочитать последовательность
-            if current_frame + sequence_length > total_frames:
+            if current_frame + sequence_length > video_frames:
                 break
             
             # Проверяем наличие положительных примеров в последовательности
             sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            if np.any(sequence_labels == 1):
+            if np.any(sequence_labels[:, 0] | sequence_labels[:, 1]):  # Проверяем любой положительный класс
                 positive_sequences += 1
+                video_stats[video_name]['positive_sequences'] += 1
             total_sequences += 1
+            video_stats[video_name]['total_sequences'] += 1
             
             # Переходим к следующей последовательности с перекрытием
             current_frame += sequence_length // 2
         
         cap.release()
-        
-        print(f"[DEBUG] Видео {video_name}:")
-        print(f"  - Всего последовательностей: {total_sequences}")
-        print(f"  - Позитивных последовательностей: {positive_sequences}")
     
     # Рассчитываем веса на основе последовательностей и кадров
     negative_sequences = total_sequences - positive_sequences
     sequence_weight = negative_sequences / positive_sequences if positive_sequences > 0 else 1.0
     
     # Учитываем также соотношение положительных и отрицательных кадров
-    total_frames = sum([int(cv2.VideoCapture(v).get(cv2.CAP_PROP_FRAME_COUNT)) for v in video_paths])
-    negative_frames = total_frames - positive_frames
-    frame_weight = negative_frames / positive_frames if positive_frames > 0 else 1.0
+    positive_frames_count = len(positive_frames)  # Используем количество уникальных кадров
+    negative_frames = total_frames - positive_frames_count
+    frame_weight = negative_frames / positive_frames_count if positive_frames_count > 0 else 1.0
     
-    # Комбинируем веса
-    final_weight = (sequence_weight + frame_weight) / 2
+    # Используем взвешенное среднее для комбинирования весов
+    # Даем больший вес последовательностям, так как они важнее для обучения
+    sequence_weight_factor = 0.7
+    frame_weight_factor = 0.3
+    final_weight = (sequence_weight * sequence_weight_factor + frame_weight * frame_weight_factor)
+    
+    # Выводим детальную статистику по каждому видео
+    print("\n[DEBUG] Детальная статистика по видео:")
+    for video_name, stats in video_stats.items():
+        print(f"\nВидео: {video_name}")
+        print(f"  - Всего кадров: {stats['total_frames']}")
+        print(f"  - Позитивных кадров: {len(stats['positive_frames'])}")
+        print(f"  - Всего последовательностей: {stats['total_sequences']}")
+        print(f"  - Позитивных последовательностей: {stats['positive_sequences']}")
+        if stats['total_sequences'] > 0:
+            pos_ratio = stats['positive_sequences'] / stats['total_sequences']
+            print(f"  - Доля позитивных последовательностей: {pos_ratio:.2%}")
     
     print("\n[DEBUG] Итоговая статистика:")
     print(f"Всего последовательностей: {total_sequences}")
     print(f"Позитивных последовательностей: {positive_sequences}")
     print(f"Негативных последовательностей: {negative_sequences}")
     print(f"Всего кадров: {total_frames}")
-    print(f"Позитивных кадров: {positive_frames}")
+    print(f"Позитивных кадров: {positive_frames_count}")
     print(f"Негативных кадров: {negative_frames}")
-    print(f"Вес на основе последовательностей: {sequence_weight}")
-    print(f"Вес на основе кадров: {frame_weight}")
-    print(f"Итоговый вес: {final_weight}")
+    print(f"Вес на основе последовательностей: {sequence_weight:.2f}")
+    print(f"Вес на основе кадров: {frame_weight:.2f}")
+    print(f"Итоговый вес: {final_weight:.2f}")
+    
+    # Проверяем корректность весов
+    if final_weight < 1.0:
+        print("[WARNING] Итоговый вес меньше 1.0, что может указывать на проблемы с данными")
+    elif final_weight > 100.0:
+        print("[WARNING] Итоговый вес больше 100.0, что может привести к нестабильному обучению")
     
     return [1.0, final_weight]
 
