@@ -298,6 +298,20 @@ class VideoDataLoader:
             
             X = np.array(batch_sequences, dtype=np.float32) / 255.0
             y = np.array(batch_labels, dtype=np.float32)
+            
+            # Обновляем индекс кадра после формирования батча
+            self.current_frame_index += batch_size * sequence_length
+            print(f"[DEBUG] get_batch: Прогресс обработки видео: {self.current_frame_index}/{total_frames} кадров")
+            
+            # Если достигли конца видео, переходим к следующему
+            if self.current_frame_index >= total_frames:
+                print(f"[DEBUG] get_batch: Достигнут конец видео, переходим к следующему")
+                self.current_video_index += 1
+                self.current_frame_index = 0
+                if self.current_video_index >= len(self.video_paths):
+                    print(f"[DEBUG] get_batch: Обработаны все видео")
+                    self.current_video_index = 0
+            
             return X, y
             
         except Exception as e:
