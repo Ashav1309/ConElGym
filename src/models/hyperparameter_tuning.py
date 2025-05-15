@@ -265,7 +265,6 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
                 return super().update_state(y_true, y_pred, sample_weight)
-            
             def result(self):
                 result = super().result()
                 return float(tf.reduce_mean(result))
@@ -439,6 +438,9 @@ def objective(trial):
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
                 return super().update_state(y_true, y_pred, sample_weight)
+            def result(self):
+                result = super().result()
+                return float(tf.reduce_mean(result))
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
