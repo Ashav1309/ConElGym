@@ -9,6 +9,17 @@ os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 os.environ['TF_DISABLE_JIT'] = '1'
 os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
 import tensorflow as tf
+# Включаем динамический рост памяти для всех GPU
+try:
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"[DEBUG] Включён динамический рост памяти для {len(gpus)} GPU")
+    else:
+        print("[DEBUG] GPU не обнаружены")
+except Exception as e:
+    print(f"[DEBUG] Ошибка при настройке GPU: {e}")
 # Отключаем JIT компиляцию
 tf.config.optimizer.set_jit(False)
 
