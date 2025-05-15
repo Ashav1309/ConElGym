@@ -1,3 +1,41 @@
+<<<<<<< HEAD
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.2'
+os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_DISABLE_JIT'] = '1'
+os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+import tensorflow as tf
+# Отключаем JIT компиляцию
+tf.config.optimizer.set_jit(False)
+
+import optuna
+from src.models.model import create_mobilenetv3_model, create_mobilenetv4_model, create_model, focal_loss
+from src.data_proc.data_loader import VideoDataLoader
+from src.config import Config
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from datetime import datetime, timedelta
+import time
+import gc
+import traceback
+from tensorflow.keras.metrics import Precision, Recall, F1Score
+import subprocess
+import sys
+import json
+import cv2
+from tensorflow.keras.optimizers import Adam
+import psutil
+from src.data_proc.data_augmentation import VideoAugmenter
+from optuna.trial import Trial
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+=======
 import cv2
 import numpy as np
 from typing import Tuple, List, Generator
