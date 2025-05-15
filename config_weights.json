@@ -3,7 +3,7 @@
         "v3": {
             "dropout_rate": 0.3,
             "lstm_units": 128,
-            "positive_class_weight": 18.830311587459487,
+            "positive_class_weight": 72.88526119402985,
             "base_input_shape": [
                 224,
                 224,
@@ -14,7 +14,7 @@
             "dropout_rate": 0.3,
             "expansion_factor": 4,
             "se_ratio": 0.25,
-            "positive_class_weight": 18.830311587459487,
+            "positive_class_weight": 72.88526119402985,
             "base_input_shape": [
                 224,
                 224,
