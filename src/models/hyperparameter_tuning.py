@@ -339,8 +339,8 @@ def objective(trial):
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.8)
         lstm_units = trial.suggest_int('lstm_units', 128, 256)  # Увеличиваем диапазон для первого LSTM слоя
         positive_class_weight = trial.suggest_float('positive_class_weight', 
-                                                  Config.CLASS_WEIGHTS['positive'] * 0.7,
-                                                  Config.CLASS_WEIGHTS['positive'] * 1.3)
+                                                  Config.FOCAL_LOSS['class_weights'][1] * 0.7,
+                                                  Config.FOCAL_LOSS['class_weights'][1] * 1.3)
         
         # Добавляем гиперпараметры аугментации
         augment_probability = trial.suggest_float('augment_probability', 0.3, 0.7)
