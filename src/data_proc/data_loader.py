@@ -238,6 +238,7 @@ class VideoDataLoader:
                             gc.collect()
             
             # --- Добавляем обычные последовательности ---
+            unreadable_frames_count = 0  # Счетчик нечитаемых кадров
             while len(batch_sequences) < batch_size:
                 if self.current_frame_index + sequence_length > total_frames:
                     print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}")
@@ -263,8 +264,17 @@ class VideoDataLoader:
                     ret, frame = cap.read()
                     if not ret:
                         print(f"[DEBUG] get_batch: Не удалось прочитать кадр {self.current_frame_index}")
+                        unreadable_frames_count += 1
                         self.current_frame_index += 1
-                        continue  # Пропускаем проблемный кадр и продолжаем со следующего
+                        
+                        # Если слишком много нечитаемых кадров, пропускаем видео
+                        if unreadable_frames_count > 120:
+                            print(f"[WARNING] Слишком много нечитаемых кадров ({unreadable_frames_count}), пропускаем видео")
+                            self.current_video_index += 1
+                            self.current_frame_index = 0
+                            cap.release()
+                            return None
+                        continue
                     
                     frame = cv2.resize(frame, target_size)
                     frames.append(frame)
