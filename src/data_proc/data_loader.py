@@ -152,6 +152,7 @@ class VideoDataLoader:
             if self.current_video_index >= len(self.video_paths):
                 print(f"[DEBUG] get_batch: current_video_index >= len(video_paths), сбрасываем индекс")
                 self.current_video_index = 0
+                self.current_frame_index = 0
                 return None
             
             video_path = self.video_paths[self.current_video_index]
@@ -182,6 +183,14 @@ class VideoDataLoader:
             batch_labels = []
             used_indices = set()
             batches_for_this_video = 0  # Сбрасываем счетчик для каждого нового видео
+            
+            # Проверяем, не достигли ли мы конца видео
+            if self.current_frame_index >= total_frames:
+                print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}")
+                self.current_video_index += 1
+                self.current_frame_index = 0
+                cap.release()
+                return None
             
             # --- Кэширование индексов положительных кадров ---
             if video_path not in self.positive_indices_cache:
@@ -305,12 +314,14 @@ class VideoDataLoader:
             
             # Если достигли конца видео, переходим к следующему
             if self.current_frame_index >= total_frames:
-                print(f"[DEBUG] get_batch: Достигнут конец видео, переходим к следующему")
+                print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}, переходим к следующему")
                 self.current_video_index += 1
                 self.current_frame_index = 0
+                cap.release()
                 if self.current_video_index >= len(self.video_paths):
                     print(f"[DEBUG] get_batch: Обработаны все видео")
                     self.current_video_index = 0
+                    return None
             
             return X, y
             
