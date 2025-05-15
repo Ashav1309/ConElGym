@@ -250,24 +250,28 @@ class VideoDataLoader:
                     return None
                 
                 if any(idx in used_indices for idx in range(self.current_frame_index, self.current_frame_index + sequence_length)):
-                    self.current_frame_index += sequence_length
+                    self.current_frame_index += 1
                     continue
                 
                 frames = []
                 labels = []
-                cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
+                start_frame = self.current_frame_index
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
                 
-                for _ in range(sequence_length):
+                # Читаем кадры до достижения нужной длины последовательности
+                while len(frames) < sequence_length and self.current_frame_index < total_frames:
                     ret, frame = cap.read()
                     if not ret:
                         print(f"[DEBUG] get_batch: Не удалось прочитать кадр {self.current_frame_index}")
-                        self.current_frame_index += sequence_length
-                        break
+                        self.current_frame_index += 1
+                        continue  # Пропускаем проблемный кадр и продолжаем со следующего
+                    
                     frame = cv2.resize(frame, target_size)
                     frames.append(frame)
                     labels.append(frame_labels[self.current_frame_index])
                     self.current_frame_index += 1
                 
+                # Если удалось собрать последовательность нужной длины
                 if len(frames) == sequence_length:
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
@@ -277,7 +281,11 @@ class VideoDataLoader:
                     del labels
                     gc.collect()
                 else:
-                    print(f"[DEBUG] get_batch: Пропускаем проблемный участок с кадра {self.current_frame_index - len(frames)}")
+                    print(f"[DEBUG] get_batch: Не удалось собрать последовательность нужной длины. Получено кадров: {len(frames)}")
+                    # Очищаем память
+                    del frames
+                    del labels
+                    gc.collect()
             
             if len(batch_sequences) != batch_size:
                 print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
