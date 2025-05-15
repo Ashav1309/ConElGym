@@ -356,8 +356,8 @@ def objective(trial):
                     print("[WARNING] Некорректный базовый вес, используем значение по умолчанию")
                     base_weight = 10.0
                 
-                # Добавляем случайное отклонение ±20%
-                weight_variation = base_weight * 0.2  # 20% от базового веса
+                # Добавляем случайное отклонение ±30%
+                weight_variation = base_weight * 0.3  # 30% от базового веса
                 positive_class_weight = trial.suggest_float(
                     'positive_class_weight',
                     max(1.0, base_weight - weight_variation),  # Минимальный вес 1.0
@@ -370,13 +370,17 @@ def objective(trial):
             raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
         
         # Определяем гиперпараметры для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        learning_rate = trial.suggest_float('learning_rate', 1e-6, 1e-3, log=True)  # Расширяем диапазон
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.7)  # Увеличиваем верхнюю границу
         
         if model_type == 'v3':
-            lstm_units = trial.suggest_int('lstm_units', 32, 256)
+            lstm_units = trial.suggest_int('lstm_units', 16, 128)  # Уменьшаем диапазон для экономии памяти
         else:
             lstm_units = None
+        
+        # Оптимизируем параметры focal loss
+        gamma = trial.suggest_float('gamma', 1.0, 3.0)
+        alpha = trial.suggest_float('alpha', 0.1, 0.4)
         
         print(f"[DEBUG] Параметры trial:")
         print(f"  - learning_rate: {learning_rate}")
@@ -384,6 +388,8 @@ def objective(trial):
         if lstm_units:
             print(f"  - lstm_units: {lstm_units}")
         print(f"  - positive_class_weight: {positive_class_weight}")
+        print(f"  - gamma: {gamma}")
+        print(f"  - alpha: {alpha}")
         
         # Создаем модель
         input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
@@ -408,7 +414,7 @@ def objective(trial):
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
             is_training=True,
-            force_positive=True  # Гарантируем наличие положительных примеров
+            force_positive=True
         )
         
         val_dataset = create_data_pipeline(
@@ -417,55 +423,50 @@ def objective(trial):
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
             is_training=False,
-            force_positive=True  # Гарантируем наличие положительных примеров
+            force_positive=True
         )
         
         # Создаем метрики
         metrics = [
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
+            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
+            tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
         ]
         
         # Создаем адаптер для F1Score
         class F1ScoreAdapter(tf.keras.metrics.F1Score):
             def update_state(self, y_true, y_pred, sample_weight=None):
-                # Преобразуем one-hot encoded метки в индексы классов
                 y_true = tf.argmax(y_true, axis=-1)
                 y_pred = tf.argmax(y_pred, axis=-1)
-                
-                # Преобразуем 3D в 2D
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
-                
-                # Преобразуем обратно в one-hot
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
-                
                 return super().update_state(y_true, y_pred, sample_weight)
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
-        # Компилируем модель
+        # Компилируем модель с оптимизированными параметрами focal loss
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-            loss=focal_loss(),
+            loss=focal_loss(gamma=gamma, alpha=alpha),
             metrics=metrics
         )
         
-        # Создаем колбэки
+        # Создаем колбэки с улучшенными параметрами
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
-                patience=3,
+                patience=5,  # Увеличиваем с 3 до 5
                 restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
-                factor=0.2,
-                patience=2,
-                min_lr=1e-6
+                factor=0.1,  # Уменьшаем с 0.2 до 0.1
+                patience=3,  # Увеличиваем с 2 до 3
+                min_lr=1e-7  # Уменьшаем с 1e-6 до 1e-7
             )
         ]
         
@@ -476,7 +477,7 @@ def objective(trial):
             validation_data=val_dataset,
             callbacks=callbacks,
             verbose=1,
-            class_weight=class_weights  # Используем веса классов
+            class_weight=class_weights
         )
         
         # Получаем лучший F1-score
@@ -492,7 +493,7 @@ def objective(trial):
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        return float('-inf')  # Возвращаем -inf вместо None при ошибке
+        return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
     """

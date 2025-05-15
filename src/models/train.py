@@ -18,6 +18,7 @@ from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
 import psutil
+from src.data_proc.data_augmentation import VideoAugmenter, focal_loss, AdaptiveThresholdCallback
 
 # Включаем eager execution
 tf.config.run_functions_eagerly(True)
@@ -371,209 +372,132 @@ def focal_loss(gamma=2., alpha=0.25):
         return tf.reduce_mean(loss)
     return focal_loss_fixed
 
-def train(model_type=None):
+def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = 32):
     """
-    Обучение модели
+    Обучение модели с использованием аугментации и focal loss
     """
-    try:
-        print("\n[DEBUG] Начало обучения модели...")
-        
-        # Очищаем память перед обучением
-        clear_memory()
-        
-        # Определяем тип модели
-        if model_type is None:
-            model_type = Config.MODEL_TYPE
-        
-        print(f"[DEBUG] Тип модели: {model_type}")
-        
-        # Загружаем лучшие параметры
-        best_params = load_best_params(model_type)
-        if best_params is None:
-            print("[WARNING] Не найдены лучшие параметры, используем значения по умолчанию")
-            best_params = {
-                'learning_rate': 1e-4,
-                'dropout_rate': 0.3,
-                'lstm_units': 128
-            }
-        
-        print("[DEBUG] Параметры модели:")
-        for key, value in best_params.items():
-            print(f"  - {key}: {value}")
-        
-        # Создаем загрузчики данных без ограничения на количество видео
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        print(f"[DEBUG] Загружено {len(train_loader.video_paths)} обучающих видео")
-        print(f"[DEBUG] Загружено {len(val_loader.video_paths)} валидационных видео")
-        
-        # Создаем оптимизированные pipeline данных
-        train_dataset = create_data_pipeline(
-            train_loader,
-            Config.SEQUENCE_LENGTH,
-            Config.BATCH_SIZE,
-            Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
-            is_train=True,
-            force_positive=True
-        )
-        
-        val_dataset = create_data_pipeline(
-            val_loader,
-            Config.SEQUENCE_LENGTH,
-            Config.BATCH_SIZE,
-            Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
-            is_train=False,
-            force_positive=True
-        )
-        
-        # Создаем модель
-        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
-        
-        # Получаем positive_class_weight из best_params или конфигурации
-        positive_class_weight = best_params.get('positive_class_weight')
-        if positive_class_weight is None:
-            positive_class_weight = Config.MODEL_PARAMS[model_type]['positive_class_weight']
-        
-        model, class_weights = create_model(
-            input_shape=input_shape,
+    print("[DEBUG] Начало обучения модели...")
+    
+    # Загружаем лучшие параметры
+    best_params = load_best_params()
+    if best_params is None:
+        print("[WARNING] Не удалось загрузить лучшие параметры, используем значения по умолчанию")
+        best_params = {
+            'dropout_rate': 0.3,
+            'lstm_units': 128,
+            'positive_class_weight': 50.0
+        }
+    
+    # Создаем загрузчики данных без ограничения на количество видео
+    train_loader = VideoDataLoader(
+        Config.TRAIN_DATA_PATH,
+        Config.TRAIN_ANNOTATION_PATH,
+        sequence_length=Config.SEQUENCE_LENGTH,
+        target_size=Config.TARGET_SIZE,
+        max_videos=None  # Убираем ограничение
+    )
+    
+    val_loader = VideoDataLoader(
+        Config.VALID_DATA_PATH,
+        Config.VALID_ANNOTATION_PATH,
+        sequence_length=Config.SEQUENCE_LENGTH,
+        target_size=Config.TARGET_SIZE,
+        max_videos=None  # Убираем ограничение
+    )
+    
+    # Создаем пайплайны данных
+    train_data = create_data_pipeline(
+        train_loader,
+        Config.SEQUENCE_LENGTH,
+        batch_size,
+        Config.TARGET_SIZE,
+        one_hot=True,
+        infinite_loop=True,
+        max_sequences_per_video=None,  # Убираем ограничение
+        is_train=True,
+        force_positive=True
+    )
+    
+    val_data = create_data_pipeline(
+        val_loader,
+        Config.SEQUENCE_LENGTH,
+        batch_size,
+        Config.TARGET_SIZE,
+        one_hot=True,
+        infinite_loop=False,
+        max_sequences_per_video=None,  # Убираем ограничение
+        is_train=False,
+        force_positive=True
+    )
+    
+    # Создаем аугментатор
+    augmenter = VideoAugmenter(augment_probability=0.5)
+    
+    # Создаем и компилируем модель
+    if model_type == 'v3':
+        model = create_mobilenetv3_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
-            dropout_rate=best_params.get('dropout_rate', Config.MODEL_PARAMS[model_type]['dropout_rate']),
-            lstm_units=best_params.get('lstm_units', Config.MODEL_PARAMS[model_type].get('lstm_units', 64)),
-            model_type=model_type,
-            positive_class_weight=positive_class_weight
+            dropout_rate=best_params['dropout_rate'],
+            lstm_units=best_params['lstm_units']
         )
-        
-        # Настройка оптимизатора с mixed precision
-        optimizer = tf.keras.optimizers.Adam(learning_rate=best_params.get('learning_rate', Config.LEARNING_RATE))
-        if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-            optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-        
-        # Создаем метрики
-        print("[DEBUG] Создание метрик...")
-        metrics = [
+    else:
+        model = create_mobilenetv4_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=best_params['dropout_rate'],
+            expansion_factor=best_params.get('expansion_factor', 4),
+            se_ratio=best_params.get('se_ratio', 0.25)
+        )
+    
+    # Компилируем модель с focal loss
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss=focal_loss(gamma=2.0, alpha=0.25),
+        metrics=[
             'accuracy',
-            tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
+            tf.keras.metrics.Precision(),
+            tf.keras.metrics.Recall(),
+            tf.keras.metrics.AUC()
         ]
-
-        print("[DEBUG] Добавление F1Score...")
-        try:
-            # Создаем адаптер для F1Score
-            class F1ScoreAdapter(tf.keras.metrics.F1Score):
-                def update_state(self, y_true, y_pred, sample_weight=None):
-                    # Преобразуем one-hot encoded метки в индексы классов
-                    y_true = tf.argmax(y_true, axis=-1)
-                    y_pred = tf.argmax(y_pred, axis=-1)
-                    
-                    # Преобразуем 3D в 2D
-                    y_true = tf.reshape(y_true, [-1])
-                    y_pred = tf.reshape(y_pred, [-1])
-                    
-                    # Преобразуем обратно в one-hot
-                    y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-                    y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
-                    
-                    return super().update_state(y_true, y_pred, sample_weight)
-                
-                def result(self):
-                    # Получаем результат от родительского класса
-                    result = super().result()
-                    # Возвращаем среднее значение по всем классам
-                    return tf.reduce_mean(result)
-            
-            f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
-            print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
-            metrics.append(f1_metric)
-        except Exception as e:
-            print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-
-        print(f"[DEBUG] Итоговый список метрик: {metrics}")
-
-        # Компиляция модели
-        print("[DEBUG] Компиляция модели...")
-        model.compile(
-            optimizer=optimizer,
-            loss=focal_loss(gamma=2., alpha=0.25),
-            metrics=metrics
-        )
-        print("[DEBUG] Модель успешно скомпилирована")
-        
-        # Создаем callbacks
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_f1_score_element',
-                patience=5,
-                restore_best_weights=True,
-                mode='max',
-                verbose=1
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_f1_score_element',
-                factor=0.5,
-                patience=3,
-                min_lr=1e-6,
-                mode='max',
-                verbose=1
-            )
-        ]
-        
-        # Обучение
-        history = model.fit(
-            train_dataset,
-            epochs=Config.EPOCHS,
-            validation_data=val_dataset,
-            callbacks=callbacks,
-            steps_per_epoch=Config.STEPS_PER_EPOCH,
-            validation_steps=Config.VALIDATION_STEPS,
-            class_weight=class_weights,
-            verbose=1
-        )
-        
-        # Сохранение финальной модели
-        model_save_path = os.path.join('models', f'model_{model_type}')
-        os.makedirs(model_save_path, exist_ok=True)
-        model.save(os.path.join(model_save_path, 'final_model.h5'))
-        
-        # Визуализация результатов
-        plot_training_results(history, model_save_path)
-        
-        # Визуализация confusion matrix на валидации
-        print("[DEBUG] Визуализация confusion matrix на валидации...")
-        # Собираем все предсказания и истинные значения на валидации
-        val_y_true = []
-        val_y_pred = []
-        for x_batch, y_batch in val_dataset:
-            y_pred_batch = model.predict(x_batch)
-            # Объединяем классы (как в merge_classes)
-            y_true_bin = (y_batch.numpy()[...,0] == 1) | (y_batch.numpy()[...,1] == 1)
-            y_pred_bin = (y_pred_batch[...,0] > 0.5) | (y_pred_batch[...,1] > 0.5)
-            val_y_true.extend(y_true_bin.flatten())
-            val_y_pred.extend(y_pred_bin.flatten())
-            if len(val_y_true) > 10000:  # ограничим количество для скорости
-                break
-        plot_confusion_matrix(val_y_true, val_y_pred, model_save_path)
-        
-        return model, history
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при обучении модели: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
-    finally:
-        # Очистка памяти
-        if Config.MEMORY_OPTIMIZATION['clear_memory_after_epoch']:
-            clear_memory()
+    )
+    
+    # Создаем callbacks
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=5,
+            restore_best_weights=True
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=3,
+            min_lr=1e-6
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=Config.MODEL_SAVE_PATH,
+            monitor='val_loss',
+            save_best_only=True
+        ),
+        AdaptiveThresholdCallback(val_data)
+    ]
+    
+    # Обучаем модель
+    history = model.fit(
+        train_data,
+        validation_data=val_data,
+        epochs=epochs,
+        callbacks=callbacks
+    )
+    
+    # Сохраняем модель
+    model.save(Config.MODEL_SAVE_PATH)
+    
+    # Визуализируем результаты
+    plot_training_results(history)
+    
+    return model, history
 
 def plot_training_results(history, save_path):
     """

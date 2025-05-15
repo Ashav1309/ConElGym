@@ -21,13 +21,13 @@ class Config:
     MODEL_TYPE = 'v3'  # 'v3' или 'v4'
     NUM_CLASSES = 2  # Фон и элемент
     INPUT_SIZE = (224, 224)  # Размер входного изображения
-    SEQUENCE_LENGTH = 16  # Уменьшаем с 32 до 16 кадров для экономии памяти
+    SEQUENCE_LENGTH = 12  # Уменьшаем с 16 до 12 кадров для экономии памяти
     INPUT_SHAPE = (SEQUENCE_LENGTH, *INPUT_SIZE, 3)  # Полная форма входных данных
-    BATCH_SIZE = 2  # Уменьшаем размер батча
+    BATCH_SIZE = 4  # Увеличиваем с 2 до 4
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
-    MAX_SEQUENCES_PER_VIDEO = 200  # Увеличиваем с 100 до 200 для лучшего баланса
+    MAX_SEQUENCES_PER_VIDEO = 200
     MAX_VIDEOS = 3
     
     # Параметры оптимизации
@@ -58,8 +58,8 @@ class Config:
         'clear_memory_after_epoch': True,
         'use_gradient_checkpointing': True,
         'use_xla': True,
-        'gradient_accumulation_steps': 4,
-        'cache_dataset': True
+        'gradient_accumulation_steps': 2,  # Уменьшаем с 4 до 2
+        'cache_dataset': False  # Отключаем кэширование для экономии памяти
     }
     
     # Параметры устройства
@@ -76,11 +76,14 @@ class Config:
     VALID_ANNOTATION_PATH = os.path.join(DATA_DIR, 'valid', 'annotations')
     
     # Аугментация
-    AUGMENTATION = True
-    ROTATION_RANGE = 15
-    WIDTH_SHIFT_RANGE = 0.1
-    HEIGHT_SHIFT_RANGE = 0.1
-    HORIZONTAL_FLIP = True
+    AUGMENTATION = {
+        'enabled': True,
+        'probability': 0.5,
+        'brightness_range': (0.8, 1.2),
+        'contrast_range': (0.8, 1.2),
+        'rotation_range': (-10, 10),
+        'flip_probability': 0.5
+    }
     
     # Настройки предотвращения переобучения
     OVERFITTING_PREVENTION = {
@@ -102,6 +105,19 @@ class Config:
     GRADIENT_ACCUMULATION = {
         'enabled': False,
         'steps': 1
+    }
+    
+    # Параметры focal loss
+    FOCAL_LOSS = {
+        'gamma': 2.0,  # Будет оптимизироваться в objective
+        'alpha': 0.25  # Будет оптимизироваться в objective
+    }
+    
+    # Параметры адаптивного порога
+    ADAPTIVE_THRESHOLD = {
+        'enabled': True,
+        'threshold_range': (0.1, 1.0),
+        'threshold_step': 0.05
     }
     
     @classmethod
