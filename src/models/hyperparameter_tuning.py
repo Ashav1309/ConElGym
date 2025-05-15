@@ -328,96 +328,101 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     """
-    Целевая функция для оптимизации гиперпараметров
+    Функция для оптимизации гиперпараметров
     """
     try:
-        print(f"\n[DEBUG] >>> Начало нового trial #{trial.number}")
-        # Очищаем память перед каждым trial
+        # Очищаем память перед каждым испытанием
         clear_memory()
         
-        # Определяем тип модели
-        model_type = Config.MODEL_TYPE
+        # Определяем гиперпараметры для поиска
+        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.8)
+        lstm_units = trial.suggest_int('lstm_units', 128, 256)  # Увеличиваем диапазон для первого LSTM слоя
+        positive_class_weight = trial.suggest_float('positive_class_weight', 
+                                                  Config.CLASS_WEIGHTS['positive'] * 0.7,
+                                                  Config.CLASS_WEIGHTS['positive'] * 1.3)
         
-        # Загружаем веса из конфигурационного файла
-        if os.path.exists(Config.CONFIG_PATH):
-            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                base_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
-                
-                # Проверяем корректность базового веса
-                if base_weight is None or base_weight <= 0:
-                    print("[WARNING] Некорректный базовый вес, используем значение по умолчанию")
-                    base_weight = 10.0
-                
-                # Добавляем случайное отклонение ±30%
-                weight_variation = base_weight * 0.3  # 30% от базового веса
-                positive_class_weight = trial.suggest_float(
-                    'positive_class_weight',
-                    max(1.0, base_weight - weight_variation),  # Минимальный вес 1.0
-                    base_weight + weight_variation
-                )
-                print(f"[DEBUG] Базовый вес: {base_weight}")
-                print(f"[DEBUG] Загружен вес положительного класса с вариацией: {positive_class_weight}")
-        else:
-            print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
-            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
+        # Добавляем гиперпараметры аугментации
+        augment_probability = trial.suggest_float('augment_probability', 0.3, 0.7)
+        rotation_range = trial.suggest_int('rotation_range', 5, 20)
+        width_shift_range = trial.suggest_float('width_shift_range', 0.05, 0.2)
+        height_shift_range = trial.suggest_float('height_shift_range', 0.05, 0.2)
+        brightness_range = trial.suggest_float('brightness_range', 0.8, 1.2)
+        contrast_range = trial.suggest_float('contrast_range', 0.8, 1.2)
+        saturation_range = trial.suggest_float('saturation_range', 0.8, 1.2)
+        hue_range = trial.suggest_float('hue_range', 0.0, 0.1)
+        zoom_range = trial.suggest_float('zoom_range', 0.8, 1.2)
+        horizontal_flip_prob = trial.suggest_float('horizontal_flip_prob', 0.0, 0.5)
+        vertical_flip_prob = trial.suggest_float('vertical_flip_prob', 0.0, 0.3)
         
-        # Определяем гиперпараметры для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-6, 1e-3, log=True)  # Расширяем диапазон
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.7)  # Увеличиваем верхнюю границу
-        
-        if model_type == 'v3':
-            lstm_units = trial.suggest_int('lstm_units', 16, 128)  # Уменьшаем диапазон для экономии памяти
-        else:
-            lstm_units = None
-        
-        # Оптимизируем параметры focal loss
-        gamma = trial.suggest_float('gamma', 1.0, 3.0)
-        alpha = trial.suggest_float('alpha', 0.1, 0.4)
-        
-        print(f"[DEBUG] Параметры trial:")
-        print(f"  - learning_rate: {learning_rate}")
-        print(f"  - dropout_rate: {dropout_rate}")
-        if lstm_units:
-            print(f"  - lstm_units: {lstm_units}")
-        print(f"  - positive_class_weight: {positive_class_weight}")
-        print(f"  - gamma: {gamma}")
-        print(f"  - alpha: {alpha}")
-        
-        # Создаем модель
-        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
-        model, class_weights = create_and_compile_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units,
-            model_type=model_type,
-            positive_class_weight=positive_class_weight
-        )
+        # Параметры focal loss
+        gamma = trial.suggest_float('gamma', 0.5, 5.0)
+        alpha = trial.suggest_float('alpha', 0.05, 0.5)
         
         # Создаем загрузчики данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        train_loader = VideoDataLoader(
+            Config.TRAIN_DATA_PATH,
+            Config.TRAIN_ANNOTATION_PATH,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            target_size=Config.TARGET_SIZE,
+            max_videos=None
+        )
         
-        # Создаем оптимизированные pipeline данных
-        train_dataset = create_data_pipeline(
+        val_loader = VideoDataLoader(
+            Config.VALID_DATA_PATH,
+            Config.VALID_ANNOTATION_PATH,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            target_size=Config.TARGET_SIZE,
+            max_videos=None
+        )
+        
+        # Создаем аугментатор с оптимизированными параметрами
+        augmenter = VideoAugmenter(
+            augment_probability=augment_probability,
+            rotation_range=rotation_range,
+            width_shift_range=width_shift_range,
+            height_shift_range=height_shift_range,
+            brightness_range=brightness_range,
+            contrast_range=contrast_range,
+            saturation_range=saturation_range,
+            hue_range=hue_range,
+            zoom_range=zoom_range,
+            horizontal_flip=horizontal_flip_prob,
+            vertical_flip=vertical_flip_prob
+        )
+        
+        # Создаем пайплайны данных
+        train_data = create_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
-            Config.INPUT_SIZE,
-            is_training=True,
-            force_positive=True
+            Config.TARGET_SIZE,
+            one_hot=True,
+            infinite_loop=True,
+            max_sequences_per_video=None,
+            is_train=True,
+            force_positive=True,
+            augmenter=augmenter
         )
         
-        val_dataset = create_data_pipeline(
+        val_data = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
-            Config.INPUT_SIZE,
-            is_training=False,
+            Config.TARGET_SIZE,
+            one_hot=True,
+            infinite_loop=False,
+            max_sequences_per_video=None,
+            is_train=False,
             force_positive=True
+        )
+        
+        # Создаем и компилируем модель
+        model = create_mobilenetv3_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            num_classes=Config.NUM_CLASSES,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units
         )
         
         # Создаем метрики
@@ -425,7 +430,7 @@ def objective(trial):
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
             tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
+            tf.keras.metrics.AUC(name='auc')
         ]
         
         # Создаем адаптер для F1Score
@@ -438,55 +443,59 @@ def objective(trial):
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
                 return super().update_state(y_true, y_pred, sample_weight)
+            
+            def result(self):
+                result = super().result()
+                return tf.reduce_mean(result)
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
-        # Компилируем модель с оптимизированными параметрами focal loss
+        # Компилируем модель
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=focal_loss(gamma=gamma, alpha=alpha),
             metrics=metrics
         )
         
-        # Создаем колбэки с улучшенными параметрами
+        # Создаем колбэки
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
-                patience=5,  # Увеличиваем с 3 до 5
+                patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
                 restore_best_weights=True,
-                mode='max'  # Явно указываем режим максимизации
+                mode='max'
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
-                factor=0.1,  # Уменьшаем с 0.2 до 0.1
-                patience=3,  # Увеличиваем с 2 до 3
-                min_lr=1e-7,  # Уменьшаем с 1e-6 до 1e-7
-                mode='max'  # Явно указываем режим максимизации
-            )
+                factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
+                patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
+                min_lr=Config.OVERFITTING_PREVENTION['min_lr'],
+                mode='max'
+            ),
+            AdaptiveThresholdCallback(validation_data=(val_data[0], val_data[1]))
         ]
         
         # Обучаем модель
         history = model.fit(
-            train_dataset,
+            train_data,
             epochs=Config.EPOCHS,
-            validation_data=val_dataset,
+            validation_data=val_data,
             callbacks=callbacks,
-            verbose=1,
-            class_weight=class_weights
+            verbose=1
         )
         
         # Получаем лучший F1-score
         best_f1 = max(history.history['val_f1_score_element'])
         
-        # Очищаем память
+        # Очищаем память после обучения
         clear_memory()
         
         return best_f1
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в trial: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
+        print(f"[ERROR] Ошибка в испытании {trial.number}: {str(e)}")
+        print("[DEBUG] Полный стек ошибки:")
         import traceback
         traceback.print_exc()
         return float('-inf')
