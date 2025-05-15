@@ -63,7 +63,7 @@ def clear_memory():
         except:
             pass
 
-def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None, is_train=True):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None, is_train=True, force_positive=True):
     """
     Создание оптимизированного pipeline данных
     """
@@ -99,7 +99,8 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
                         sequence_length=sequence_length,
                         target_size=target_size,
                         one_hot=one_hot,
-                        max_sequences_per_video=max_sequences_per_video
+                        max_sequences_per_video=max_sequences_per_video,
+                        force_positive=force_positive
                     )
                     
                     if batch_data is None:
@@ -415,7 +416,8 @@ def train(model_type=None):
             one_hot=True,
             infinite_loop=True,
             max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
-            is_train=True
+            is_train=True,
+            force_positive=True
         )
         
         val_dataset = create_data_pipeline(
@@ -426,7 +428,8 @@ def train(model_type=None):
             one_hot=True,
             infinite_loop=False,
             max_sequences_per_video=Config.MAX_SEQUENCES_PER_VIDEO,
-            is_train=False
+            is_train=False,
+            force_positive=True
         )
         
         # Создаем модель

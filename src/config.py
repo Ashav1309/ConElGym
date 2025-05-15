@@ -27,7 +27,7 @@ class Config:
     EPOCHS = 20
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
-    MAX_SEQUENCES_PER_VIDEO = 100
+    MAX_SEQUENCES_PER_VIDEO = 200  # Увеличиваем с 100 до 200 для лучшего баланса
     MAX_VIDEOS = 3
     
     # Параметры оптимизации

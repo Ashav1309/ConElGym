@@ -123,7 +123,7 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True):
+def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
     """
     Создание оптимизированного пайплайна данных.
     Args:
@@ -132,6 +132,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         batch_size: Размер батча
         input_size: Размер входного изображения
         is_training: Флаг обучения
+        force_positive: Флаг принудительного включения положительных примеров
     Returns:
         tf.data.Dataset: Оптимизированный датасет
     """
@@ -142,6 +143,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         print(f"  - sequence_length: {sequence_length}")
         print(f"  - input_size: {input_size}")
         print(f"  - is_training: {is_training}")
+        print(f"  - force_positive: {force_positive}")
         
         # Проверяем количество загруженных видео
         if hasattr(data_loader, 'video_count'):
@@ -319,8 +321,8 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True)
-        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False)
+        train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True)
+        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False, True)
         
         return train_dataset, val_dataset
     except Exception as e:
@@ -348,11 +350,17 @@ def objective(trial):
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
                 base_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                
+                # Проверяем корректность базового веса
+                if base_weight is None or base_weight <= 0:
+                    print("[WARNING] Некорректный базовый вес, используем значение по умолчанию")
+                    base_weight = 10.0
+                
                 # Добавляем случайное отклонение ±20%
                 weight_variation = base_weight * 0.2  # 20% от базового веса
                 positive_class_weight = trial.suggest_float(
                     'positive_class_weight',
-                    base_weight - weight_variation,
+                    max(1.0, base_weight - weight_variation),  # Минимальный вес 1.0
                     base_weight + weight_variation
                 )
                 print(f"[DEBUG] Базовый вес: {base_weight}")
@@ -399,7 +407,8 @@ def objective(trial):
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            is_training=True
+            is_training=True,
+            force_positive=True  # Гарантируем наличие положительных примеров
         )
         
         val_dataset = create_data_pipeline(
@@ -407,7 +416,8 @@ def objective(trial):
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            is_training=False
+            is_training=False,
+            force_positive=True  # Гарантируем наличие положительных примеров
         )
         
         # Создаем метрики
@@ -462,10 +472,11 @@ def objective(trial):
         # Обучаем модель
         history = model.fit(
             train_dataset,
-            epochs=Config.EPOCHS,  # Используем количество эпох из конфигурации
+            epochs=Config.EPOCHS,
             validation_data=val_dataset,
             callbacks=callbacks,
-            verbose=1
+            verbose=1,
+            class_weight=class_weights  # Используем веса классов
         )
         
         # Получаем лучший F1-score
@@ -494,10 +505,21 @@ def save_tuning_results(study, total_time, n_trials):
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
         os.makedirs(tuning_dir, exist_ok=True)
         
+        # Загружаем базовые веса из конфигурации
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                base_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
+        else:
+            base_weight = None
+        
         # Сохраняем результаты в текстовый файл
-        with open(os.path.join(tuning_dir, 'tuning_results.txt'), 'w') as f:
+        with open(os.path.join(tuning_dir, 'optuna_results.txt'), 'w') as f:
             f.write(f"Время выполнения: {total_time:.2f} секунд\n")
-            f.write(f"Количество триалов: {n_trials}\n\n")
+            f.write(f"Количество триалов: {n_trials}\n")
+            if base_weight:
+                f.write(f"Базовый вес положительного класса: {base_weight}\n")
+            f.write("\n")
             
             # Получаем лучший триал
             best_trial = study.best_trial
@@ -516,6 +538,36 @@ def save_tuning_results(study, total_time, n_trials):
                     f.write("Параметры:\n")
                     for key, value in trial.params.items():
                         f.write(f"{key}: {value}\n")
+                    
+                    # Добавляем информацию о весах классов
+                    if 'positive_class_weight' in trial.params:
+                        weight = trial.params['positive_class_weight']
+                        if base_weight:
+                            weight_diff = ((weight - base_weight) / base_weight) * 100
+                            f.write(f"Отклонение веса от базового: {weight_diff:.2f}%\n")
+        
+        # Сохраняем результаты в JSON для удобства загрузки
+        results = {
+            'best_trial': {
+                'number': best_trial.number,
+                'value': best_trial.value,
+                'params': best_trial.params
+            },
+            'base_weight': base_weight,
+            'trials': [
+                {
+                    'number': trial.number,
+                    'value': trial.value,
+                    'params': trial.params,
+                    'state': trial.state.name
+                }
+                for trial in study.trials
+                if trial.state == optuna.trial.TrialState.COMPLETE
+            ]
+        }
+        
+        with open(os.path.join(tuning_dir, 'optuna_results.json'), 'w') as f:
+            json.dump(results, f, indent=4)
         
         print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
         
@@ -527,30 +579,74 @@ def save_tuning_results(study, total_time, n_trials):
         raise
 
 def plot_tuning_results(study):
+    """
+    Визуализация результатов подбора гиперпараметров
+    """
     try:
+        print("\n[DEBUG] Визуализация результатов подбора гиперпараметров...")
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
         os.makedirs(tuning_dir, exist_ok=True)
         
-        # График истории оптимизации
+        # Загружаем базовые веса из конфигурации
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                base_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
+        else:
+            base_weight = None
+        
+        # 1. График истории оптимизации
         fig = optuna.visualization.plot_optimization_history(study)
+        if base_weight:
+            fig.add_hline(y=base_weight, line_dash="dash", line_color="red",
+                         annotation_text="Базовый вес")
         fig.write_image(os.path.join(tuning_dir, 'optimization_history.png'))
         
-        # График важности параметров
+        # 2. График важности параметров
         fig = optuna.visualization.plot_param_importances(study)
         fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
         
-        # График распределения гиперпараметров
+        # 3. График распределения весов классов
+        if 'positive_class_weight' in study.best_params:
+            weights = [t.params['positive_class_weight'] for t in study.trials 
+                      if t.state == optuna.trial.TrialState.COMPLETE]
+            values = [t.value for t in study.trials 
+                     if t.state == optuna.trial.TrialState.COMPLETE]
+            
+            plt.figure(figsize=(10, 6))
+            plt.scatter(weights, values, alpha=0.5)
+            if base_weight:
+                plt.axvline(x=base_weight, color='r', linestyle='--', 
+                           label='Базовый вес')
+            plt.xlabel('Вес положительного класса')
+            plt.ylabel('F1-score')
+            plt.title('Зависимость F1-score от веса положительного класса')
+            plt.legend()
+            plt.grid(True)
+            plt.savefig(os.path.join(tuning_dir, 'weight_vs_f1.png'))
+            plt.close()
+        
+        # 4. График распределения гиперпараметров
         for param in study.best_params.keys():
-            fig = optuna.visualization.plot_param_importances(study, target=lambda t: t.params[param])
+            fig = optuna.visualization.plot_param_importances(study, 
+                                                            target=lambda t: t.params[param])
             fig.write_image(os.path.join(tuning_dir, f'param_distribution_{param}.png'))
         
-        # Сохранение графиков в формате PDF
-        fig = optuna.visualization.plot_optimization_history(study)
-        fig.write_image(os.path.join(tuning_dir, 'optimization_history.pdf'))
-        fig = optuna.visualization.plot_param_importances(study)
-        fig.write_image(os.path.join(tuning_dir, 'param_importances.pdf'))
+        # 5. График параллельных координат
+        fig = optuna.visualization.plot_parallel_coordinate(study)
+        fig.write_image(os.path.join(tuning_dir, 'parallel_coordinate.png'))
+        
+        # 6. График slice plot
+        fig = optuna.visualization.plot_slice(study)
+        fig.write_image(os.path.join(tuning_dir, 'slice_plot.png'))
+        
+        print("[DEBUG] Визуализации успешно сохранены")
+        
     except Exception as e:
-        print(f"Warning: Could not create visualization plots: {str(e)}")
+        print(f"[ERROR] Ошибка при создании визуализаций: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
 
 def plot_training_metrics(history, save_path):
     try:

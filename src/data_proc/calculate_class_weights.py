@@ -15,6 +15,8 @@ def calculate_dataset_weights():
     # Инициализируем счетчики
     total_sequences = 0
     positive_sequences = 0
+    total_frames = 0
+    positive_frames = 0
     
     # Получаем список всех видео
     video_paths = []
@@ -30,48 +32,51 @@ def calculate_dataset_weights():
     print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
     
     # Обрабатываем каждое видео
-    for video_path in tqdm(video_paths, desc="Обработка видео"):
+    for video_path in video_paths:
         video_name = os.path.basename(video_path)
-        print(f"[DEBUG] Обработка видео: {video_name}")
+        print(f"\n[DEBUG] Обработка видео: {video_name}")
         
         # Загружаем видео
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            print(f"[WARNING] Не удалось открыть видео: {video_path}")
+            print(f"[WARNING] Не удалось открыть видео: {video_name}")
             continue
-            
-        # Загружаем аннотации
-        annotation_path = os.path.join(
-            os.path.dirname(video_path),
-            'annotations',
-            f"{os.path.splitext(video_name)[0]}.json"
-        )
         
-        if not os.path.exists(annotation_path):
-            print(f"[WARNING] Аннотации не найдены для видео: {video_name}")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"  - Количество кадров: {total_frames}")
+        
+        # Загружаем аннотации
+        base = os.path.splitext(video_name)[0]
+        if 'train' in video_path:
+            ann_path = os.path.join(Config.TRAIN_ANNOTATION_PATH, base + '.json')
+        else:
+            ann_path = os.path.join(Config.VALID_ANNOTATION_PATH, base + '.json')
+        
+        if not os.path.exists(ann_path):
+            print(f"[WARNING] Аннотации не найдены для {video_name}")
             cap.release()
             continue
-            
-        with open(annotation_path, 'r') as f:
-            annotations_data = json.load(f)
-            annotations = annotations_data.get('annotations', [])
-            
-        # Создаем массив меток для каждого кадра
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
         
-        # Заполняем метки
-        for annotation in annotations:
-            start_frame = annotation['start_frame']
-            end_frame = annotation['end_frame']
-            for frame_idx in range(start_frame, end_frame + 1):
-                if frame_idx < len(frame_labels):
-                    if frame_idx == start_frame:
-                        frame_labels[frame_idx] = [1, 0]
-                    elif frame_idx == end_frame:
-                        frame_labels[frame_idx] = [0, 1]
-                    else:
-                        frame_labels[frame_idx] = [0, 0]
+        # Загружаем аннотации
+        with open(ann_path, 'r') as f:
+            ann_data = json.load(f)
+            frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+            
+            for annotation in ann_data['annotations']:
+                start_frame = annotation['start_frame']
+                end_frame = annotation['end_frame']
+                
+                # Считаем положительные кадры
+                positive_frames += 2  # Начало и конец элемента
+                
+                for frame_idx in range(start_frame, end_frame + 1):
+                    if frame_idx < len(frame_labels):
+                        if frame_idx == start_frame:
+                            frame_labels[frame_idx] = [1, 0]
+                        elif frame_idx == end_frame:
+                            frame_labels[frame_idx] = [0, 1]
+                        else:
+                            frame_labels[frame_idx] = [0, 0]
         
         # Считаем последовательности с учетом пропуска проблемных участков
         sequence_length = Config.SEQUENCE_LENGTH
@@ -81,30 +86,15 @@ def calculate_dataset_weights():
             # Проверяем, можем ли мы прочитать последовательность
             if current_frame + sequence_length > total_frames:
                 break
-                
-            # Пытаемся прочитать последовательность
-            frames_read = 0
-            sequence_labels = []
             
-            for i in range(sequence_length):
-                ret, _ = cap.read()
-                if not ret:
-                    # Если не удалось прочитать кадр, пропускаем этот участок
-                    print(f"[DEBUG] Пропуск проблемного участка с кадра {current_frame}")
-                    current_frame += sequence_length
-                    break
-                frames_read += 1
-                sequence_labels.append(frame_labels[current_frame + i])
+            # Проверяем наличие положительных примеров в последовательности
+            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
+            if np.any(sequence_labels == 1):
+                positive_sequences += 1
+            total_sequences += 1
             
-            if frames_read == sequence_length:
-                # Проверяем, есть ли положительные примеры в последовательности
-                sequence_labels = np.array(sequence_labels)
-                if np.any(sequence_labels == 1):
-                    positive_sequences += 1
-                total_sequences += 1
-                current_frame += sequence_length // 2  # Перекрытие последовательностей
-            else:
-                current_frame += sequence_length  # Пропускаем проблемный участок
+            # Переходим к следующей последовательности с перекрытием
+            current_frame += sequence_length // 2
         
         cap.release()
         
@@ -112,17 +102,30 @@ def calculate_dataset_weights():
         print(f"  - Всего последовательностей: {total_sequences}")
         print(f"  - Позитивных последовательностей: {positive_sequences}")
     
-    # Рассчитываем веса на основе последовательностей
+    # Рассчитываем веса на основе последовательностей и кадров
     negative_sequences = total_sequences - positive_sequences
-    weights = [1.0, negative_sequences / positive_sequences if positive_sequences > 0 else 1.0]
+    sequence_weight = negative_sequences / positive_sequences if positive_sequences > 0 else 1.0
+    
+    # Учитываем также соотношение положительных и отрицательных кадров
+    total_frames = sum([int(cv2.VideoCapture(v).get(cv2.CAP_PROP_FRAME_COUNT)) for v in video_paths])
+    negative_frames = total_frames - positive_frames
+    frame_weight = negative_frames / positive_frames if positive_frames > 0 else 1.0
+    
+    # Комбинируем веса
+    final_weight = (sequence_weight + frame_weight) / 2
     
     print("\n[DEBUG] Итоговая статистика:")
     print(f"Всего последовательностей: {total_sequences}")
     print(f"Позитивных последовательностей: {positive_sequences}")
     print(f"Негативных последовательностей: {negative_sequences}")
-    print(f"Веса классов: {weights}")
+    print(f"Всего кадров: {total_frames}")
+    print(f"Позитивных кадров: {positive_frames}")
+    print(f"Негативных кадров: {negative_frames}")
+    print(f"Вес на основе последовательностей: {sequence_weight}")
+    print(f"Вес на основе кадров: {frame_weight}")
+    print(f"Итоговый вес: {final_weight}")
     
-    return weights
+    return [1.0, final_weight]
 
 def save_weights_to_config(weights):
     """

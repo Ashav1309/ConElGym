@@ -283,6 +283,13 @@ class VideoDataLoader:
                 
                 # Если удалось собрать последовательность нужной длины
                 if len(frames) == sequence_length:
+                    # Проверяем наличие положительных примеров в последовательности
+                    sequence_labels = np.array(labels)
+                    has_positive = np.any(sequence_labels[:, 1] == 1)
+                    
+                    if has_positive:
+                        print(f"[DEBUG] get_batch: Найдена положительная последовательность в обычных примерах")
+                    
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
                     batches_for_this_video += 1
@@ -311,8 +318,14 @@ class VideoDataLoader:
                 # Проверяем наличие положительных примеров в батче
                 positive_in_batch = [np.any(np.array(lbl)[:,1] == 1) for lbl in batch_labels]
                 num_positive = sum(positive_in_batch)
+                positive_indices = [i for i, v in enumerate(positive_in_batch) if v]
                 print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
-                print(f"[DEBUG] Индексы последовательностей с положительным примером в батче: {[i for i, v in enumerate(positive_in_batch) if v]}")
+                print(f"[DEBUG] Индексы последовательностей с положительным примером в батче: {positive_indices}")
+                if num_positive > 0:
+                    print(f"[DEBUG] Распределение положительных примеров по кадрам:")
+                    for idx in positive_indices:
+                        positive_frames = np.where(np.array(batch_labels[idx])[:,1] == 1)[0]
+                        print(f"  - Последовательность {idx}: кадры {positive_frames.tolist()}")
                 
                 # Конвертируем в numpy массивы с оптимизированным типом данных
                 X = np.array(batch_sequences, dtype=np.float32) / 255.0
