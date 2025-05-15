@@ -434,23 +434,34 @@ class VideoDataLoader:
                 if batch_data is None:
                     print("[DEBUG] Достигнут конец эпохи")
                     break
+                
                 X, y = batch_data
-                if X.shape[0] == 0 or y.shape[0] == 0:
+                if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
                     print("[WARNING] Получен пустой батч")
                     continue
-                num_positive = int((y[...,1] == 1).sum())
-                print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
                 
-                # Конвертируем в тензоры с оптимизацией памяти
-                x = tf.convert_to_tensor(X, dtype=tf.float32)
-                y = tf.convert_to_tensor(y, dtype=tf.float32)
+                try:
+                    num_positive = int((y[...,1] == 1).sum())
+                    print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
+                    
+                    # Конвертируем в тензоры с оптимизацией памяти
+                    x = tf.convert_to_tensor(X, dtype=tf.float32)
+                    y_tensor = tf.convert_to_tensor(y, dtype=tf.float32)
+                    
+                    # Очищаем память
+                    del X
+                    del y
+                    gc.collect()
+                    
+                    yield (x, y_tensor)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
+                    print("[DEBUG] Stack trace:", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    continue
                 
-                # Очищаем память
-                del X
-                del y
-                gc.collect()
-                
-                yield (x, y)
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
@@ -478,7 +489,19 @@ class VideoDataLoader:
         """
         Рассчитывает общее количество батчей для данных.
         """
-        self.total_batches = sum(1 for _ in self.data_generator()) 
+        try:
+            print("[DEBUG] Начало расчета общего количества батчей")
+            batch_count = 0
+            for _ in self.data_generator():
+                batch_count += 1
+            self.total_batches = batch_count
+            print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
+        except Exception as e:
+            print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            self.total_batches = 0
     
     def get_video_info(self, video_path):
         """
