@@ -267,7 +267,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                 return super().update_state(y_true, y_pred, sample_weight)
             def result(self):
                 result = super().result()
-                return float(tf.reduce_mean(result))
+                return tf.reduce_mean(result)
         
         f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
         print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
@@ -440,7 +440,7 @@ def objective(trial):
                 return super().update_state(y_true, y_pred, sample_weight)
             def result(self):
                 result = super().result()
-                return float(tf.reduce_mean(result))
+                return tf.reduce_mean(result)
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
