@@ -467,11 +467,17 @@ def objective(trial):
             )
         ]
         
+        # Определяем количество шагов на эпоху
+        steps_per_epoch =  max(1, len(train_loader.video_paths) // Config.BATCH_SIZE)
+        validation_steps = max(1, len(val_loader.video_paths) // Config.BATCH_SIZE)
+
         # Обучаем модель
         history = model.fit(
-            train_dataset,
+            train_dataset.repeat(),
             epochs=Config.EPOCHS,
-            validation_data=val_dataset,
+            steps_per_epoch=steps_per_epoch,
+            validation_data=val_dataset.repeat(),
+            validation_steps=validation_steps,
             callbacks=callbacks,
             verbose=1,
             class_weight=class_weights

@@ -514,6 +514,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] После второго Bidirectional LSTM: {x.shape}")
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
+        # Третий LSTM слой с ещё меньшим количеством юнитов
+        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 4, return_sequences=True))(x)
+        print(f"[DEBUG] После третьего Bidirectional LSTM: {x.shape}")
+        x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
         # Добавляем слой нормализации для стабилизации обучения
         x = tf.keras.layers.LayerNormalization()(x)
         
