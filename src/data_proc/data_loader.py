@@ -276,7 +276,7 @@ class VideoDataLoader:
                     self.current_frame_index += 1
                 
                 if len(frames) == sequence_length:
-                    print(f"[DEBUG] get_batch: Успешно добавлена обычная последовательность с {self.current_frame_index-sequence_length} по {self.current_frame_index-1}")
+                    # print(f"[DEBUG] get_batch: Успешно добавлена обычная последовательность с {self.current_frame_index-sequence_length} по {self.current_frame_index-1}")
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
                     batches_for_this_video += 1
