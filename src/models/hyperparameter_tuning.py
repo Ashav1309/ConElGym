@@ -31,6 +31,7 @@ import json
 import cv2
 from tensorflow.keras.optimizers import Adam
 import psutil
+from src.data_proc.data_augmentation import VideoAugmenter
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
