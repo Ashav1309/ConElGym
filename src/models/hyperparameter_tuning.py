@@ -124,7 +124,7 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
+def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False, augmenter=None):
     """
     Создание оптимизированного пайплайна данных.
     Args:
@@ -134,6 +134,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         input_size: Размер входного изображения
         is_training: Флаг обучения
         force_positive: Флаг принудительного включения положительных примеров
+        augmenter: Объект VideoAugmenter для аугментации данных
     Returns:
         tf.data.Dataset: Оптимизированный датасет
     """
@@ -145,6 +146,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         print(f"  - input_size: {input_size}")
         print(f"  - is_training: {is_training}")
         print(f"  - force_positive: {force_positive}")
+        print(f"  - augmenter: {augmenter is not None}")
         
         # Проверяем количество загруженных видео
         if hasattr(data_loader, 'video_count'):
@@ -157,7 +159,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         
         # Создаем датасет из генератора
         dataset = tf.data.Dataset.from_generator(
-            data_loader.data_generator,
+            lambda: data_loader.data_generator(force_positive=force_positive, augmenter=augmenter),
             output_signature=(
                 tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
                 tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
@@ -398,10 +400,7 @@ def objective(trial):
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=None,
-            is_train=True,
+            is_training=True,
             force_positive=True,
             augmenter=augmenter
         )
@@ -411,11 +410,9 @@ def objective(trial):
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=None,
-            is_train=False,
-            force_positive=True
+            is_training=False,
+            force_positive=True,
+            augmenter=augmenter
         )
         
         # Создаем и компилируем модель
