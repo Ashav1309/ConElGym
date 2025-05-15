@@ -181,7 +181,7 @@ class VideoDataLoader:
             batch_sequences = []
             batch_labels = []
             used_indices = set()
-            batches_for_this_video = 0
+            batches_for_this_video = 0  # Сбрасываем счетчик для каждого нового видео
             
             # --- Кэширование индексов положительных кадров ---
             if video_path not in self.positive_indices_cache:
@@ -288,6 +288,7 @@ class VideoDataLoader:
             
             print(f"[DEBUG] get_batch: Батч успешно собран. batch_sequences={len(batch_sequences)}")
             print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
+            print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index}, текущий индекс кадра: {self.current_frame_index}")
             
             # Проверяем наличие положительных примеров в батче
             positive_in_batch = [np.any(np.array(lbl)[:,1] == 1) for lbl in batch_labels]
