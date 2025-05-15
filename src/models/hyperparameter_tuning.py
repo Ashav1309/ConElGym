@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+from typing import Tuple, List, Generator
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
@@ -13,15 +16,14 @@ import tensorflow as tf
 tf.config.optimizer.set_jit(False)
 
 import optuna
-from src.models.model import create_mobilenetv3_model, create_mobilenetv4_model, create_model, focal_loss
+from src.models.model import create_model
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-import seaborn as sns
-from datetime import datetime, timedelta
-import time
+import tensorflow as tf
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+import logging
 import gc
 import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
@@ -31,9 +33,6 @@ import json
 import cv2
 from tensorflow.keras.optimizers import Adam
 import psutil
-from src.data_proc.data_augmentation import VideoAugmenter
-from optuna.trial import Trial
-from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -311,14 +310,8 @@ def load_and_prepare_data(batch_size):
         print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
         print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
         
-        train_loader = VideoDataLoader(
-            Config.TRAIN_DATA_PATH,
-            max_videos=None
-        )
-        val_loader = VideoDataLoader(
-            Config.VALID_DATA_PATH,
-            max_videos=None
-        )
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         print("[DEBUG] VideoDataLoader создан успешно")
         
         target_size = Config.INPUT_SIZE
@@ -337,95 +330,96 @@ def load_and_prepare_data(batch_size):
 
 def objective(trial):
     """
-    Функция для оптимизации гиперпараметров
+    Целевая функция для оптимизации гиперпараметров
     """
     try:
-        # Очищаем память перед каждым испытанием
+        print(f"\n[DEBUG] >>> Начало нового trial #{trial.number}")
+        # Очищаем память перед каждым trial
         clear_memory()
         
-        # Определяем гиперпараметры для поиска
-        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.8)
-        lstm_units = trial.suggest_int('lstm_units', 128, 256)  # Увеличиваем диапазон для первого LSTM слоя
-        positive_class_weight = trial.suggest_float('positive_class_weight', 
-                                                  Config.FOCAL_LOSS['class_weights'][1] * 0.7,
-                                                  Config.FOCAL_LOSS['class_weights'][1] * 1.3)
+        # Определяем тип модели
+        model_type = Config.MODEL_TYPE
         
-        # Добавляем гиперпараметры аугментации
-        augment_probability = trial.suggest_float('augment_probability', 0.3, 0.7)
-        rotation_range = trial.suggest_int('rotation_range', 5, 20)
-        width_shift_range = trial.suggest_float('width_shift_range', 0.05, 0.2)
-        height_shift_range = trial.suggest_float('height_shift_range', 0.05, 0.2)
-        brightness_range = trial.suggest_float('brightness_range', 0.8, 1.2)
-        contrast_range = trial.suggest_float('contrast_range', 0.8, 1.2)
-        saturation_range = trial.suggest_float('saturation_range', 0.8, 1.2)
-        hue_range = trial.suggest_float('hue_range', 0.0, 0.1)
-        zoom_range = trial.suggest_float('zoom_range', 0.8, 1.2)
-        horizontal_flip_prob = trial.suggest_float('horizontal_flip_prob', 0.0, 0.5)
-        vertical_flip_prob = trial.suggest_float('vertical_flip_prob', 0.0, 0.3)
+        # Загружаем веса из конфигурационного файла
+        if os.path.exists(Config.CONFIG_PATH):
+            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                base_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                
+                # Проверяем корректность базового веса
+                if base_weight is None or base_weight <= 0:
+                    print("[WARNING] Некорректный базовый вес, используем значение по умолчанию")
+                    base_weight = 10.0
+                
+                # Добавляем случайное отклонение ±30%
+                weight_variation = base_weight * 0.3  # 30% от базового веса
+                positive_class_weight = trial.suggest_float(
+                    'positive_class_weight',
+                    max(1.0, base_weight - weight_variation),  # Минимальный вес 1.0
+                    base_weight + weight_variation
+                )
+                print(f"[DEBUG] Базовый вес: {base_weight}")
+                print(f"[DEBUG] Загружен вес положительного класса с вариацией: {positive_class_weight}")
+        else:
+            print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
+            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
         
-        # Параметры focal loss
-        gamma = trial.suggest_float('gamma', 0.5, 5.0)
-        alpha = trial.suggest_float('alpha', 0.05, 0.5)
+        # Определяем гиперпараметры для оптимизации
+        learning_rate = trial.suggest_float('learning_rate', 1e-6, 1e-3, log=True)  # Расширяем диапазон
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.7)  # Увеличиваем верхнюю границу
+        
+        if model_type == 'v3':
+            lstm_units = trial.suggest_int('lstm_units', 16, 128)  # Уменьшаем диапазон для экономии памяти
+        else:
+            lstm_units = None
+        
+        # Оптимизируем параметры focal loss
+        gamma = trial.suggest_float('gamma', 1.0, 3.0)
+        alpha = trial.suggest_float('alpha', 0.1, 0.4)
+        
+        print(f"[DEBUG] Параметры trial:")
+        print(f"  - learning_rate: {learning_rate}")
+        print(f"  - dropout_rate: {dropout_rate}")
+        if lstm_units:
+            print(f"  - lstm_units: {lstm_units}")
+        print(f"  - positive_class_weight: {positive_class_weight}")
+        print(f"  - gamma: {gamma}")
+        print(f"  - alpha: {alpha}")
+        
+        # Создаем модель
+        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
+        model, class_weights = create_and_compile_model(
+            input_shape=input_shape,
+            num_classes=Config.NUM_CLASSES,
+            learning_rate=learning_rate,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units,
+            model_type=model_type,
+            positive_class_weight=positive_class_weight
+        )
         
         # Создаем загрузчики данных
-        train_loader = VideoDataLoader(
-            Config.TRAIN_DATA_PATH,
-            max_videos=None
-        )
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         
-        val_loader = VideoDataLoader(
-            Config.VALID_DATA_PATH,
-            max_videos=None
-        )
-        
-        # Создаем аугментатор с оптимизированными параметрами
-        augmenter = VideoAugmenter(
-            augment_probability=augment_probability,
-            rotation_range=rotation_range,
-            width_shift_range=width_shift_range,
-            height_shift_range=height_shift_range,
-            brightness_range=brightness_range,
-            contrast_range=contrast_range,
-            saturation_range=saturation_range,
-            hue_range=hue_range,
-            zoom_range=zoom_range,
-            horizontal_flip=horizontal_flip_prob,
-            vertical_flip=vertical_flip_prob
-        )
-        
-        # Создаем пайплайны данных
-        train_data = create_data_pipeline(
+        # Создаем оптимизированные pipeline данных
+        train_dataset = create_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=None,
-            is_train=True,
-            force_positive=True,
-            augmenter=augmenter
+            is_training=True,
+            force_positive=True
         )
         
-        val_data = create_data_pipeline(
+        val_dataset = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
-            one_hot=True,
-            infinite_loop=False,
-            max_sequences_per_video=None,
-            is_train=False,
+            is_training=False,
             force_positive=True
-        )
-        
-        # Создаем и компилируем модель
-        model = create_mobilenetv3_model(
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-            num_classes=Config.NUM_CLASSES,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units
         )
         
         # Создаем метрики
@@ -433,7 +427,7 @@ def objective(trial):
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
             tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc')
+            tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
         ]
         
         # Создаем адаптер для F1Score
@@ -446,59 +440,55 @@ def objective(trial):
                 y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
                 y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
                 return super().update_state(y_true, y_pred, sample_weight)
-            
-            def result(self):
-                result = super().result()
-                return tf.reduce_mean(result)
         
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
-        # Компилируем модель
+        # Компилируем модель с оптимизированными параметрами focal loss
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=focal_loss(gamma=gamma, alpha=alpha),
             metrics=metrics
         )
         
-        # Создаем колбэки
+        # Создаем колбэки с улучшенными параметрами
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
-                patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
+                patience=5,  # Увеличиваем с 3 до 5
                 restore_best_weights=True,
-                mode='max'
+                mode='max'  # Явно указываем режим максимизации
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
-                factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
-                patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
-                min_lr=Config.OVERFITTING_PREVENTION['min_lr'],
-                mode='max'
-            ),
-            AdaptiveThresholdCallback(validation_data=(val_data[0], val_data[1]))
+                factor=0.1,  # Уменьшаем с 0.2 до 0.1
+                patience=3,  # Увеличиваем с 2 до 3
+                min_lr=1e-7,  # Уменьшаем с 1e-6 до 1e-7
+                mode='max'  # Явно указываем режим максимизации
+            )
         ]
         
         # Обучаем модель
         history = model.fit(
-            train_data,
+            train_dataset,
             epochs=Config.EPOCHS,
-            validation_data=val_data,
+            validation_data=val_dataset,
             callbacks=callbacks,
-            verbose=1
+            verbose=1,
+            class_weight=class_weights
         )
         
         # Получаем лучший F1-score
         best_f1 = max(history.history['val_f1_score_element'])
         
-        # Очищаем память после обучения
+        # Очищаем память
         clear_memory()
         
         return best_f1
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в испытании {trial.number}: {str(e)}")
-        print("[DEBUG] Полный стек ошибки:")
+        print(f"[ERROR] Ошибка в trial: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
         return float('-inf')
@@ -538,194 +528,167 @@ def save_tuning_results(study, total_time, n_trials):
             for key, value in best_trial.params.items():
                 f.write(f"{key}: {value}\n")
             
-            # Сохраняем историю всех триалов
-            f.write("\nИстория всех триалов:\n")
-            for trial in study.trials:
-                if trial.state == optuna.trial.TrialState.COMPLETE:
-                    f.write(f"\nТриал {trial.number}:\n")
-                    f.write(f"Значение: {trial.value}\n")
-                    f.write("Параметры:\n")
-                    for key, value in trial.params.items():
-                        f.write(f"{key}: {value}\n")
-                    
-                    # Добавляем информацию о весах классов
-                    if 'positive_class_weight' in trial.params:
-                        weight = trial.params['positive_class_weight']
-                        if base_weight:
-                            weight_diff = ((weight - base_weight) / base_weight) * 100
-                            f.write(f"Отклонение веса от базового: {weight_diff:.2f}%\n")
-        
-        # Сохраняем результаты в JSON для удобства загрузки
-        results = {
-            'best_trial': {
-                'number': best_trial.number,
-                'value': best_trial.value,
-                'params': best_trial.params
-            },
-            'base_weight': base_weight,
-            'trials': [
-                {
-                    'number': trial.number,
-                    'value': trial.value,
-                    'params': trial.params,
-                    'state': trial.state.name
-                }
-                for trial in study.trials
-                if trial.state == optuna.trial.TrialState.COMPLETE
-            ]
-        }
-        
-        with open(os.path.join(tuning_dir, 'optuna_results.json'), 'w') as f:
-            json.dump(results, f, indent=4)
-        
-        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
-
-def plot_tuning_results(study):
-    """
-    Визуализация результатов подбора гиперпараметров
-    """
-    try:
-        print("\n[DEBUG] Визуализация результатов подбора гиперпараметров...")
-        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
-        os.makedirs(tuning_dir, exist_ok=True)
-        
-        # Загружаем базовые веса из конфигурации
-        if os.path.exists(Config.CONFIG_PATH):
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                base_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
-        else:
-            base_weight = None
-        
-        # 1. График истории оптимизации
-        fig = optuna.visualization.plot_optimization_history(study)
-        if base_weight:
-            fig.add_hline(y=base_weight, line_dash="dash", line_color="red",
-                         annotation_text="Базовый вес")
-        fig.write_image(os.path.join(tuning_dir, 'optimization_history.png'))
-        
-        # 2. График важности параметров
-        fig = optuna.visualization.plot_param_importances(study)
-        fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
-        
-        # 3. График распределения весов классов
-        if 'positive_class_weight' in study.best_params:
-            weights = [t.params['positive_class_weight'] for t in study.trials 
-                      if t.state == optuna.trial.TrialState.COMPLETE]
-            values = [t.value for t in study.trials 
-                     if t.state == optuna.trial.TrialState.COMPLETE]
+            # Проверяем размерности
+            if len(annotations) != len(frames):
+                print(f"[WARNING] Несоответствие размерностей: frames={len(frames)}, annotations={len(annotations)}")
+                # Обрезаем до минимальной длины
+                min_len = min(len(frames), len(annotations))
+                frames = frames[:min_len]
+                annotations = annotations[:min_len]
             
-            plt.figure(figsize=(10, 6))
-            plt.scatter(weights, values, alpha=0.5)
-            if base_weight:
-                plt.axvline(x=base_weight, color='r', linestyle='--', 
-                           label='Базовый вес')
-            plt.xlabel('Вес положительного класса')
-            plt.ylabel('F1-score')
-            plt.title('Зависимость F1-score от веса положительного класса')
-            plt.legend()
-            plt.grid(True)
-            plt.savefig(os.path.join(tuning_dir, 'weight_vs_f1.png'))
-            plt.close()
+            # Создаем последовательности
+            for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
+                sequence = frames[i:i + self.sequence_length]
+                sequence_labels = annotations[i:i + self.sequence_length]
+                
+                # Проверяем размерности последовательности
+                if len(sequence) == self.sequence_length and len(sequence_labels) == self.sequence_length:
+                    sequences.append(sequence)
+                    labels.append(sequence_labels)
+                
+                # Очищаем память каждые 10 последовательностей
+                if len(sequences) % 10 == 0:
+                    gc.collect()
+            
+            # Преобразуем в numpy массивы с оптимизированным типом данных
+            sequences = np.array(sequences, dtype=np.float32)
+            labels = np.array(labels, dtype=np.float32)
+            
+            print(f"[DEBUG] Создано {len(sequences)} последовательностей")
+            print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
+            print(f"[DEBUG] Форма меток: {labels.shape}")
+            
+            return sequences, labels
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    def preload_video(self, video_path, target_size):
+        """
+        Предварительная загрузка видео в отдельном потоке.
+        """
+        self.load_video(video_path)
+    
+    def data_generator(self, force_positive=True):
+        """Генератор данных с sampling положительных примеров"""
+        try:
+            print("\n[DEBUG] ===== Запуск генератора данных =====")
+            print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
+            while True:
+                batch_data = self.get_batch(
+                    batch_size=self.batch_size,
+                    sequence_length=self.sequence_length,
+                    target_size=Config.INPUT_SIZE,
+                    one_hot=True,
+                    max_sequences_per_video=self.max_sequences_per_video,
+                    force_positive=force_positive
+                )
+                if batch_data is None:
+                    print("[DEBUG] Достигнут конец эпохи")
+                    break
+                
+                X, y = batch_data
+                if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
+                    print("[WARNING] Получен пустой батч")
+                    continue
+                
+                try:
+                    num_positive = int((y[...,1] == 1).sum())
+                    print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
+                    
+                    # Конвертируем в тензоры с оптимизацией памяти
+                    x = tf.convert_to_tensor(X, dtype=tf.float32)
+                    y_tensor = tf.convert_to_tensor(y, dtype=tf.float32)
+                    
+                    # Очищаем память
+                    del X
+                    del y
+                    gc.collect()
+                    
+                    yield (x, y_tensor)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
+                    print("[DEBUG] Stack trace:", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    continue
+                
+        except Exception as e:
+            print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
+        """
+        Загрузка данных для обучения.
         
-        # 4. График распределения гиперпараметров
-        for param in study.best_params.keys():
-            fig = optuna.visualization.plot_param_importances(study, 
-                                                            target=lambda t: t.params[param])
-            fig.write_image(os.path.join(tuning_dir, f'param_distribution_{param}.png'))
+        Args:
+            sequence_length (int): Длина последовательности
+            batch_size (int): Размер батча
+            target_size (tuple): Размер изображения (ширина, высота)
+            one_hot (bool): Использовать one-hot encoding для меток
+            infinite_loop (bool): Бесконечный цикл генерации данных
+            
+        Returns:
+            generator: Генератор данных
+        """
+        return self.data_generator()
+    
+    def _calculate_total_batches(self):
+        """
+        Рассчитывает общее количество батчей для данных.
+        """
+        try:
+            print("[DEBUG] Начало расчета общего количества батчей")
+            batch_count = 0
+            for _ in self.data_generator():
+                batch_count += 1
+            self.total_batches = batch_count
+            print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
+        except Exception as e:
+            print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            self.total_batches = 0
+    
+    def get_video_info(self, video_path):
+        """
+        Получение информации о видео
         
-        # 5. График параллельных координат
-        fig = optuna.visualization.plot_parallel_coordinate(study)
-        fig.write_image(os.path.join(tuning_dir, 'parallel_coordinate.png'))
-        
-        # 6. График slice plot
-        fig = optuna.visualization.plot_slice(study)
-        fig.write_image(os.path.join(tuning_dir, 'slice_plot.png'))
-        
-        print("[DEBUG] Визуализации успешно сохранены")
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании визуализаций: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-
-def plot_training_metrics(history, save_path):
-    try:
-        metrics_dir = os.path.join(save_path, 'metrics')
-        os.makedirs(metrics_dir, exist_ok=True)
-        
-        # Графики метрик
-        metrics = ['loss', 'accuracy', 'f1_score_element']
-        for metric in metrics:
-            plt.figure(figsize=(10, 5))
-            plt.plot(history.history[metric], label=f'Training {metric}')
-            plt.plot(history.history[f'val_{metric}'], label=f'Validation {metric}')
-            plt.title(f'{metric.capitalize()} Over Time')
-            plt.xlabel('Epoch')
-            plt.ylabel(metric.capitalize())
-            plt.legend()
-            plt.savefig(os.path.join(metrics_dir, f'{metric}.png'))
-            plt.close()
-    except Exception as e:
-        print(f"Warning: Could not create training metrics plots: {str(e)}")
-
-def tune_hyperparameters(n_trials=Config.HYPERPARAM_TUNING['n_trials']):
-    """
-    Подбор гиперпараметров с использованием Optuna
-    """
-    try:
-        print("\n[DEBUG] Начало подбора гиперпараметров...")
-        start_time = time.time()
-
-        # Просто для информации, без загрузки видео
-        train_videos = [f for f in os.listdir(Config.TRAIN_DATA_PATH) if f.endswith('.mp4')]
-        val_videos = [f for f in os.listdir(Config.VALID_DATA_PATH) if f.endswith('.mp4')]
-        print(f"[DEBUG] Найдено {len(train_videos)} обучающих видео")
-        print(f"[DEBUG] Найдено {len(val_videos)} валидационных видео")
-
-        # Создаем study
-        study = optuna.create_study(
-            direction='maximize',
-            study_name=f'hyperparameter_tuning_{Config.MODEL_TYPE}'
-        )
-
-        print("[DEBUG] >>> Запуск Optuna study.optimize")
-        # Запускаем оптимизацию
-        study.optimize(objective, n_trials=n_trials)
-        print("[DEBUG] <<< Optuna завершён")
-
-        # Проверяем, есть ли успешные trials
-        if len(study.trials) == 0 or all(trial.value is None or trial.value == float('-inf') for trial in study.trials):
-            print("[WARNING] Нет успешных trials. Проверьте логи на наличие ошибок.")
-            return None
-
-        # Сохраняем результаты
-        save_tuning_results(study, time.time() - start_time, n_trials)
-
-        return study
-
-    except Exception as e:
-        print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
-
-if __name__ == "__main__":
-    try:
-        result = tune_hyperparameters()
-        if result is not None:
-            print("\nBest parameters:", result.best_params)
-            print("Best validation accuracy:", result.best_value)
-        else:
-            print("\nFailed to find best parameters. Check the error messages above.")
-    except Exception as e:
-        print(f"\nError during hyperparameter tuning: {str(e)}") 
+        Args:
+            video_path: путь к видео файлу
+            
+        Returns:
+            dict: словарь с информацией о видео (total_frames, fps, width, height)
+        """
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"Не удалось открыть видео: {video_path}")
+            
+            # Получаем информацию о видео
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            cap.release()
+            
+            return {
+                'total_frames': total_frames,
+                'fps': fps,
+                'width': width,
+                'height': height
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
+            raise 
