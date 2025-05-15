@@ -326,6 +326,20 @@ def load_and_prepare_data(batch_size):
         clear_memory()
         raise
 
+def get_num_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return total
+
+def count_total_sequences(video_paths, sequence_length, step):
+    total = 0
+    for video_path in video_paths:
+        num_frames = get_num_frames(video_path)
+        num_seq = max(0, (num_frames - sequence_length) // step + 1)
+        total += num_seq
+    return total
+
 def objective(trial):
     """
     Целевая функция для оптимизации гиперпараметров
@@ -469,9 +483,12 @@ def objective(trial):
             )
         ]
         
-        # Определяем количество шагов на эпоху
-        steps_per_epoch =  max(1, len(train_loader.video_paths) // Config.BATCH_SIZE)
-        validation_steps = max(1, len(val_loader.video_paths) // Config.BATCH_SIZE)
+        # Определяем шаг между последовательностями
+        step = Config.SEQUENCE_LENGTH // 2 if Config.SEQUENCE_LENGTH > 1 else 1
+        train_total_sequences = count_total_sequences(train_loader.video_paths, Config.SEQUENCE_LENGTH, step)
+        val_total_sequences = count_total_sequences(val_loader.video_paths, Config.SEQUENCE_LENGTH, step)
+        steps_per_epoch = max(1, train_total_sequences // Config.BATCH_SIZE)
+        validation_steps = max(1, val_total_sequences // Config.BATCH_SIZE)
 
         # Обучаем модель
         history = model.fit(
