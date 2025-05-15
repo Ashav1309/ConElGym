@@ -95,18 +95,21 @@ class TemporalAttention(tf.keras.layers.Layer):
         return input_shape
         
     def call(self, x):
-        # Используем один и тот же вход для query и values
-        query = x
-        values = x
+        # Сохраняем входную форму
+        batch_size = tf.shape(x)[0]
+        seq_len = tf.shape(x)[1]
+        features = tf.shape(x)[2]
         
         # Вычисляем attention scores
-        score = tf.nn.tanh(self.W1(query) + self.W2(values))
+        score = tf.nn.tanh(self.W1(x) + self.W2(x))
         attention_weights = tf.nn.softmax(self.V(score), axis=1)
         
         # Применяем веса к значениям
-        context_vector = attention_weights * values
+        context_vector = attention_weights * x
         
-        # Возвращаем только context_vector
+        # Убеждаемся, что выходная форма совпадает с входной
+        context_vector = tf.reshape(context_vector, [batch_size, seq_len, features])
+        
         return context_vector
 
 class UniversalInvertedBottleneck(tf.keras.layers.Layer):
@@ -454,7 +457,7 @@ class TemporalF1Score(tf.keras.metrics.Metric):
         self.false_positives.assign(0)
         self.false_negatives.assign(0)
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None, rnn_type='lstm'):
     """
     Создание модели MobileNetV3
     """
@@ -469,7 +472,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     positive_class_weight = positive_class_weight or model_params['positive_class_weight']
     
     try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}")
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, rnn_type={rnn_type}")
         
         # Проверяем и корректируем input_shape
         if len(input_shape) == 3:  # Если это (height, width, channels)
@@ -484,12 +487,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
         
         # Создаем базовую модель MobileNetV3
-        # Для базовой модели нужна форма (height, width, channels)
-        base_input_shape = full_input_shape[1:]  # Убираем размерность последовательности
+        base_input_shape = full_input_shape[1:]
         print(f"[DEBUG] Форма входных данных для базовой модели: {base_input_shape}")
         
         base_model = MobileNetV3Small(
-            input_shape=base_input_shape,  # (height, width, channels)
+            input_shape=base_input_shape,
             include_top=False,
             weights='imagenet'
         )
@@ -501,23 +503,34 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         x = tf.keras.layers.TimeDistributed(base_model)(inputs)
         print(f"[DEBUG] После TimeDistributed(base_model): {x.shape}")
         
+        # Добавляем Spatial Attention для каждого кадра
+        x = tf.keras.layers.TimeDistributed(SpatialAttention(kernel_size=7))(x)
+        print(f"[DEBUG] После Spatial Attention: {x.shape}")
+        
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
         print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
         
-        # Первый LSTM слой с увеличенным количеством юнитов
-        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True))(x)
-        print(f"[DEBUG] После первого Bidirectional LSTM: {x.shape}")
+        # Выбор типа рекуррентного слоя
+        RNNLayer = tf.keras.layers.LSTM if rnn_type == 'lstm' else tf.keras.layers.GRU
+        
+        # Первый RNN слой с увеличенным количеством юнитов
+        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units, return_sequences=True))(x)
+        print(f"[DEBUG] После первого Bidirectional {rnn_type.upper()}: {x.shape}")
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
-        # Второй LSTM слой с уменьшенным количеством юнитов
-        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2, return_sequences=True))(x)
-        print(f"[DEBUG] После второго Bidirectional LSTM: {x.shape}")
+        # Второй RNN слой с уменьшенным количеством юнитов
+        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units // 2, return_sequences=True))(x)
+        print(f"[DEBUG] После второго Bidirectional {rnn_type.upper()}: {x.shape}")
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
-        # Третий LSTM слой с ещё меньшим количеством юнитов
-        x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 4, return_sequences=True))(x)
-        print(f"[DEBUG] После третьего Bidirectional LSTM: {x.shape}")
+        # Третий RNN слой с ещё меньшим количеством юнитов
+        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units // 4, return_sequences=True))(x)
+        print(f"[DEBUG] После третьего Bidirectional {rnn_type.upper()}: {x.shape}")
         x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        # Добавляем Temporal Attention
+        x = TemporalAttention(lstm_units // 4)(x)
+        print(f"[DEBUG] После Temporal Attention: {x.shape}")
         
         # Добавляем слой нормализации для стабилизации обучения
         x = tf.keras.layers.LayerNormalization()(x)
@@ -655,7 +668,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
         print(f"Трассировка: {traceback.format_exc()}")
         raise
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None, rnn_type='lstm'):
     """
     Создание модели с заданными параметрами
     Args:
@@ -665,6 +678,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
         lstm_units: количество юнитов в LSTM слое
         model_type: тип модели ('v3' или 'v4')
         positive_class_weight: вес положительного класса
+        rnn_type: тип рекуррентного слоя ('lstm' или 'bigru')
     """
     print("\n[DEBUG] Создание модели...")
     print(f"[DEBUG] Параметры создания модели:")
@@ -672,6 +686,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     print(f"  - dropout_rate: {dropout_rate}")
     print(f"  - lstm_units: {lstm_units}")
     print(f"  - positive_class_weight: {positive_class_weight}")
+    print(f"  - rnn_type: {rnn_type}")
     
     # Получаем параметры модели из конфигурации
     model_params = Config.MODEL_PARAMS[model_type]
@@ -682,7 +697,8 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            positive_class_weight=positive_class_weight
+            positive_class_weight=positive_class_weight,
+            rnn_type=rnn_type
         )
     elif model_type == 'v4':
         return create_mobilenetv4_model(

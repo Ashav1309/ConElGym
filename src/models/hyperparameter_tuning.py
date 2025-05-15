@@ -195,7 +195,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm'):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -206,6 +206,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         lstm_units: количество юнитов в LSTM слоях (только для v3)
         model_type: тип модели ('v3' или 'v4')
         positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
+        rnn_type: тип RNN ('lstm' или 'bigru')
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -247,7 +248,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         dropout_rate=dropout_rate,
         lstm_units=lstm_units,
         model_type=model_type,
-        positive_class_weight=positive_class_weight
+        positive_class_weight=positive_class_weight,
+        rnn_type=rnn_type
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
@@ -392,6 +394,8 @@ def objective(trial):
         learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)  # Расширяем диапазон
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)  # Увеличиваем верхнюю границу
         
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
+        
         if model_type == 'v3':
             lstm_units = trial.suggest_int('lstm_units', 16, 512)  # Уменьшаем диапазон для экономии памяти
         else:
@@ -419,7 +423,8 @@ def objective(trial):
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
             model_type=model_type,
-            positive_class_weight=positive_class_weight
+            positive_class_weight=positive_class_weight,
+            rnn_type=rnn_type
         )
         
         # Создаем загрузчики данных
