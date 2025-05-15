@@ -8,13 +8,15 @@ from tqdm import tqdm
 
 def calculate_dataset_weights():
     """
-    Расчет весов классов на всем датасете
+    Расчет весов классов на всем датасете с учетом новой логики формирования батчей
     """
     print("[DEBUG] Начинаем расчет весов классов...")
     
     # Инициализируем счетчики
     total_frames = 0
     positive_frames = 0
+    total_sequences = 0
+    positive_sequences = 0
     
     # Получаем список всех видео
     video_paths = []
@@ -56,41 +58,61 @@ def calculate_dataset_weights():
             annotations_data = json.load(f)
             annotations = annotations_data.get('annotations', [])
             
-        # Считаем кадры для каждого класса
+        # Считаем кадры и последовательности для каждого класса
         frame_count = 0
         video_positive_frames = 0
+        video_sequences = 0
+        video_positive_sequences = 0
         
-        while True:
-            ret, _ = cap.read()
-            if not ret:
-                break
-                
-            frame_count += 1
-            
-            # Проверяем, есть ли аннотация для текущего кадра
-            for annotation in annotations:
-                if annotation['start_frame'] <= frame_count <= annotation['end_frame']:
-                    video_positive_frames += 1
-                    break
+        # Создаем массив меток для каждого кадра
+        frame_labels = np.zeros((int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), Config.NUM_CLASSES), dtype=np.float32)
+        
+        # Заполняем метки
+        for annotation in annotations:
+            start_frame = annotation['start_frame']
+            end_frame = annotation['end_frame']
+            for frame_idx in range(start_frame, end_frame + 1):
+                if frame_idx < len(frame_labels):
+                    if frame_idx == start_frame:
+                        frame_labels[frame_idx] = [1, 0]
+                    elif frame_idx == end_frame:
+                        frame_labels[frame_idx] = [0, 1]
+                    else:
+                        frame_labels[frame_idx] = [0, 0]
+        
+        # Считаем последовательности
+        sequence_length = Config.SEQUENCE_LENGTH
+        for i in range(0, len(frame_labels) - sequence_length + 1, sequence_length // 2):
+            sequence = frame_labels[i:i + sequence_length]
+            if len(sequence) == sequence_length:
+                video_sequences += 1
+                if np.any(sequence == 1):
+                    video_positive_sequences += 1
         
         # Обновляем общие счетчики
         total_frames += frame_count
         positive_frames += video_positive_frames
+        total_sequences += video_sequences
+        positive_sequences += video_positive_sequences
         
         print(f"[DEBUG] Видео {video_name}:")
         print(f"  - Всего кадров: {frame_count}")
         print(f"  - Позитивных кадров: {video_positive_frames}")
+        print(f"  - Всего последовательностей: {video_sequences}")
+        print(f"  - Позитивных последовательностей: {video_positive_sequences}")
         
         cap.release()
     
-    # Рассчитываем веса
-    negative_frames = total_frames - positive_frames
-    weights = [1.0, negative_frames / positive_frames if positive_frames > 0 else 1.0]
+    # Рассчитываем веса на основе последовательностей
+    negative_sequences = total_sequences - positive_sequences
+    weights = [1.0, negative_sequences / positive_sequences if positive_sequences > 0 else 1.0]
     
     print("\n[DEBUG] Итоговая статистика:")
     print(f"Всего кадров: {total_frames}")
     print(f"Позитивных кадров: {positive_frames}")
-    print(f"Негативных кадров: {negative_frames}")
+    print(f"Всего последовательностей: {total_sequences}")
+    print(f"Позитивных последовательностей: {positive_sequences}")
+    print(f"Негативных последовательностей: {negative_sequences}")
     print(f"Веса классов: {weights}")
     
     return weights
