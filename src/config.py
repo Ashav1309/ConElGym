@@ -39,7 +39,7 @@ class Config:
     MODEL_PARAMS = {
         'v3': {
             'dropout_rate': 0.3,
-            'lstm_units': 128,  # Уменьшаем с 256 до 128
+            'lstm_units': 256,  # Увеличиваем с 128 до 256
             'positive_class_weight': None,  # Будет рассчитано автоматически на основе данных
             'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
         },
