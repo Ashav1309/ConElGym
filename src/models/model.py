@@ -504,15 +504,18 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
         print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
         
+        # Первый LSTM слой с увеличенным количеством юнитов
         x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True))(x)
         print(f"[DEBUG] После первого Bidirectional LSTM: {x.shape}")
-        
         x = tf.keras.layers.Dropout(dropout_rate)(x)
         
+        # Второй LSTM слой с уменьшенным количеством юнитов
         x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units // 2, return_sequences=True))(x)
         print(f"[DEBUG] После второго Bidirectional LSTM: {x.shape}")
-        
         x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        # Добавляем слой нормализации для стабилизации обучения
+        x = tf.keras.layers.LayerNormalization()(x)
         
         outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
         print(f"[DEBUG] Выходной слой: {outputs.shape}")
