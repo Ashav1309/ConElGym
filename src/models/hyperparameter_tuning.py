@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
@@ -35,42 +34,6 @@ import psutil
 from src.data_proc.data_augmentation import VideoAugmenter
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
-=======
-import cv2
-import numpy as np
-from typing import Tuple, List, Generator
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
-os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.2'
-os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
-os.environ['TF_DISABLE_JIT'] = '1'
-os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-import tensorflow as tf
-# Отключаем JIT компиляцию
-tf.config.optimizer.set_jit(False)
-
-import optuna
-from src.models.model import create_model
-from src.data_proc.data_loader import VideoDataLoader
-from src.config import Config
-import tensorflow as tf
-from concurrent.futures import ThreadPoolExecutor
-import threading
-from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
-import logging
-import gc
-import traceback
-from tensorflow.keras.metrics import Precision, Recall, F1Score
-import subprocess
-import sys
-import json
-import cv2
-from tensorflow.keras.optimizers import Adam
-import psutil
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -566,167 +529,50 @@ def save_tuning_results(study, total_time, n_trials):
             for key, value in best_trial.params.items():
                 f.write(f"{key}: {value}\n")
             
-            # Проверяем размерности
-            if len(annotations) != len(frames):
-                print(f"[WARNING] Несоответствие размерностей: frames={len(frames)}, annotations={len(annotations)}")
-                # Обрезаем до минимальной длины
-                min_len = min(len(frames), len(annotations))
-                frames = frames[:min_len]
-                annotations = annotations[:min_len]
-            
-            # Создаем последовательности
-            for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
-                sequence = frames[i:i + self.sequence_length]
-                sequence_labels = annotations[i:i + self.sequence_length]
-                
-                # Проверяем размерности последовательности
-                if len(sequence) == self.sequence_length and len(sequence_labels) == self.sequence_length:
-                    sequences.append(sequence)
-                    labels.append(sequence_labels)
-                
-                # Очищаем память каждые 10 последовательностей
-                if len(sequences) % 10 == 0:
-                    gc.collect()
-            
-            # Преобразуем в numpy массивы с оптимизированным типом данных
-            sequences = np.array(sequences, dtype=np.float32)
-            labels = np.array(labels, dtype=np.float32)
-            
-            print(f"[DEBUG] Создано {len(sequences)} последовательностей")
-            print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
-            print(f"[DEBUG] Форма меток: {labels.shape}")
-            
-            return sequences, labels
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-            raise
-    
-    def preload_video(self, video_path, target_size):
-        """
-        Предварительная загрузка видео в отдельном потоке.
-        """
-        self.load_video(video_path)
-    
-    def data_generator(self, force_positive=True):
-        """Генератор данных с sampling положительных примеров"""
-        try:
-            print("\n[DEBUG] ===== Запуск генератора данных =====")
-            print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
-            while True:
-                batch_data = self.get_batch(
-                    batch_size=self.batch_size,
-                    sequence_length=self.sequence_length,
-                    target_size=Config.INPUT_SIZE,
-                    one_hot=True,
-                    max_sequences_per_video=self.max_sequences_per_video,
-                    force_positive=force_positive
-                )
-                if batch_data is None:
-                    print("[DEBUG] Достигнут конец эпохи")
-                    break
-                
-                X, y = batch_data
-                if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
-                    print("[WARNING] Получен пустой батч")
-                    continue
-                
-                try:
-                    num_positive = int((y[...,1] == 1).sum())
-                    print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
-                    
-                    # Конвертируем в тензоры с оптимизацией памяти
-                    x = tf.convert_to_tensor(X, dtype=tf.float32)
-                    y_tensor = tf.convert_to_tensor(y, dtype=tf.float32)
-                    
-                    # Очищаем память
-                    del X
-                    del y
-                    gc.collect()
-                    
-                    yield (x, y_tensor)
-                    
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
-                    print("[DEBUG] Stack trace:", flush=True)
-                    import traceback
-                    traceback.print_exc()
-                    continue
-                
-        except Exception as e:
-            print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-            raise
-    
-    def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
-        """
-        Загрузка данных для обучения.
+            # Сохраняем историю всех триалов
+            f.write("\nИстория всех триалов:\n")
+            for trial in study.trials:
+                if trial.state == optuna.trial.TrialState.COMPLETE:
+                    f.write(f"\nТриал {trial.number}:\n")
+                    f.write(f"Значение: {trial.value}\n")
+                    f.write("Параметры:\n")
+                    for key, value in trial.params.items():
+                        f.write(f"{key}: {value}\n")
+                    # Добавляем информацию о весах классов
+                    if 'positive_class_weight' in trial.params:
+                        weight = trial.params['positive_class_weight']
+                        if base_weight:
+                            weight_diff = ((weight - base_weight) / base_weight) * 100
+                            f.write(f"Отклонение веса от базового: {weight_diff:.2f}%\n")
         
-        Args:
-            sequence_length (int): Длина последовательности
-            batch_size (int): Размер батча
-            target_size (tuple): Размер изображения (ширина, высота)
-            one_hot (bool): Использовать one-hot encoding для меток
-            infinite_loop (bool): Бесконечный цикл генерации данных
-            
-        Returns:
-            generator: Генератор данных
-        """
-        return self.data_generator()
-    
-    def _calculate_total_batches(self):
-        """
-        Рассчитывает общее количество батчей для данных.
-        """
-        try:
-            print("[DEBUG] Начало расчета общего количества батчей")
-            batch_count = 0
-            for _ in self.data_generator():
-                batch_count += 1
-            self.total_batches = batch_count
-            print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
-        except Exception as e:
-            print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-            self.total_batches = 0
-    
-    def get_video_info(self, video_path):
-        """
-        Получение информации о видео
+        # Сохраняем результаты в JSON для удобства загрузки
+        results = {
+            'best_trial': {
+                'number': best_trial.number,
+                'value': best_trial.value,
+                'params': best_trial.params
+            },
+            'base_weight': base_weight,
+            'trials': [
+                {
+                    'number': trial.number,
+                    'value': trial.value,
+                    'params': trial.params,
+                    'state': trial.state.name
+                }
+                for trial in study.trials
+                if trial.state == optuna.trial.TrialState.COMPLETE
+            ]
+        }
         
-        Args:
-            video_path: путь к видео файлу
-            
-        Returns:
-            dict: словарь с информацией о видео (total_frames, fps, width, height)
-        """
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError(f"Не удалось открыть видео: {video_path}")
-            
-            # Получаем информацию о видео
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
-            cap.release()
-            
-            return {
-                'total_frames': total_frames,
-                'fps': fps,
-                'width': width,
-                'height': height
-            }
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
-            raise 
+        with open(os.path.join(tuning_dir, 'optuna_results.json'), 'w') as f:
+            json.dump(results, f, indent=4)
+        
+        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
