@@ -576,3 +576,18 @@ def save_tuning_results(study, total_time, n_trials):
         import traceback
         traceback.print_exc()
         raise
+
+def tune_hyperparameters(n_trials=20):
+    """
+    Запуск гиперпараметрического поиска с помощью Optuna
+    """
+    import optuna
+    import time
+    print("\n[DEBUG] Начало подбора гиперпараметров...")
+    start_time = time.time()
+    study = optuna.create_study(direction='maximize', study_name='hyperparameter_tuning')
+    study.optimize(objective, n_trials=n_trials)
+    total_time = time.time() - start_time
+    save_tuning_results(study, total_time, n_trials)
+    print("[DEBUG] Гиперпараметрический поиск завершён!")
+    return study
