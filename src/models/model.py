@@ -6,7 +6,7 @@ from tensorflow.keras.layers import (
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
     GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU,
-    Layer
+    Layer, MultiHeadAttention
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
@@ -457,9 +457,36 @@ class TemporalF1Score(tf.keras.metrics.Metric):
         self.false_positives.assign(0)
         self.false_negatives.assign(0)
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None, rnn_type='lstm'):
+class SpatioTemporal3DAttention(tf.keras.layers.Layer):
+    """
+    Кастомный слой 3D Spatio-Temporal Attention для видео:
+    - Внимание одновременно по времени и пространству (sequence, height, width)
+    - Работает с входом формы (batch, seq, h, w, c)
+    """
+    def __init__(self, num_heads=4, key_dim=32, **kwargs):
+        super().__init__(**kwargs)
+        self.num_heads = num_heads
+        self.key_dim = key_dim
+        self.attn = None
+        self.norm = None
+    def build(self, input_shape):
+        # Объединяем seq, h, w в одну ось для attention
+        self.attn = MultiHeadAttention(num_heads=self.num_heads, key_dim=self.key_dim)
+        self.norm = LayerNormalization()
+        super().build(input_shape)
+    def call(self, x):
+        # x: (batch, seq, h, w, c)
+        b, t, h, w, c = tf.unstack(tf.shape(x))
+        x_flat = tf.reshape(x, [b, t * h * w, c])
+        attn_out = self.attn(x_flat, x_flat)
+        attn_out = self.norm(x_flat + attn_out)
+        out = tf.reshape(attn_out, [b, t, h, w, c])
+        return out
+
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели MobileNetV3
+    temporal_block_type: 'rnn', 'hybrid', '3d_attention'
     """
     print("[DEBUG] Создание модели MobileNetV3...")
     
@@ -472,7 +499,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     positive_class_weight = positive_class_weight or model_params['positive_class_weight']
     
     try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, rnn_type={rnn_type}")
+        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, rnn_type={rnn_type}, temporal_block_type={temporal_block_type}")
         
         # Проверяем и корректируем input_shape
         if len(input_shape) == 3:  # Если это (height, width, channels)
@@ -510,6 +537,19 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
         print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
         
+        if temporal_block_type == '3d_attention':
+            # Внимание по (seq, h, w)
+            # Восстанавливаем spatial размерности для attention
+            x_spatial = tf.keras.layers.TimeDistributed(
+                tf.keras.layers.Reshape((1, 1, -1))
+            )(x) if len(x.shape) == 3 else x
+            # x_spatial: (batch, seq, 1, 1, features)
+            # Для совместимости с 3D attention делаем фиктивные spatial размерности
+            x_attn = SpatioTemporal3DAttention(num_heads=4, key_dim=x.shape[-1]//4)(x_spatial)
+            # Сжимаем обратно к (batch, seq, features)
+            x = tf.keras.layers.Reshape((x.shape[1], -1))(x_attn)
+            print(f"[DEBUG] После SpatioTemporal3DAttention: {x.shape}")
+        
         # Выбор типа рекуррентного слоя
         RNNLayer = tf.keras.layers.LSTM if rnn_type == 'lstm' else tf.keras.layers.GRU
         
@@ -527,6 +567,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units // 4, return_sequences=True))(x)
         print(f"[DEBUG] После третьего Bidirectional {rnn_type.upper()}: {x.shape}")
         x = tf.keras.layers.Dropout(dropout_rate)(x)
+        
+        if temporal_block_type == 'hybrid':
+            attn = MultiHeadAttention(num_heads=4, key_dim=x.shape[-1])(x, x)
+            x = LayerNormalization()(x + attn)
+            print(f"[DEBUG] После MultiHeadAttention: {x.shape}")
         
         # Добавляем Temporal Attention
         x = TemporalAttention(lstm_units // 4)(x)
@@ -668,17 +713,10 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
         print(f"Трассировка: {traceback.format_exc()}")
         raise
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None, rnn_type='lstm'):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели с заданными параметрами
-    Args:
-        input_shape: форма входных данных
-        num_classes: количество классов
-        dropout_rate: коэффициент dropout
-        lstm_units: количество юнитов в LSTM слое
-        model_type: тип модели ('v3' или 'v4')
-        positive_class_weight: вес положительного класса
-        rnn_type: тип рекуррентного слоя ('lstm' или 'bigru')
+    temporal_block_type: 'rnn' или 'hybrid'
     """
     print("\n[DEBUG] Создание модели...")
     print(f"[DEBUG] Параметры создания модели:")
@@ -687,6 +725,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     print(f"  - lstm_units: {lstm_units}")
     print(f"  - positive_class_weight: {positive_class_weight}")
     print(f"  - rnn_type: {rnn_type}")
+    print(f"  - temporal_block_type: {temporal_block_type}")
     
     # Получаем параметры модели из конфигурации
     model_params = Config.MODEL_PARAMS[model_type]
@@ -698,7 +737,8 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
             positive_class_weight=positive_class_weight,
-            rnn_type=rnn_type
+            rnn_type=rnn_type,
+            temporal_block_type=temporal_block_type
         )
     elif model_type == 'v4':
         return create_mobilenetv4_model(

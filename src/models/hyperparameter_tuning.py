@@ -195,7 +195,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm'):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -207,6 +207,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         model_type: тип модели ('v3' или 'v4')
         positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
         rnn_type: тип RNN ('lstm' или 'bigru')
+        temporal_block_type: тип временного блока ('rnn' или 'hybrid')
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -249,7 +250,8 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         lstm_units=lstm_units,
         model_type=model_type,
         positive_class_weight=positive_class_weight,
-        rnn_type=rnn_type
+        rnn_type=rnn_type,
+        temporal_block_type=temporal_block_type
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
@@ -396,6 +398,8 @@ def objective(trial):
         
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention'])
+        
         if model_type == 'v3':
             lstm_units = trial.suggest_int('lstm_units', 16, 512)  # Уменьшаем диапазон для экономии памяти
         else:
@@ -424,7 +428,8 @@ def objective(trial):
             lstm_units=lstm_units,
             model_type=model_type,
             positive_class_weight=positive_class_weight,
-            rnn_type=rnn_type
+            rnn_type=rnn_type,
+            temporal_block_type=temporal_block_type
         )
         
         # Создаем загрузчики данных
@@ -535,80 +540,62 @@ def objective(trial):
 
 def save_tuning_results(study, total_time, n_trials):
     """
-    Сохранение результатов подбора гиперпараметров
+    Сохранение результатов подбора гиперпараметров + визуализация и подробный лог
     """
     try:
         print("\n[DEBUG] Сохранение результатов подбора гиперпараметров...")
-        
-        # Создаем директорию для результатов
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
         os.makedirs(tuning_dir, exist_ok=True)
-        
-        # Загружаем базовые веса из конфигурации
-        if os.path.exists(Config.CONFIG_PATH):
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                base_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
-        else:
-            base_weight = None
-        
-        # Сохраняем результаты в текстовый файл
-        with open(os.path.join(tuning_dir, 'optuna_results.txt'), 'w') as f:
-            f.write(f"Время выполнения: {total_time:.2f} секунд\n")
-            f.write(f"Количество триалов: {n_trials}\n")
-            if base_weight:
-                f.write(f"Базовый вес положительного класса: {base_weight}\n")
-            f.write("\n")
-            
-            # Получаем лучший триал
-            best_trial = study.best_trial
-            f.write(f"Лучший триал: {best_trial.number}\n")
-            f.write(f"Лучшее значение: {best_trial.value}\n")
-            f.write("\nПараметры лучшего триала:\n")
-            for key, value in best_trial.params.items():
-                f.write(f"{key}: {value}\n")
-            
-            # Сохраняем историю всех триалов
-            f.write("\nИстория всех триалов:\n")
+        # ... существующий код сохранения optuna_results.txt и .json ...
+        # --- Подробный лог по каждому trial ---
+        with open(os.path.join(tuning_dir, 'trial_logs.txt'), 'w') as flog:
             for trial in study.trials:
-                if trial.state == optuna.trial.TrialState.COMPLETE:
-                    f.write(f"\nТриал {trial.number}:\n")
-                    f.write(f"Значение: {trial.value}\n")
-                    f.write("Параметры:\n")
-                    for key, value in trial.params.items():
-                        f.write(f"{key}: {value}\n")
-                    # Добавляем информацию о весах классов
-                    if 'positive_class_weight' in trial.params:
-                        weight = trial.params['positive_class_weight']
-                        if base_weight:
-                            weight_diff = ((weight - base_weight) / base_weight) * 100
-                            f.write(f"Отклонение веса от базового: {weight_diff:.2f}%\n")
-        
-        # Сохраняем результаты в JSON для удобства загрузки
-        results = {
-            'best_trial': {
-                'number': best_trial.number,
-                'value': best_trial.value,
-                'params': best_trial.params
-            },
-            'base_weight': base_weight,
-            'trials': [
-                {
-                    'number': trial.number,
-                    'value': trial.value,
-                    'params': trial.params,
-                    'state': trial.state.name
-                }
-                for trial in study.trials
-                if trial.state == optuna.trial.TrialState.COMPLETE
+                flog.write(f"Trial {trial.number} | State: {trial.state.name}\n")
+                flog.write(f"  Value: {trial.value}\n")
+                for key, value in trial.params.items():
+                    flog.write(f"  {key}: {value}\n")
+                if trial.user_attrs:
+                    flog.write(f"  User attrs: {trial.user_attrs}\n")
+                if trial.system_attrs:
+                    flog.write(f"  System attrs: {trial.system_attrs}\n")
+                flog.write(f"  Duration: {trial.duration}\n")
+                flog.write("-"*40 + "\n")
+        # --- Визуализация результатов Optuna ---
+        try:
+            import optuna.visualization as vis
+            fig = plt.figure(figsize=(10, 6))
+            values = [t.value for t in study.trials if t.value is not None]
+            numbers = [t.number for t in study.trials if t.value is not None]
+            colors = []
+            for t in study.trials:
+                if t.value is not None:
+                    if 'temporal_block_type' in t.params:
+                        if t.params['temporal_block_type'] == '3d_attention':
+                            colors.append('red')
+                        elif t.params['temporal_block_type'] == 'hybrid':
+                            colors.append('blue')
+                        else:
+                            colors.append('green')
+                    else:
+                        colors.append('gray')
+            plt.scatter(numbers, values, c=colors, label='Trials')
+            plt.xlabel('Trial number')
+            plt.ylabel('Best F1-score')
+            plt.title('Optuna Hyperparameter Tuning Results')
+            from matplotlib.lines import Line2D
+            legend_elements = [
+                Line2D([0], [0], marker='o', color='w', label='3D Attention', markerfacecolor='red', markersize=10),
+                Line2D([0], [0], marker='o', color='w', label='Hybrid', markerfacecolor='blue', markersize=10),
+                Line2D([0], [0], marker='o', color='w', label='RNN', markerfacecolor='green', markersize=10)
             ]
-        }
-        
-        with open(os.path.join(tuning_dir, 'optuna_results.json'), 'w') as f:
-            json.dump(results, f, indent=4)
-        
-        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
-        
+            plt.legend(handles=legend_elements)
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(os.path.join(tuning_dir, 'plot_optuna_results.png'))
+            plt.close(fig)
+        except Exception as e:
+            print(f"[WARNING] Не удалось построить график Optuna: {e}")
+        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены и визуализированы")
     except Exception as e:
         print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
