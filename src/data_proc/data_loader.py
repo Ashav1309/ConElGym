@@ -492,6 +492,12 @@ class VideoDataLoader:
             # Преобразуем последовательность в numpy массив и нормализуем
             sequence = np.array(sequence, dtype=np.float32) / 255.0
             
+            # Проверяем размерности
+            print(f"[DEBUG] Размерность последовательности до преобразования: {sequence.shape}")
+            if len(sequence.shape) != 4:  # (sequence_length, height, width, channels)
+                print(f"[ERROR] Неправильная размерность последовательности: {sequence.shape}")
+                return None, None
+            
             # Увеличиваем индекс кадра для следующей последовательности
             self.current_frame_index += 1
             
@@ -681,9 +687,17 @@ class VideoDataLoader:
                     # Увеличиваем счетчик батчей
                     self.current_batch += 1
                     
-                    # Конвертируем в numpy массивы и изменяем размерность
+                    # Конвертируем в numpy массивы
                     X_batch = np.array(X_batch)  # (batch_size, sequence_length, height, width, channels)
-                    y_batch = np.array(y_batch)
+                    y_batch = np.array(y_batch)  # (batch_size, 2) для one-hot encoding
+                    
+                    # Проверяем и исправляем размерности
+                    print(f"[DEBUG] Размерности до преобразования: X={X_batch.shape}, y={y_batch.shape}")
+                    
+                    # Убеждаемся, что размерности правильные
+                    if len(X_batch.shape) != 5:
+                        print(f"[ERROR] Неправильная размерность X_batch: {X_batch.shape}")
+                        return None
                     
                     # Подсчитываем статистику
                     if one_hot:
