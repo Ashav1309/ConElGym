@@ -368,10 +368,15 @@ class VideoDataLoader:
                      one_hot: bool = True, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Получение последовательности кадров из видео
+        
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: 
+                - sequence: последовательность кадров
+                - label: метка в формате one-hot encoding [1,0] для положительных примеров и [0,1] для отрицательных
         """
         try:
             # Получаем текущий индекс кадра
-            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            current_frame = self.current_frame_index
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
             print(f"[DEBUG] Получение последовательности:")
@@ -452,6 +457,8 @@ class VideoDataLoader:
                 
                 if not has_positive:
                     print("[DEBUG] Нет положительных примеров в последовательности")
+                    # Увеличиваем индекс кадра для следующей попытки
+                    self.current_frame_index += 1
                     return None, None
                 else:
                     print("[DEBUG] Найдены положительные примеры в последовательности")
@@ -474,14 +481,23 @@ class VideoDataLoader:
             
             # Получаем метку для последовательности
             sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            label = np.max(sequence_labels)  # 1.0 если есть хотя бы один положительный кадр
+            has_positive = np.any(sequence_labels == 1.0)
+            
+            # Создаем метку в формате one-hot encoding
+            if has_positive:
+                label = np.array([1.0, 0.0], dtype=np.float32)  # [1,0] для положительного примера
+            else:
+                label = np.array([0.0, 1.0], dtype=np.float32)  # [0,1] для отрицательного примера
             
             # Преобразуем последовательность в numpy массив и нормализуем
             sequence = np.array(sequence, dtype=np.float32) / 255.0
             
+            # Увеличиваем индекс кадра для следующей последовательности
+            self.current_frame_index += 1
+            
             print(f"[DEBUG] Последовательность успешно получена:")
             print(f"  - Размерность: {sequence.shape}")
-            print(f"  - Метка: {label}")
+            print(f"  - Метка (one-hot): {label}")
             
             return sequence, label
             
@@ -601,7 +617,7 @@ class VideoDataLoader:
                 if video_path not in self.used_frames_cache:
                     self.used_frames_cache[video_path] = set()
                 
-                # Загружаем аннотации для поиска первого положительного кадра
+                # Загружаем аннотации для поиска первого и последнего положительного кадра
                 if video_path not in self.positive_indices_cache:
                     annotation_path = os.path.join(
                         Config.TRAIN_ANNOTATION_PATH if 'train' in video_path else Config.VALID_ANNOTATION_PATH,
@@ -612,10 +628,24 @@ class VideoDataLoader:
                         with open(annotation_path, 'r') as f:
                             ann_data = json.load(f)
                             if 'annotations' in ann_data and ann_data['annotations']:
-                                # Находим первый положительный кадр
+                                # Находим первый и последний положительный кадр
                                 first_positive_frame = min(ann['start_frame'] for ann in ann_data['annotations'])
+                                last_positive_frame = max(ann['end_frame'] for ann in ann_data['annotations'])
                                 print(f"[DEBUG] Первый положительный кадр: {first_positive_frame}")
-                                self.current_frame_index = first_positive_frame
+                                print(f"[DEBUG] Последний положительный кадр: {last_positive_frame}")
+                                
+                                # Если текущий кадр меньше первого положительного, начинаем с него
+                                if self.current_frame_index < first_positive_frame:
+                                    self.current_frame_index = first_positive_frame
+                                # Если текущий кадр больше последнего положительного, переходим к следующему видео
+                                elif self.current_frame_index > last_positive_frame:
+                                    print(f"[DEBUG] Достигнут конец положительных кадров ({last_positive_frame})")
+                                    if self.current_video_index < len(self.video_paths) - 1:
+                                        self.current_video_index += 1
+                                    else:
+                                        self.current_video_index = 0
+                                    self.current_frame_index = 0
+                                    continue
                 
                 # Собираем батч
                 X_batch = []
@@ -657,8 +687,8 @@ class VideoDataLoader:
                     
                     # Подсчитываем статистику
                     if one_hot:
-                        positive_count = np.sum(y_batch[:, 0] == 1)
-                        negative_count = np.sum(y_batch[:, 0] == 0)
+                        positive_count = np.sum(y_batch[:, 0] == 1.0)  # Считаем положительные примеры [1,0]
+                        negative_count = np.sum(y_batch[:, 1] == 1.0)  # Считаем отрицательные примеры [0,1]
                     else:
                         positive_count = np.sum(y_batch == 1)
                         negative_count = np.sum(y_batch == 0)
