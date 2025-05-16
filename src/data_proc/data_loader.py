@@ -22,6 +22,8 @@ class VideoDataLoader:
             data_path: путь к директории с данными
             max_videos: максимальное количество видео для загрузки (None для загрузки всех видео)
         """
+        self.stuck_counter = 0
+        self.max_stuck_batches = 10
         self.positive_indices_cache = {}  # Кэш для индексов положительных кадров
         self.video_cache = {}  # Кэш для видео
         self.data_path = data_path
@@ -57,9 +59,6 @@ class VideoDataLoader:
             self.labels = self.labels[:self.max_videos]
             self.video_count = self.max_videos
             print(f"[DEBUG] Оставлено {self.video_count} видео")
-        
-        self.stuck_counter = 0
-        self.max_stuck_batches = 10  # Максимум маленьких батчей подряд в конце видео
     
     def _load_videos(self):
         """
