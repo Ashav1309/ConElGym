@@ -347,7 +347,7 @@ class VideoDataLoader:
             
             # Счетчик попыток найти необработанное видео
             attempts = 0
-            max_attempts = len(self.video_paths)
+            max_attempts = len(self.video_paths) * 2  # Увеличиваем количество попыток
             
             while attempts < max_attempts:
                 attempts += 1
@@ -421,21 +421,34 @@ class VideoDataLoader:
                     
                     if sequence is None:
                         print("[DEBUG] Не удалось получить последовательность")
-                        # Отмечаем видео как обработанное
-                        self.processed_videos.add(video_path)
-                        # Очищаем кэш для текущего видео
-                        if video_path in self.video_cache:
-                            cap = self.video_cache.pop(video_path)
-                            cap.release()
+                        # Проверяем, действительно ли видео полностью использовано
                         if video_path in self.used_frames_cache:
-                            del self.used_frames_cache[video_path]
-                        if video_path in self.positive_indices_cache:
-                            del self.positive_indices_cache[video_path]
-                        
-                        # Переходим к следующему видео
-                        self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
-                        self.current_frame_index = 0
-                        break
+                            used_frames = self.used_frames_cache[video_path]
+                            used_percentage = len(used_frames) / total_frames * 100
+                            if used_percentage > 90:
+                                print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
+                                self.processed_videos.add(video_path)
+                                # Очищаем кэш для текущего видео
+                                if video_path in self.video_cache:
+                                    cap = self.video_cache.pop(video_path)
+                                    cap.release()
+                                if video_path in self.used_frames_cache:
+                                    del self.used_frames_cache[video_path]
+                                if video_path in self.positive_indices_cache:
+                                    del self.positive_indices_cache[video_path]
+                                
+                                # Переходим к следующему видео
+                                self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                                self.current_frame_index = 0
+                                break
+                            else:
+                                print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - продолжаем")
+                                self.current_frame_index += 1
+                                continue
+                        else:
+                            print("[DEBUG] Нет информации об использованных кадрах - продолжаем")
+                            self.current_frame_index += 1
+                            continue
                     
                     X_batch.append(sequence)
                     y_batch.append(label)
