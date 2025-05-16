@@ -145,10 +145,11 @@ class Config:
     MIN_POSITIVE_EXAMPLES = 6
     MIN_POSITIVE_RATIO = 0.0005
     MAX_POSITIVE_RATIO = 0.9
-    MIN_TRAIN_BATCHES = 100     # Минимальное количество батчей для обучения
+    MIN_TRAIN_BATCHES = 5     # Минимальное количество батчей для обучения
     MIN_VAL_BATCHES = 20        # Минимальное количество батчей для валидации
     
     DEBUG_SMALL_DATASET = True  # Включить для тестов на малых датасетах
+    AUGMENT_POSITIVE_ONLY = True  # Применять аугментацию только к положительным примерам
     
     @classmethod
     def apply_debug_small_dataset(cls):
@@ -160,7 +161,13 @@ class Config:
             cls.MIN_VAL_BATCHES = 1
             cls.BATCH_SIZE = 1
             cls.SEQUENCE_LENGTH = 4
-            cls.AUGMENTATION['enabled'] = False
+            cls.AUGMENTATION['enabled'] = True
+            cls.AUGMENTATION['probability'] = 0.2
+            cls.AUGMENTATION['brightness_range'] = (0.95, 1.05)
+            cls.AUGMENTATION['contrast_range'] = (0.95, 1.05)
+            cls.AUGMENTATION['rotation_range'] = (-2, 2)
+            cls.AUGMENTATION['flip_probability'] = 0.0
+            cls.AUGMENT_POSITIVE_ONLY = True
             cls.OVERFITTING_PREVENTION['early_stopping_patience'] = 20
     
     @classmethod
