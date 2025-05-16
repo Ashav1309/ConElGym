@@ -276,6 +276,8 @@ class VideoDataLoader:
             with open(annotation_path, 'r') as f:
                 annotations = json.load(f)
             
+            print(f"[DEBUG] Содержимое файла аннотаций: {json.dumps(annotations, indent=2)}")
+            
             # Проверяем формат аннотаций
             if not isinstance(annotations, dict) or 'annotations' not in annotations:
                 raise InvalidAnnotationError(f"Некорректный формат аннотаций в {annotation_path}")
@@ -303,12 +305,18 @@ class VideoDataLoader:
                 
                 # Помечаем все кадры в диапазоне как положительные
                 labels[start_frame:end_frame + 1] = 1.0
+                print(f"[DEBUG] Помечены кадры {start_frame}-{end_frame} как положительные")
             
             positive_frames = np.sum(labels == 1.0)
             print(f"[DEBUG] Статистика аннотаций:")
             print(f"  - Всего кадров: {total_frames}")
             print(f"  - Положительных кадров: {positive_frames}")
             print(f"  - Процент положительных: {positive_frames/total_frames*100:.2f}%")
+            
+            # Выводим индексы положительных кадров
+            positive_indices = np.where(labels == 1.0)[0]
+            if len(positive_indices) > 0:
+                print(f"[DEBUG] Индексы положительных кадров: {positive_indices}")
             
             return labels
             
