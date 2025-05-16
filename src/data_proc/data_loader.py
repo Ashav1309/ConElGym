@@ -712,7 +712,7 @@ class VideoDataLoader:
             print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
             raise
 
-    def _get_sequence(self, cap, sequence_length, target_size, one_hot=True, force_positive=False):
+    def _get_sequence(self, cap, sequence_length, target_size, one_hot=True, force_positive=False, max_attempts=10):
         """
         Получение последовательности кадров из видео
         
@@ -722,101 +722,109 @@ class VideoDataLoader:
             target_size: размер кадра
             one_hot: использовать one-hot encoding для меток
             force_positive: принудительно брать положительные примеры
+            max_attempts: максимальное количество попыток получить последовательность
             
         Returns:
             tuple: (последовательность кадров, метка)
         """
         try:
-            # Получаем текущий индекс кадра
-            current_frame = self.current_frame_index
-            
-            # Получаем общее количество кадров
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Проверяем, что можем получить последовательность
-            if current_frame + sequence_length > total_frames:
-                print(f"[DEBUG] Недостаточно кадров для последовательности: {current_frame} + {sequence_length} > {total_frames}")
-                return None, None
-            
-            # Получаем путь к текущему видео
-            video_path = self.video_paths[self.current_video_index]
-            
-            # Получаем метки для текущего видео
-            if video_path not in self.used_frames_cache:
-                self.used_frames_cache[video_path] = set()
-            
-            # Загружаем аннотации
-            ann_path = self.labels[self.current_video_index]
-            if ann_path is None:
-                print(f"[WARNING] Аннотации не найдены для видео {video_path}")
-                frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-            else:
-                try:
-                    with open(ann_path, 'r') as f:
-                        ann_data = json.load(f)
-                        frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-                        for annotation in ann_data['annotations']:
-                            start_frame = annotation['start_frame']
-                            end_frame = annotation['end_frame']
-                            for frame_idx in range(start_frame, end_frame + 1):
-                                if frame_idx < len(frame_labels):
-                                    frame_labels[frame_idx] = [1, 0]
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
-                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-            
-            # Если нужно принудительно брать положительные примеры
-            if force_positive:
-                # Получаем индексы положительных кадров
-                if video_path not in self.positive_indices_cache:
-                    positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
-                    self.positive_indices_cache[video_path] = positive_indices
-                else:
-                    positive_indices = self.positive_indices_cache[video_path]
+            attempts = 0
+            while attempts < max_attempts:
+                attempts += 1
                 
-                # Если есть положительные кадры
-                if len(positive_indices) > 0:
-                    # Фильтруем уже использованные
-                    available_pos_indices = [idx for idx in positive_indices if idx not in self.used_frames_cache[video_path]]
-                    
-                    if len(available_pos_indices) > 0:
-                        # Выбираем случайный положительный кадр
-                        pos_idx = np.random.choice(available_pos_indices)
-                        # Центрируем последовательность вокруг положительного кадра
-                        current_frame = max(0, pos_idx - sequence_length // 2)
-            
-            # Проверяем, что последовательность не пересекается с уже использованными кадрами
-            used_frames = self.used_frames_cache[video_path]
-            if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
-                print(f"[DEBUG] Последовательность пересекается с уже использованными кадрами")
-                self.current_frame_index += 1
-                return self._get_sequence(cap, sequence_length, target_size, one_hot, force_positive)
-            
-            # Собираем последовательность
-            sequence = []
-            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
-            
-            for _ in range(sequence_length):
-                ret, frame = cap.read()
-                if not ret:
-                    print(f"[ERROR] Не удалось прочитать кадр {current_frame}")
+                # Получаем текущий индекс кадра
+                current_frame = self.current_frame_index
+                
+                # Получаем общее количество кадров
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                
+                # Проверяем, что можем получить последовательность
+                if current_frame + sequence_length > total_frames:
+                    print(f"[DEBUG] Недостаточно кадров для последовательности: {current_frame} + {sequence_length} > {total_frames}")
                     return None, None
                 
-                if target_size:
-                    frame = cv2.resize(frame, target_size)
-                sequence.append(frame)
+                # Получаем путь к текущему видео
+                video_path = self.video_paths[self.current_video_index]
+                
+                # Получаем метки для текущего видео
+                if video_path not in self.used_frames_cache:
+                    self.used_frames_cache[video_path] = set()
+                
+                # Загружаем аннотации
+                ann_path = self.labels[self.current_video_index]
+                if ann_path is None:
+                    print(f"[WARNING] Аннотации не найдены для видео {video_path}")
+                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                else:
+                    try:
+                        with open(ann_path, 'r') as f:
+                            ann_data = json.load(f)
+                            frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                            for annotation in ann_data['annotations']:
+                                start_frame = annotation['start_frame']
+                                end_frame = annotation['end_frame']
+                                for frame_idx in range(start_frame, end_frame + 1):
+                                    if frame_idx < len(frame_labels):
+                                        frame_labels[frame_idx] = [1, 0]
+                    except Exception as e:
+                        print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
+                        frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                
+                # Если нужно принудительно брать положительные примеры
+                if force_positive:
+                    # Получаем индексы положительных кадров
+                    if video_path not in self.positive_indices_cache:
+                        positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
+                        self.positive_indices_cache[video_path] = positive_indices
+                    else:
+                        positive_indices = self.positive_indices_cache[video_path]
+                    
+                    # Если есть положительные кадры
+                    if len(positive_indices) > 0:
+                        # Фильтруем уже использованные
+                        available_pos_indices = [idx for idx in positive_indices if idx not in self.used_frames_cache[video_path]]
+                        
+                        if len(available_pos_indices) > 0:
+                            # Выбираем случайный положительный кадр
+                            pos_idx = np.random.choice(available_pos_indices)
+                            # Центрируем последовательность вокруг положительного кадра
+                            current_frame = max(0, pos_idx - sequence_length // 2)
+                
+                # Проверяем, что последовательность не пересекается с уже использованными кадрами
+                used_frames = self.used_frames_cache[video_path]
+                if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
+                    print(f"[DEBUG] Попытка {attempts}: Последовательность пересекается с уже использованными кадрами")
+                    self.current_frame_index += 1
+                    continue
+                
+                # Собираем последовательность
+                sequence = []
+                cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+                
+                for _ in range(sequence_length):
+                    ret, frame = cap.read()
+                    if not ret:
+                        print(f"[ERROR] Не удалось прочитать кадр {current_frame}")
+                        return None, None
+                    
+                    if target_size:
+                        frame = cv2.resize(frame, target_size)
+                    sequence.append(frame)
+                
+                # Получаем метку для последовательности
+                sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
+                label = np.any(sequence_labels == 1, axis=0).astype(np.float32)
+                
+                # Отмечаем использованные кадры
+                self.used_frames_cache[video_path].update(range(current_frame, current_frame + sequence_length))
+                
+                # Увеличиваем индекс текущего кадра
+                self.current_frame_index += 1
+                
+                return np.array(sequence), label
             
-            # Получаем метку для последовательности
-            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            label = np.any(sequence_labels == 1, axis=0).astype(np.float32)
-            
-            # Отмечаем использованные кадры
-            self.used_frames_cache[video_path].update(range(current_frame, current_frame + sequence_length))
-            
-            # Увеличиваем индекс текущего кадра
-            self.current_frame_index += 1
-            
-            return np.array(sequence), label
+            print(f"[WARNING] Не удалось получить последовательность после {max_attempts} попыток")
+            return None, None
             
         except Exception as e:
             print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
