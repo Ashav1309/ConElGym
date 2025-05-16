@@ -403,6 +403,45 @@ class VideoDataLoader:
                 logger.debug(f"Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
                 return None, None
             
+            # Загружаем аннотации для видео
+            if video_path not in self.positive_indices_cache:
+                annotation_path = os.path.join(
+                    Config.TRAIN_ANNOTATION_PATH if 'train' in video_path else Config.VALID_ANNOTATION_PATH,
+                    os.path.splitext(os.path.basename(video_path))[0] + '.json'
+                )
+                
+                if os.path.exists(annotation_path):
+                    with open(annotation_path, 'r') as f:
+                        ann_data = json.load(f)
+                    
+                    # Создаем массив меток для каждого кадра
+                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                    for annotation in ann_data['annotations']:
+                        start_frame = annotation['start_frame']
+                        end_frame = annotation['end_frame']
+                        for frame_idx in range(start_frame, end_frame + 1):
+                            if frame_idx < len(frame_labels):
+                                frame_labels[frame_idx] = [1, 0]  # Положительный класс
+                    
+                    # Сохраняем метки в кэш
+                    self.positive_indices_cache[video_path] = frame_labels
+                else:
+                    logger.warning(f"Аннотации не найдены для видео: {video_path}")
+                    self.positive_indices_cache[video_path] = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+            
+            # Получаем метки из кэша
+            frame_labels = self.positive_indices_cache[video_path]
+            
+            # Если требуется принудительно брать положительные примеры
+            if force_positive:
+                # Проверяем, есть ли положительные примеры в последовательности
+                sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
+                has_positive = np.any(sequence_labels[:, 0] == 1)
+                
+                if not has_positive:
+                    logger.debug("Нет положительных примеров в последовательности")
+                    return None, None
+            
             sequence = []
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
             
@@ -419,11 +458,17 @@ class VideoDataLoader:
             # Отмечаем использованные кадры
             used_frames.update(range(current_frame, current_frame + sequence_length))
             
-            # Создаем метку (в данном случае просто 0, так как метки загружаются отдельно)
-            label = np.zeros(2) if one_hot else 0
+            # Получаем метку для последовательности
+            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
+            label = np.max(sequence_labels, axis=0) if one_hot else np.max(sequence_labels[:, 0])
             
-            logger.debug(f"Последовательность успешно получена: {len(sequence)} кадров")
-            return np.array(sequence), label
+            # Преобразуем последовательность в numpy массив и нормализуем
+            sequence = np.array(sequence, dtype=np.float32) / 255.0
+            
+            logger.debug(f"Последовательность успешно получена: {sequence.shape}")
+            logger.debug(f"Метка последовательности: {label}")
+            
+            return sequence, label
             
         except Exception as e:
             logger.error(f"Ошибка при получении последовательности: {str(e)}")
@@ -637,11 +682,12 @@ class VideoDataLoader:
                     # Увеличиваем счетчик батчей
                     self.current_batch += 1
                     
-                    # Конвертируем в numpy массивы
-                    X_batch = np.array(X_batch)
+                    # Конвертируем в numpy массивы и изменяем размерность
+                    X_batch = np.array(X_batch)  # (batch_size, sequence_length, height, width, channels)
                     y_batch = np.array(y_batch)
                     
-                    logger.debug(f"Батч успешно собран: {X_batch.shape}, {y_batch.shape}")
+                    # Проверяем размерности
+                    logger.debug(f"Размерности батча: X={X_batch.shape}, y={y_batch.shape}")
                     
                     # Проверяем процент использованных кадров
                     if video_path in self.used_frames_cache:
