@@ -398,56 +398,30 @@ def objective(trial):
         # Определяем тип модели
         model_type = Config.MODEL_TYPE
         
-        # Загружаем веса из конфигурационного файла
-        if os.path.exists(Config.CONFIG_PATH):
-            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                base_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
-                
-                # Проверяем корректность базового веса
-                if base_weight is None or base_weight <= 0:
-                    print("[WARNING] Некорректный базовый вес, используем значение по умолчанию")
-                    base_weight = 10.0
-                
-                # Добавляем случайное отклонение ±30%
-                weight_variation = base_weight * 0.3  # 30% от базового веса
-                positive_class_weight = trial.suggest_float(
-                    'positive_class_weight',
-                    max(1.0, base_weight - weight_variation),  # Минимальный вес 1.0
-                    base_weight + weight_variation
-                )
-                print(f"[DEBUG] Базовый вес: {base_weight}")
-                print(f"[DEBUG] Загружен вес положительного класса с вариацией: {positive_class_weight}")
-        else:
-            print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
-            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
-        
         # Определяем гиперпараметры для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)  # Расширяем диапазон
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)  # Увеличиваем верхнюю границу
+        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        batch_size = trial.suggest_int('batch_size', 32, 128, step=8)  # Добавляем размер батча
         
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
-        
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention'])
         
         if model_type == 'v3':
-            lstm_units = trial.suggest_int('lstm_units', 16, 512)  # Уменьшаем диапазон для экономии памяти
+            lstm_units = trial.suggest_int('lstm_units', 16, 512)
         else:
             lstm_units = None
         
         # Оптимизируем параметры focal loss
         gamma = trial.suggest_float('gamma', 0.5, 5.0)
         alpha = trial.suggest_float('alpha', 0.1, 0.4)
-        
         clipnorm = trial.suggest_float('clipnorm', 0.1, 5.0)
         
         print(f"[DEBUG] Параметры trial:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
+        print(f"  - batch_size: {batch_size}")  # Добавляем в логи
         if lstm_units:
             print(f"  - lstm_units: {lstm_units}")
-        print(f"  - positive_class_weight: {positive_class_weight}")
         print(f"  - gamma: {gamma}")
         print(f"  - alpha: {alpha}")
         
@@ -469,11 +443,11 @@ def objective(trial):
         train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         
-        # Создаем оптимизированные pipeline данных
+        # Создаем оптимизированные pipeline данных с оптимизированным размером батча
         train_dataset = create_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
-            Config.BATCH_SIZE,
+            batch_size,  # Используем оптимизированный размер батча
             Config.INPUT_SIZE,
             is_training=True,
             force_positive=True
@@ -482,7 +456,7 @@ def objective(trial):
         val_dataset = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
-            Config.BATCH_SIZE,
+            batch_size,  # Используем оптимизированный размер батча
             Config.INPUT_SIZE,
             is_training=False,
             force_positive=False

@@ -76,47 +76,65 @@ class VideoDataLoader:
             # Определяем путь к аннотациям в зависимости от типа данных (train/valid)
             if 'train' in self.data_path:
                 annotation_dir = Config.TRAIN_ANNOTATION_PATH
+                print(f"[DEBUG] Загрузка обучающих данных из {self.data_path}")
+                print(f"[DEBUG] Путь к аннотациям: {annotation_dir}")
             else:
                 annotation_dir = Config.VALID_ANNOTATION_PATH
+                print(f"[DEBUG] Загрузка валидационных данных из {self.data_path}")
+                print(f"[DEBUG] Путь к аннотациям: {annotation_dir}")
             
             if not os.path.exists(annotation_dir):
                 print(f"[DEBUG] Создание директории для аннотаций: {annotation_dir}")
                 os.makedirs(annotation_dir, exist_ok=True)
             
-            print(f"[DEBUG] Поиск видео в {self.data_path}, аннотаций в {annotation_dir}")
+            print(f"[DEBUG] Поиск видео в {self.data_path}")
+            print(f"[DEBUG] Поиск аннотаций в {annotation_dir}")
             
             self.video_paths = []
             self.labels = []
-            self.video_count = 0  # Добавляем счетчик
+            self.video_count = 0
             
-            for file_name in os.listdir(self.data_path):
+            # Проверяем содержимое директории
+            files = os.listdir(self.data_path)
+            print(f"[DEBUG] Найдено файлов в директории: {len(files)}")
+            
+            for file_name in files:
                 if self.max_videos is not None and self.video_count >= self.max_videos:
+                    print(f"[DEBUG] Достигнут лимит видео ({self.max_videos})")
                     break
                 
                 file_path = os.path.join(self.data_path, file_name)
                 if file_name.endswith('.mp4') and os.path.isfile(file_path):
+                    print(f"[DEBUG] Найдено видео: {file_name}")
                     self.video_paths.append(file_path)
+                    
+                    # Получаем путь к аннотации
                     base = os.path.splitext(file_name)[0]
                     ann_path = os.path.join(annotation_dir, base + '.json')
                     
                     if os.path.exists(ann_path):
-                        pass
-                        # print(f"[DEBUG] Найдена аннотация для {file_name}")
+                        print(f"[DEBUG] Найдена аннотация для {file_name}")
+                        self.labels.append(ann_path)
                     else:
-                        print(f"[DEBUG] Аннотация для {file_name} не найдена")
+                        print(f"[WARNING] Аннотация для {file_name} не найдена")
+                        self.labels.append(None)
                     
-                    self.labels.append(ann_path if os.path.exists(ann_path) else None)
-                    self.video_count += 1  # Увеличиваем счетчик
+                    self.video_count += 1
             
-            self.video_count = len(self.video_paths)
+            if self.video_count == 0:
+                raise ValueError(f"Не найдено видео файлов в директории: {self.data_path}")
             
             print(f"[DEBUG] Загружено {self.video_count} видео файлов")
+            print(f"[DEBUG] Пути к видео:")
+            for path in self.video_paths:
+                print(f"  - {path}")
             
             # Ограничиваем количество видео до Config.MAX_VIDEOS
             if hasattr(Config, "MAX_VIDEOS") and len(self.video_paths) > Config.MAX_VIDEOS:
                 print(f"[DEBUG] Ограничиваем количество видео до {Config.MAX_VIDEOS}")
                 self.video_paths = self.video_paths[:Config.MAX_VIDEOS]
                 self.labels = self.labels[:Config.MAX_VIDEOS]
+                self.video_count = Config.MAX_VIDEOS
             
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
@@ -302,141 +320,119 @@ class VideoDataLoader:
             return [], [], start_frame
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):
-        """Получение батча данных с улучшенной логикой переключения между видео"""
+        """
+        Получение батча данных
+        """
         try:
-            # Проверяем, нужно ли переключиться на следующее видео
-            if self.current_video_index >= len(self.video_paths):
-                print(f"[DEBUG] get_batch: Обработаны все видео, начинаем новую эпоху")
-                self.current_video_index = 0
-                self.current_frame_index = 0
-                self.stuck_counter = 0
-                # Полностью очищаем все кэши при начале новой эпохи
+            print(f"\n[DEBUG] Получение батча (batch_size={batch_size}, sequence_length={sequence_length})")
+            print(f"[DEBUG] Текущее видео: {self.current_video_index}/{len(self.video_paths)}")
+            print(f"[DEBUG] Текущий кадр: {self.current_frame_index}")
+            
+            # Очищаем кэш при начале новой эпохи
+            if self.current_batch == 0:
+                print("[DEBUG] Начало новой эпохи - очистка кэшей")
                 self.used_frames_cache.clear()
                 self.positive_indices_cache.clear()
                 self.video_cache.clear()
-                return None
             
+            # Проверяем, нужно ли перейти к следующему видео
+            if self.current_video_index >= len(self.video_paths):
+                print("[DEBUG] Достигнут конец списка видео - сброс индексов")
+                self.current_video_index = 0
+                self.current_frame_index = 0
+                self.current_batch = 0
+                # Очищаем все кэши при переходе к началу списка
+                self.used_frames_cache.clear()
+                self.positive_indices_cache.clear()
+                self.video_cache.clear()
+            
+            # Получаем текущее видео
             video_path = self.video_paths[self.current_video_index]
-            print(f"[DEBUG] get_batch: Обработка видео {os.path.basename(video_path)} (индекс {self.current_video_index + 1}/{len(self.video_paths)})")
+            print(f"[DEBUG] Загрузка видео: {video_path}")
             
-            # Инициализируем множество использованных кадров для текущего видео, если его еще нет
-            if video_path not in self.used_frames_cache:
-                self.used_frames_cache[video_path] = set()
-            
-            # Загружаем или получаем из кэша видео
-            if video_path not in self.video_cache:
-                cap, total_frames = self.load_video(video_path)
-                self.video_cache[video_path] = (cap, total_frames)
+            # Проверяем, есть ли видео в кэше
+            if video_path in self.video_cache:
+                cap = self.video_cache[video_path]
             else:
-                cap, total_frames = self.video_cache[video_path]
-            
-            # Загружаем аннотации
-            annotations = self.labels[self.current_video_index]
-            if annotations is not None:
-                with open(annotations, 'r') as f:
-                    ann_data = json.load(f)
-                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-                    for annotation in ann_data['annotations']:
-                        start_frame = annotation['start_frame']
-                        end_frame = annotation['end_frame']
-                        for frame_idx in range(start_frame, end_frame + 1):
-                            if frame_idx < len(frame_labels):
-                                frame_labels[frame_idx] = [1, 0]
-            else:
-                frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-            
-            # Получаем индексы положительных кадров
-            if video_path not in self.positive_indices_cache:
-                positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
-                self.positive_indices_cache[video_path] = positive_indices
-            else:
-                positive_indices = self.positive_indices_cache[video_path]
-            
-            old_frame_index = self.current_frame_index
-            # Собираем последовательности
-            batch_sequences, batch_labels, new_frame_index = self._collect_sequences(
-                video_path,
-                self.current_frame_index,
-                batch_size,
-                sequence_length,
-                target_size,
-                frame_labels,
-                positive_indices,
-                force_positive
-            )
-            
-            # Обновляем индексы
-            self.current_frame_index = new_frame_index
-
-            # Если не удалось продвинуться по кадрам (застряли в конце видео)
-            if self.current_frame_index == old_frame_index:
-                self.stuck_counter += 1
-                print(f"[DEBUG] get_batch: Не удалось продвинуться по кадрам {self.stuck_counter} раз подряд")
+                # Очищаем предыдущее видео из кэша если оно есть
+                if hasattr(self, 'current_cap') and self.current_cap is not None:
+                    self.current_cap.release()
                 
-                if self.stuck_counter >= self.max_stuck_batches:
-                    print(f"[DEBUG] get_batch: Достигнут лимит маленьких батчей, переходим к следующему видео")
-                    # Очищаем кэш для текущего видео перед переходом к следующему
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    print(f"[ERROR] Не удалось открыть видео: {video_path}")
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
+                
+                self.video_cache[video_path] = cap
+                self.current_cap = cap
+            
+            # Получаем общее количество кадров
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            # Проверяем, нужно ли перейти к следующему видео
+            if self.current_frame_index >= total_frames - sequence_length:
+                print(f"[DEBUG] Достигнут конец видео {self.current_video_index}")
+                # Очищаем кэш для текущего видео
+                if video_path in self.video_cache:
+                    cap = self.video_cache.pop(video_path)
+                    cap.release()
+                if video_path in self.used_frames_cache:
+                    del self.used_frames_cache[video_path]
+                if video_path in self.positive_indices_cache:
+                    del self.positive_indices_cache[video_path]
+                
+                # Переходим к следующему видео
+                self.current_video_index += 1
+                self.current_frame_index = 0
+                return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
+            
+            # Собираем батч
+            X_batch = []
+            y_batch = []
+            
+            for _ in range(batch_size):
+                # Получаем последовательность
+                sequence, label = self._get_sequence(
+                    cap,
+                    sequence_length,
+                    target_size,
+                    one_hot,
+                    force_positive
+                )
+                
+                if sequence is None:
+                    print("[DEBUG] Не удалось получить последовательность")
+                    # Очищаем кэш для текущего видео
+                    if video_path in self.video_cache:
+                        cap = self.video_cache.pop(video_path)
+                        cap.release()
                     if video_path in self.used_frames_cache:
                         del self.used_frames_cache[video_path]
                     if video_path in self.positive_indices_cache:
                         del self.positive_indices_cache[video_path]
-                    if video_path in self.video_cache:
-                        cap, _ = self.video_cache[video_path]
-                        cap.release()
-                        del self.video_cache[video_path]
                     
                     # Переходим к следующему видео
                     self.current_video_index += 1
                     self.current_frame_index = 0
-                    self.stuck_counter = 0
-                    return None
-                    
-                if len(batch_sequences) > 0:
-                    # Возвращаем маленький батч
-                    num_positive = np.sum([label[0] == 1 for label in batch_labels])
-                    print(f"[DEBUG] get_batch: Возвращаем маленький батч. Положительных примеров (label[0] == 1): {num_positive}")
-                    print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index + 1}/{len(self.video_paths)}")
-                    print(f"[DEBUG] get_batch: Текущий индекс кадра: {self.current_frame_index}/{total_frames}")
-                    return np.array(batch_sequences), np.array(batch_labels)
-                else:
-                    # Переходим к следующему видео
-                    print(f"[DEBUG] get_batch: Батч пустой, переходим к следующему видео")
-                    # Очищаем кэш для текущего видео перед переходом к следующему
-                    if video_path in self.used_frames_cache:
-                        del self.used_frames_cache[video_path]
-                    if video_path in self.positive_indices_cache:
-                        del self.positive_indices_cache[video_path]
-                    if video_path in self.video_cache:
-                        cap, _ = self.video_cache[video_path]
-                        cap.release()
-                        del self.video_cache[video_path]
-                    
-                    # Переходим к следующему видео
-                    self.current_video_index += 1
-                    self.current_frame_index = 0
-                    self.stuck_counter = 0
-                    return None
-            else:
-                self.stuck_counter = 0
+                    return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
+                
+                X_batch.append(sequence)
+                y_batch.append(label)
             
-            # Проверяем наличие положительных примеров для train
-            if force_positive:
-                positive_count = np.sum([np.any(label == 1) for label in batch_labels])
-                if positive_count == 0:
-                    print(f"[WARNING] В батче нет положительных примеров, хотя force_positive=True")
-                    return self._resample_batch(video_path, batch_size, sequence_length, target_size, frame_labels, positive_indices)
+            # Увеличиваем счетчик батчей
+            self.current_batch += 1
             
-            # Логируем информацию
-            num_positive = np.sum([label[0] == 1 for label in batch_labels])
-            print(f"[DEBUG] get_batch: Батч собран. Размер: {len(batch_sequences)}")
-            print(f"[DEBUG] get_batch: Положительных примеров (label[0] == 1): {num_positive}")
-            print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index + 1}/{len(self.video_paths)}")
-            print(f"[DEBUG] get_batch: Текущий индекс кадра: {self.current_frame_index}/{total_frames}")
+            # Конвертируем в numpy массивы
+            X_batch = np.array(X_batch)
+            y_batch = np.array(y_batch)
             
-            return np.array(batch_sequences), np.array(batch_labels)
+            print(f"[DEBUG] Батч успешно собран: {X_batch.shape}, {y_batch.shape}")
+            return X_batch, y_batch
             
         except Exception as e:
-            print(f"[ERROR] Ошибка в get_batch: {str(e)}")
+            print(f"[ERROR] Ошибка при получении батча: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()

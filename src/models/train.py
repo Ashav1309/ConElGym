@@ -282,7 +282,7 @@ def load_best_params(model_type=None):
             default_params = {
                 'learning_rate': 1e-4,
                 'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                'batch_size': 16,
+                'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
                 'positive_class_weight': positive_class_weight
             }
             if model_type == 'v3':
@@ -319,7 +319,7 @@ def load_best_params(model_type=None):
                 best_params = {
                     'learning_rate': 1e-4,
                     'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                    'batch_size': 16,
+                    'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
                     'positive_class_weight': positive_class_weight
                 }
                 if model_type == 'v3':
@@ -341,7 +341,7 @@ def load_best_params(model_type=None):
     default_params = {
         'learning_rate': 1e-4,
         'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-        'batch_size': 16,
+        'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
         'positive_class_weight': positive_class_weight
     }
     if model_type == 'v3':
