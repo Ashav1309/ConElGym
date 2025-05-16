@@ -214,87 +214,41 @@ class VideoDataLoader:
             raise
 
     def _load_videos(self):
-        """
-        Загрузка путей к видео и соответствующих аннотаций.
-        
-        Raises:
-            FileNotFoundError: Если директория с данными не найдена
-            ValueError: Если нет видео файлов в директории
-        """
+        """Загрузка видео из директории"""
         try:
-            if not os.path.exists(self.data_path):
-                raise FileNotFoundError(f"Директория с данными не найдена: {self.data_path}")
+            video_files = []
+            for ext in ['.mp4', '.avi', '.mov']:
+                video_files.extend(list(self.data_path.glob(f'*{ext}')))
             
-            # Определяем путь к аннотациям в зависимости от типа данных (train/valid)
-            if 'train' in self.data_path:
-                annotation_dir = Config.TRAIN_ANNOTATION_PATH
-                print(f"[DEBUG] Загрузка обучающих данных из {self.data_path}")
-                print(f"[DEBUG] Путь к аннотациям: {annotation_dir}")
-            else:
-                annotation_dir = Config.VALID_ANNOTATION_PATH
-                print(f"[DEBUG] Загрузка валидационных данных из {self.data_path}")
-                print(f"[DEBUG] Путь к аннотациям: {annotation_dir}")
+            if not video_files:
+                raise ValueError(f"Видео не найдены в {self.data_path}")
             
-            if not os.path.exists(annotation_dir):
-                print(f"[DEBUG] Создание директории для аннотаций: {annotation_dir}")
-                os.makedirs(annotation_dir, exist_ok=True)
+            # Сортируем видео по имени для воспроизводимости
+            video_files.sort()
             
-            print(f"[DEBUG] Поиск видео в {self.data_path}")
-            print(f"[DEBUG] Поиск аннотаций в {annotation_dir}")
+            # Ограничиваем количество видео
+            if len(video_files) > Config.MAX_VIDEOS:
+                print(f"[DEBUG] Ограничение количества видео до {Config.MAX_VIDEOS}")
+                video_files = video_files[:Config.MAX_VIDEOS]
             
-            self.video_paths = []
-            self.labels = []
-            self.video_count = 0
+            # Определяем тип данных (train/valid) на основе пути
+            data_type = 'train' if 'train' in str(self.data_path) else 'valid'
+            print(f"[DEBUG] Загрузка {data_type} данных из {len(video_files)} видео")
             
-            # Проверяем содержимое директории
-            files = os.listdir(self.data_path)
-            print(f"[DEBUG] Найдено файлов в директории: {len(files)}")
+            self.video_paths = [str(path) for path in video_files]
+            self.labels = [None] * len(video_files)
+            self.video_count = len(video_files)
             
-            for file_name in files:
-                if self.max_videos is not None and self.video_count >= self.max_videos:
-                    print(f"[DEBUG] Достигнут лимит видео ({self.max_videos})")
-                    break
-                
-                file_path = os.path.join(self.data_path, file_name)
-                if file_name.endswith('.mp4') and os.path.isfile(file_path):
-                    print(f"[DEBUG] Найдено видео: {file_name}")
-                    self.video_paths.append(file_path)
-                    
-                    # Получаем путь к аннотации
-                    base = os.path.splitext(file_name)[0]
-                    ann_path = os.path.join(annotation_dir, base + '.json')
-                    
-                    if os.path.exists(ann_path):
-                        print(f"[DEBUG] Найдена аннотация для {file_name}")
-                        self.labels.append(ann_path)
-                    else:
-                        print(f"[WARNING] Аннотация для {file_name} не найдена")
-                        self.labels.append(None)
-                    
-                    self.video_count += 1
-            
-            if self.video_count == 0:
-                raise ValueError(f"Не найдено видео файлов в директории: {self.data_path}")
-            
-            print(f"[DEBUG] Загружено {self.video_count} видео файлов")
             print(f"[DEBUG] Пути к видео:")
             for path in self.video_paths:
                 print(f"  - {path}")
             
-            # Ограничиваем количество видео до Config.MAX_VIDEOS
-            if hasattr(Config, "MAX_VIDEOS") and len(self.video_paths) > Config.MAX_VIDEOS:
-                print(f"[DEBUG] Ограничиваем количество видео до {Config.MAX_VIDEOS}")
-                self.video_paths = self.video_paths[:Config.MAX_VIDEOS]
-                self.labels = self.labels[:Config.MAX_VIDEOS]
-                self.video_count = Config.MAX_VIDEOS
+            return self.video_paths
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
+            print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
-    
+
     def _collect_sequences(self, video_path, start_frame, batch_size, sequence_length, target_size, frame_labels, positive_indices=None, force_positive=False):
         """
         Сбор последовательностей из видео с улучшенной логикой для положительных примеров
