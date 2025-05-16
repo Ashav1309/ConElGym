@@ -130,13 +130,8 @@ def calculate_dataset_weights():
     negative_frames = total_frames - positive_frames_count
     frame_weight = negative_frames / positive_frames_count if positive_frames_count > 0 else 1.0
     
-    # Используем только вес на основе кадров и ограничиваем его
-    final_weight = min(frame_weight, 10.0)  # Ограничиваем максимальный вес
-    
-    # Проверяем, насколько реальное соотношение отличается от ограниченного
-    if frame_weight > 10.0:
-        print(f"\n[WARNING] Реальное соотношение кадров ({frame_weight:.2f}) превышает ограничение (10.0)")
-        print(f"Это означает, что отрицательных кадров в {frame_weight/10.0:.1f} раз больше, чем мы учитываем в весе")
+    # Используем реальное соотношение кадров без ограничений
+    final_weight = frame_weight
     
     # Выводим детальную статистику по каждому видео
     print("\n[DEBUG] Детальная статистика по видео:")
