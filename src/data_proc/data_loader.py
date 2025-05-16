@@ -311,6 +311,7 @@ class VideoDataLoader:
                 self.current_frame_index = 0
                 self.stuck_counter = 0
                 self.used_frames_cache.clear()  # Очищаем кэш использованных кадров
+                self.positive_indices_cache.clear()  # Очищаем кэш положительных индексов
                 return None
             
             video_path = self.video_paths[self.current_video_index]
@@ -373,6 +374,11 @@ class VideoDataLoader:
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     self.stuck_counter = 0
+                    # Очищаем кэш для текущего видео
+                    if video_path in self.used_frames_cache:
+                        del self.used_frames_cache[video_path]
+                    if video_path in self.positive_indices_cache:
+                        del self.positive_indices_cache[video_path]
                     return None
                 if len(batch_sequences) > 0:
                     # Возвращаем маленький батч
@@ -387,6 +393,11 @@ class VideoDataLoader:
                     self.current_video_index += 1
                     self.current_frame_index = 0
                     self.stuck_counter = 0
+                    # Очищаем кэш для текущего видео
+                    if video_path in self.used_frames_cache:
+                        del self.used_frames_cache[video_path]
+                    if video_path in self.positive_indices_cache:
+                        del self.positive_indices_cache[video_path]
                     return None
             else:
                 self.stuck_counter = 0
