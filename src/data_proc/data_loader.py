@@ -328,28 +328,17 @@ class VideoDataLoader:
             print(f"\n[DEBUG] Получение батча (batch_size={batch_size}, sequence_length={sequence_length})")
             print(f"[DEBUG] Текущее видео: {self.current_video_index}/{len(self.video_paths)}")
             print(f"[DEBUG] Текущий кадр: {self.current_frame_index}")
+            print(f"[DEBUG] Обработанные видео: {len(self.processed_videos)}/{len(self.video_paths)}")
             
-            # Очищаем кэш при начале новой эпохи
-            if self.current_batch == 0:
+            # Очищаем кэш только при начале новой эпохи и только если все видео обработаны
+            if self.current_batch == 0 and len(self.processed_videos) >= len(self.video_paths):
                 print("[DEBUG] Начало новой эпохи - очистка кэшей")
                 self.used_frames_cache.clear()
                 self.positive_indices_cache.clear()
                 self.video_cache.clear()
-                self.processed_videos.clear()  # Очищаем список обработанных видео
+                self.processed_videos.clear()
                 self.current_video_index = 0
                 self.current_frame_index = 0
-            
-            # Проверяем, нужно ли перейти к следующему видео
-            if self.current_video_index >= len(self.video_paths):
-                print("[DEBUG] Достигнут конец списка видео - сброс индексов")
-                self.current_video_index = 0
-                self.current_frame_index = 0
-                self.current_batch = 0
-                # Очищаем все кэши при переходе к началу списка
-                self.used_frames_cache.clear()
-                self.positive_indices_cache.clear()
-                self.video_cache.clear()
-                self.processed_videos.clear()  # Очищаем список обработанных видео
             
             # Получаем текущее видео
             video_path = self.video_paths[self.current_video_index]
@@ -357,7 +346,7 @@ class VideoDataLoader:
             # Если видео уже обработано, переходим к следующему
             if video_path in self.processed_videos:
                 print(f"[DEBUG] Видео {video_path} уже обработано - переходим к следующему")
-                self.current_video_index += 1
+                self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                 self.current_frame_index = 0
                 return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
             
@@ -374,7 +363,8 @@ class VideoDataLoader:
                 cap = cv2.VideoCapture(video_path)
                 if not cap.isOpened():
                     print(f"[ERROR] Не удалось открыть видео: {video_path}")
-                    self.current_video_index += 1
+                    self.processed_videos.add(video_path)
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                     self.current_frame_index = 0
                     return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
                 
@@ -399,7 +389,7 @@ class VideoDataLoader:
                     del self.positive_indices_cache[video_path]
                 
                 # Переходим к следующему видео
-                self.current_video_index += 1
+                self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                 self.current_frame_index = 0
                 return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
             
@@ -431,7 +421,7 @@ class VideoDataLoader:
                         del self.positive_indices_cache[video_path]
                     
                     # Переходим к следующему видео
-                    self.current_video_index += 1
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                     self.current_frame_index = 0
                     return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
                 
