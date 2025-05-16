@@ -39,7 +39,8 @@ def calculate_dataset_weights():
             'total_frames': 0,
             'positive_frames': set(),
             'total_sequences': 0,
-            'positive_sequences': 0
+            'positive_sequences': 0,
+            'annotations_count': 0  # Добавляем счетчик аннотаций
         }
         
         # Загружаем видео
@@ -69,6 +70,9 @@ def calculate_dataset_weights():
             ann_data = json.load(f)
             frame_labels = np.zeros((video_frames, Config.NUM_CLASSES), dtype=np.float32)
             
+            # Считаем количество аннотаций
+            video_stats[video_name]['annotations_count'] = len(ann_data['annotations'])
+            
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
@@ -87,6 +91,12 @@ def calculate_dataset_weights():
                             frame_labels[frame_idx] = [0, 1]
                         else:
                             frame_labels[frame_idx] = [0, 0]
+        
+        # Выводим отладочную информацию для каждого видео
+        print(f"\n[DEBUG] Обработка видео {video_name}:")
+        print(f"  - Всего кадров: {video_frames}")
+        print(f"  - Количество аннотаций: {video_stats[video_name]['annotations_count']}")
+        print(f"  - Позитивных кадров: {len(video_stats[video_name]['positive_frames'])}")
         
         # Считаем последовательности с учетом пропуска проблемных участков
         sequence_length = Config.SEQUENCE_LENGTH
