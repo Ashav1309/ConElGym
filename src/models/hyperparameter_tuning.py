@@ -363,7 +363,10 @@ def objective(trial):
     Целевая функция для оптимизации гиперпараметров
     """
     try:
-        print(f"\n[DEBUG] >>> Начало нового trial #{trial.number}")
+        print("\n" + "="*50)
+        print(f"[TRIAL #{trial.number}] Начало нового trial")
+        print("="*50 + "\n")
+        
         # Очищаем память перед каждым trial
         clear_memory()
         
