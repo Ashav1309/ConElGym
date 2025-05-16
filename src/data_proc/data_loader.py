@@ -364,13 +364,14 @@ class VideoDataLoader:
             if cap is not None:
                 cap.release()
 
-    def _get_sequence(self, cap: cv2.VideoCapture, sequence_length: int, target_size: Optional[Tuple[int, int]] = None,
+    def _get_sequence(self, cap: cv2.VideoCapture, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None,
                      one_hot: bool = True, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Получение последовательности кадров из видео
         
         Args:
             cap: объект VideoCapture
+            video_path: путь к видео файлу
             sequence_length: длина последовательности
             target_size: размер кадра
             one_hot: использовать one-hot encoding для меток
@@ -392,7 +393,6 @@ class VideoDataLoader:
                 return None, None
             
             # Получаем множество использованных кадров для текущего видео
-            video_path = cap.get(cv2.CAP_PROP_FILENAME)
             if video_path not in self.used_frames_cache:
                 self.used_frames_cache[video_path] = set()
             
@@ -584,6 +584,7 @@ class VideoDataLoader:
                     # Получаем последовательность
                     sequence, label = self._get_sequence(
                         cap,
+                        video_path,
                         sequence_length,
                         target_size,
                         one_hot,
