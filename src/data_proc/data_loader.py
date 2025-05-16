@@ -681,9 +681,14 @@ class VideoDataLoader:
             Tuple[tf.Tensor, tf.Tensor]: кортеж (X_batch, y_batch)
         """
         try:
-            logger.info("\n===== Запуск генератора данных =====")
-            logger.info(f"Количество видео для обработки: {len(self.video_paths)}")
             print(f"[DEBUG] Запуск генератора данных с {len(self.video_paths)} видео")
+            
+            # Сбрасываем состояние
+            self.clear_cache()
+            self.processed_videos.clear()
+            self.current_video_index = 0
+            self.current_frame_index = 0
+            self.current_batch = 0
             
             # Счетчик попыток найти необработанное видео
             video_attempts = 0
@@ -692,7 +697,7 @@ class VideoDataLoader:
             while True:
                 # Проверяем, все ли видео обработаны
                 if len(self.processed_videos) >= len(self.video_paths):
-                    print("[DEBUG] Все видео обработаны - конец эпохи")
+                    print("[DEBUG] Все видео обработаны - завершаем генератор")
                     break
                 
                 # Проверяем количество попыток найти необработанное видео
