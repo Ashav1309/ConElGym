@@ -57,6 +57,9 @@ class VideoDataLoader:
             self.labels = self.labels[:self.max_videos]
             self.video_count = self.max_videos
             print(f"[DEBUG] Оставлено {self.video_count} видео")
+        
+        self.stuck_counter = 0
+        self.max_stuck_batches = 10  # Максимум маленьких батчей подряд в конце видео
     
     def _load_videos(self):
         """
@@ -301,6 +304,7 @@ class VideoDataLoader:
                 print(f"[DEBUG] get_batch: Обработаны все видео, начинаем новую эпоху")
                 self.current_video_index = 0
                 self.current_frame_index = 0
+                self.stuck_counter = 0
                 return None
             
             video_path = self.video_paths[self.current_video_index]
@@ -352,7 +356,14 @@ class VideoDataLoader:
 
             # Если не удалось продвинуться по кадрам (застряли в конце видео)
             if self.current_frame_index == old_frame_index:
-                print(f"[DEBUG] get_batch: Не удалось продвинуться по кадрам, возможно конец видео. Размер батча: {len(batch_sequences)}")
+                self.stuck_counter += 1
+                print(f"[DEBUG] get_batch: Не удалось продвинуться по кадрам {self.stuck_counter} раз подряд")
+                if self.stuck_counter >= self.max_stuck_batches:
+                    print(f"[DEBUG] get_batch: Достигнут лимит маленьких батчей, переходим к следующему видео")
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    self.stuck_counter = 0
+                    return None
                 if len(batch_sequences) > 0:
                     # Возвращаем маленький батч
                     num_positive = np.sum([label[0] == 1 for label in batch_labels])
@@ -365,7 +376,10 @@ class VideoDataLoader:
                     print(f"[DEBUG] get_batch: Батч пустой, переходим к следующему видео")
                     self.current_video_index += 1
                     self.current_frame_index = 0
+                    self.stuck_counter = 0
                     return None
+            else:
+                self.stuck_counter = 0
             
             # Проверяем наличие положительных примеров для train
             if force_positive:
