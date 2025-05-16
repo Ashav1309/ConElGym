@@ -195,7 +195,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -208,6 +208,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
         rnn_type: тип RNN ('lstm' или 'bigru')
         temporal_block_type: тип временного блока ('rnn' или 'hybrid')
+        clipnorm: коэффициент градиентного клиппинга
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -251,10 +252,11 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         model_type=model_type,
         positive_class_weight=positive_class_weight,
         rnn_type=rnn_type,
-        temporal_block_type=temporal_block_type
+        temporal_block_type=temporal_block_type,
+        clipnorm=clipnorm
     )
     
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm)
     
     # Включаем mixed precision если используется GPU
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
@@ -409,6 +411,8 @@ def objective(trial):
         gamma = trial.suggest_float('gamma', 0.5, 5.0)
         alpha = trial.suggest_float('alpha', 0.1, 0.4)
         
+        clipnorm = trial.suggest_float('clipnorm', 0.1, 5.0)
+        
         print(f"[DEBUG] Параметры trial:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
@@ -429,7 +433,8 @@ def objective(trial):
             model_type=model_type,
             positive_class_weight=positive_class_weight,
             rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type
+            temporal_block_type=temporal_block_type,
+            clipnorm=clipnorm
         )
         
         # Создаем загрузчики данных
@@ -482,7 +487,7 @@ def objective(trial):
         
         # Компилируем модель с оптимизированными параметрами focal loss
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm),
             loss=focal_loss(gamma=gamma, alpha=alpha),
             metrics=metrics
         )
