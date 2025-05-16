@@ -267,6 +267,8 @@ class VideoDataLoader:
             base_name = os.path.splitext(os.path.basename(video_path))[0]
             annotation_path = os.path.join(os.path.dirname(video_path), 'annotations', f'{base_name}.json')
             
+            print(f"[DEBUG] Загрузка аннотаций из: {annotation_path}")
+            
             if not os.path.exists(annotation_path):
                 logger.warning(f"Аннотации не найдены для {video_path}")
                 return np.zeros(self._get_video_info(video_path).total_frames)
@@ -275,7 +277,7 @@ class VideoDataLoader:
                 annotations = json.load(f)
             
             # Проверяем формат аннотаций
-            if not isinstance(annotations, dict) or 'frames' not in annotations:
+            if not isinstance(annotations, dict) or 'annotations' not in annotations:
                 raise InvalidAnnotationError(f"Некорректный формат аннотаций в {annotation_path}")
             
             # Создаем массив меток
@@ -283,19 +285,30 @@ class VideoDataLoader:
             labels = np.zeros(total_frames)
             
             # Заполняем метки
-            for frame_info in annotations['frames']:
-                if not isinstance(frame_info, dict) or 'frame' not in frame_info or 'label' not in frame_info:
-                    raise InvalidAnnotationError(f"Некорректный формат кадра в {annotation_path}")
+            print(f"[DEBUG] Обработка аннотаций:")
+            for i, annotation in enumerate(annotations['annotations']):
+                if not isinstance(annotation, dict) or 'start_frame' not in annotation or 'end_frame' not in annotation:
+                    raise InvalidAnnotationError(f"Некорректный формат аннотации {i} в {annotation_path}")
                 
-                frame_idx = frame_info['frame']
-                if not isinstance(frame_idx, int) or frame_idx < 0 or frame_idx >= total_frames:
-                    raise InvalidAnnotationError(f"Некорректный индекс кадра {frame_idx} в {annotation_path}")
+                start_frame = annotation['start_frame']
+                end_frame = annotation['end_frame']
                 
-                label = frame_info['label']
-                if not isinstance(label, (int, float)) or label not in [0, 1]:
-                    raise InvalidAnnotationError(f"Некорректная метка {label} в {annotation_path}")
+                print(f"[DEBUG] Аннотация {i+1}: кадры {start_frame}-{end_frame}")
                 
-                labels[frame_idx] = label
+                if not isinstance(start_frame, int) or not isinstance(end_frame, int):
+                    raise InvalidAnnotationError(f"Некорректные индексы кадров в аннотации {i}")
+                
+                if start_frame < 0 or end_frame >= total_frames:
+                    raise InvalidAnnotationError(f"Индексы кадров вне диапазона в аннотации {i}")
+                
+                # Помечаем все кадры в диапазоне как положительные
+                labels[start_frame:end_frame + 1] = 1.0
+            
+            positive_frames = np.sum(labels == 1.0)
+            print(f"[DEBUG] Статистика аннотаций:")
+            print(f"  - Всего кадров: {total_frames}")
+            print(f"  - Положительных кадров: {positive_frames}")
+            print(f"  - Процент положительных: {positive_frames/total_frames*100:.2f}%")
             
             return labels
             
@@ -403,46 +416,11 @@ class VideoDataLoader:
             
             # Загружаем аннотации для видео
             if video_path not in self.positive_indices_cache:
-                annotation_path = os.path.join(
-                    Config.TRAIN_ANNOTATION_PATH if 'train' in video_path else Config.VALID_ANNOTATION_PATH,
-                    os.path.splitext(os.path.basename(video_path))[0] + '.json'
-                )
-                
-                print(f"[DEBUG] Загрузка аннотаций из: {annotation_path}")
-                
-                if os.path.exists(annotation_path):
-                    with open(annotation_path, 'r') as f:
-                        ann_data = json.load(f)
-                        
-                        # Создаем массив меток для каждого кадра
-                        frame_labels = np.zeros(total_frames, dtype=np.float32)
-                        
-                        # Проверяем структуру аннотаций
-                        print(f"[DEBUG] Структура аннотаций: {ann_data.keys()}")
-                        
-                        if 'annotations' in ann_data:
-                            annotations = ann_data['annotations']
-                            print(f"[DEBUG] Количество аннотаций: {len(annotations)}")
-                            
-                            for i, annotation in enumerate(annotations):
-                                start_frame = annotation['start_frame']
-                                end_frame = annotation['end_frame']
-                                print(f"[DEBUG] Аннотация {i+1}: кадры {start_frame}-{end_frame}")
-                                
-                                for frame_idx in range(start_frame, end_frame + 1):
-                                    if frame_idx < len(frame_labels):
-                                        frame_labels[frame_idx] = 1.0  # Положительный класс
-                        
-                        # Сохраняем метки в кэш
-                        self.positive_indices_cache[video_path] = frame_labels
-                        print(f"[DEBUG] Загружено {len(ann_data.get('annotations', []))} аннотаций")
-                        print(f"[DEBUG] Количество положительных кадров: {np.sum(frame_labels == 1.0)}")
-                else:
-                    print(f"[WARNING] Аннотации не найдены для видео: {video_path}")
-                    self.positive_indices_cache[video_path] = np.zeros(total_frames, dtype=np.float32)
-            
-            # Получаем метки из кэша
-            frame_labels = self.positive_indices_cache[video_path]
+                print(f"[DEBUG] Загрузка аннотаций для видео: {video_path}")
+                frame_labels = self._load_annotations(video_path)
+                self.positive_indices_cache[video_path] = frame_labels
+            else:
+                frame_labels = self.positive_indices_cache[video_path]
             
             # Если требуется принудительно брать положительные примеры
             if force_positive:
