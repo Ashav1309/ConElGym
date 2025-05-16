@@ -249,91 +249,96 @@ class VideoDataLoader:
             print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
 
-    def _collect_sequences(self, video_path, start_frame, batch_size, sequence_length, target_size, frame_labels, positive_indices=None, force_positive=False):
+    def _load_annotations(self, video_path: str) -> np.ndarray:
         """
-        Сбор последовательностей из видео с улучшенной логикой для положительных примеров
+        Загрузка аннотаций для видео
         
         Args:
-            video_path: путь к видео
-            start_frame: начальный кадр
-            batch_size: размер батча
-            sequence_length: длина последовательности
-            target_size: размер кадра
-            frame_labels: метки кадров
-            positive_indices: индексы положительных кадров
-            force_positive: флаг принудительного добавления положительных примеров
+            video_path: путь к видео файлу
+            
+        Returns:
+            np.ndarray: массив меток для каждого кадра
+            
+        Raises:
+            InvalidAnnotationError: если формат аннотаций некорректен
         """
         try:
-            batch_sequences = []
-            batch_labels = []
+            # Получаем путь к файлу аннотаций
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            annotation_path = os.path.join(os.path.dirname(video_path), 'annotations', f'{base_name}.json')
             
-            # Получаем множество использованных кадров для текущего видео
-            used_indices = self.used_frames_cache[video_path]
+            if not os.path.exists(annotation_path):
+                logger.warning(f"Аннотации не найдены для {video_path}")
+                return np.zeros(self._get_video_info(video_path).total_frames)
             
-            # Получаем видео из кэша
-            cap, total_frames = self.video_cache[video_path]
+            with open(annotation_path, 'r') as f:
+                annotations = json.load(f)
             
-            # Сначала добавляем положительные последовательности
-            if force_positive and positive_indices is not None and len(positive_indices) > 0:
-                num_positive = max(1, batch_size // 4)
-                print(f"[DEBUG] _collect_sequences: Добавляем {num_positive} положительных последовательностей")
-                
-                # Фильтруем положительные индексы, исключая уже использованные
-                available_pos_indices = [idx for idx in positive_indices if idx not in used_indices]
-                
-                if len(available_pos_indices) > 0:
-                    selected_pos_indices = np.random.choice(available_pos_indices, 
-                                                          size=min(num_positive, len(available_pos_indices)), 
-                                                          replace=False)
-                    
-                    for pos_idx in selected_pos_indices:
-                        # Центрируем последовательность вокруг положительного кадра
-                        start_idx = max(0, pos_idx - sequence_length // 2)
-                        end_idx = min(total_frames, start_idx + sequence_length)
-                        
-                        # Проверяем, что последовательность не выходит за границы
-                        if end_idx - start_idx < sequence_length:
-                            continue
-                        
-                        # Проверяем, что последовательность не пересекается с уже использованными
-                        if any(idx in used_indices for idx in range(start_idx, end_idx)):
-                            continue
-                        
-                        sequence = []
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                        
-                        # Собираем последовательность
-                        for _ in range(sequence_length):
-                            ret, frame = cap.read()
-                            if not ret:
-                                break
-                            if target_size:
-                                frame = cv2.resize(frame, target_size)
-                            sequence.append(frame)
-                        
-                        if len(sequence) == sequence_length:
-                            batch_sequences.append(np.array(sequence))
-                            batch_labels.append(frame_labels[pos_idx])
-                            # Отмечаем использованные кадры
-                            used_indices.update(range(start_idx, end_idx))
-                            print(f"[DEBUG] _collect_sequences: Добавлена положительная последовательность с кадра {start_idx} по {end_idx} (pos_idx={pos_idx})")
+            # Проверяем формат аннотаций
+            if not isinstance(annotations, dict) or 'frames' not in annotations:
+                raise InvalidAnnotationError(f"Некорректный формат аннотаций в {annotation_path}")
             
-            # Добавляем обычные последовательности
-            current_frame = start_frame
-            while len(batch_sequences) < batch_size and current_frame < total_frames:
-                # Пропускаем уже использованные кадры
-                if current_frame in used_indices:
-                    current_frame += 1
-                    continue
+            # Создаем массив меток
+            total_frames = self._get_video_info(video_path).total_frames
+            labels = np.zeros(total_frames)
+            
+            # Заполняем метки
+            for frame_info in annotations['frames']:
+                if not isinstance(frame_info, dict) or 'frame' not in frame_info or 'label' not in frame_info:
+                    raise InvalidAnnotationError(f"Некорректный формат кадра в {annotation_path}")
                 
-                # Проверяем, что последовательность не выходит за границы
-                if current_frame + sequence_length > total_frames:
-                    break
+                frame_idx = frame_info['frame']
+                if not isinstance(frame_idx, int) or frame_idx < 0 or frame_idx >= total_frames:
+                    raise InvalidAnnotationError(f"Некорректный индекс кадра {frame_idx} в {annotation_path}")
                 
+                label = frame_info['label']
+                if not isinstance(label, (int, float)) or label not in [0, 1]:
+                    raise InvalidAnnotationError(f"Некорректная метка {label} в {annotation_path}")
+                
+                labels[frame_idx] = label
+            
+            return labels
+            
+        except json.JSONDecodeError as e:
+            raise InvalidAnnotationError(f"Ошибка при чтении JSON файла {annotation_path}: {str(e)}")
+        except Exception as e:
+            raise InvalidAnnotationError(f"Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
+
+    def create_sequences(self, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[List[np.ndarray], List[int]]:
+        """
+        Создание последовательностей из видео
+        
+        Args:
+            video_path: путь к видео файлу
+            sequence_length: длина последовательности
+            target_size: размер кадра
+            
+        Returns:
+            Tuple[List[np.ndarray], List[int]]: кортеж (список последовательностей, список меток)
+            
+        Raises:
+            CorruptedVideoError: если видео повреждено
+            InvalidAnnotationError: если формат аннотаций некорректен
+        """
+        try:
+            # Загружаем видео
+            cap, total_frames = self.load_video(video_path)
+            
+            # Загружаем аннотации
+            frame_labels = self._load_annotations(video_path)
+            
+            # Проверяем соответствие размеров
+            if len(frame_labels) != total_frames:
+                raise InvalidAnnotationError(f"Количество меток ({len(frame_labels)}) не соответствует количеству кадров ({total_frames})")
+            
+            sequences = []
+            labels = []
+            
+            # Создаем последовательности
+            for i in range(0, total_frames - sequence_length + 1, sequence_length):
                 sequence = []
-                cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
                 
-                # Собираем последовательность
                 for _ in range(sequence_length):
                     ret, frame = cap.read()
                     if not ret:
@@ -343,21 +348,83 @@ class VideoDataLoader:
                     sequence.append(frame)
                 
                 if len(sequence) == sequence_length:
-                    batch_sequences.append(np.array(sequence))
-                    batch_labels.append(frame_labels[current_frame])
-                    # Отмечаем использованные кадры
-                    used_indices.update(range(current_frame, current_frame + sequence_length))
+                    sequences.append(np.array(sequence))
+                    labels.append(frame_labels[i])
                 
-                current_frame += 1
+                # Очищаем память каждые 10 последовательностей
+                if len(sequences) % 10 == 0:
+                    gc.collect()
             
-            return batch_sequences, batch_labels, current_frame
+            return sequences, labels
             
         except Exception as e:
-            print(f"[ERROR] Ошибка в _collect_sequences: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-            return [], [], start_frame
+            logger.error(f"Ошибка при создании последовательностей: {str(e)}")
+            raise
+        finally:
+            if cap is not None:
+                cap.release()
+
+    def _get_sequence(self, cap: cv2.VideoCapture, sequence_length: int, target_size: Optional[Tuple[int, int]] = None,
+                     one_hot: bool = True, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Получение последовательности кадров из видео
+        
+        Args:
+            cap: объект VideoCapture
+            sequence_length: длина последовательности
+            target_size: размер кадра
+            one_hot: использовать one-hot encoding для меток
+            force_positive: принудительно брать положительные примеры
+            
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метка) или (None, None)
+            
+        Raises:
+            CorruptedVideoError: если видео повреждено
+        """
+        try:
+            # Получаем текущий индекс кадра
+            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            # Проверяем, что последовательность не выходит за границы
+            if current_frame + sequence_length > total_frames:
+                return None, None
+            
+            # Получаем множество использованных кадров для текущего видео
+            video_path = cap.get(cv2.CAP_PROP_FILENAME)
+            if video_path not in self.used_frames_cache:
+                self.used_frames_cache[video_path] = set()
+            
+            used_frames = self.used_frames_cache[video_path]
+            
+            # Проверяем, не пересекается ли последовательность с уже использованными кадрами
+            if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
+                return None, None
+            
+            sequence = []
+            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+            
+            # Собираем последовательность
+            for _ in range(sequence_length):
+                ret, frame = cap.read()
+                if not ret:
+                    raise CorruptedVideoError(f"Не удалось прочитать кадр {current_frame}")
+                if target_size:
+                    frame = cv2.resize(frame, target_size)
+                sequence.append(frame)
+            
+            # Отмечаем использованные кадры
+            used_frames.update(range(current_frame, current_frame + sequence_length))
+            
+            # Создаем метку (в данном случае просто 0, так как метки загружаются отдельно)
+            label = np.zeros(2) if one_hot else 0
+            
+            return np.array(sequence), label
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении последовательности: {str(e)}")
+            return None, None
 
     def get_batch(self, batch_size: Optional[int] = None, sequence_length: Optional[int] = None,
                  target_size: Optional[Tuple[int, int]] = None, one_hot: bool = True,
