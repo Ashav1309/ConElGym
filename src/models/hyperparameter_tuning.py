@@ -401,7 +401,7 @@ def objective(trial):
         # Определяем гиперпараметры для оптимизации
         learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        batch_size = trial.suggest_int('batch_size', 64, 256, step=8)  # Добавляем размер батча
+        batch_size = trial.suggest_int('batch_size', 64, 512, step=8)  # Добавляем размер батча
         
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention'])

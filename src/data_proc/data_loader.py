@@ -27,6 +27,7 @@ class VideoDataLoader:
         self.positive_indices_cache = {}  # Кэш для индексов положительных кадров
         self.video_cache = {}  # Кэш для видео
         self.used_frames_cache = {}  # Кэш для отслеживания использованных кадров
+        self.processed_videos = set()  # Множество обработанных видео
         self.data_path = data_path
         self.max_videos = max_videos
         self.video_paths = []
@@ -334,6 +335,9 @@ class VideoDataLoader:
                 self.used_frames_cache.clear()
                 self.positive_indices_cache.clear()
                 self.video_cache.clear()
+                self.processed_videos.clear()  # Очищаем список обработанных видео
+                self.current_video_index = 0
+                self.current_frame_index = 0
             
             # Проверяем, нужно ли перейти к следующему видео
             if self.current_video_index >= len(self.video_paths):
@@ -345,9 +349,18 @@ class VideoDataLoader:
                 self.used_frames_cache.clear()
                 self.positive_indices_cache.clear()
                 self.video_cache.clear()
+                self.processed_videos.clear()  # Очищаем список обработанных видео
             
             # Получаем текущее видео
             video_path = self.video_paths[self.current_video_index]
+            
+            # Если видео уже обработано, переходим к следующему
+            if video_path in self.processed_videos:
+                print(f"[DEBUG] Видео {video_path} уже обработано - переходим к следующему")
+                self.current_video_index += 1
+                self.current_frame_index = 0
+                return self.get_batch(batch_size, sequence_length, target_size, one_hot, max_sequences_per_video, force_positive)
+            
             print(f"[DEBUG] Загрузка видео: {video_path}")
             
             # Проверяем, есть ли видео в кэше
@@ -374,6 +387,8 @@ class VideoDataLoader:
             # Проверяем, нужно ли перейти к следующему видео
             if self.current_frame_index >= total_frames - sequence_length:
                 print(f"[DEBUG] Достигнут конец видео {self.current_video_index}")
+                # Отмечаем видео как обработанное
+                self.processed_videos.add(video_path)
                 # Очищаем кэш для текущего видео
                 if video_path in self.video_cache:
                     cap = self.video_cache.pop(video_path)
@@ -404,6 +419,8 @@ class VideoDataLoader:
                 
                 if sequence is None:
                     print("[DEBUG] Не удалось получить последовательность")
+                    # Отмечаем видео как обработанное
+                    self.processed_videos.add(video_path)
                     # Очищаем кэш для текущего видео
                     if video_path in self.video_cache:
                         cap = self.video_cache.pop(video_path)
