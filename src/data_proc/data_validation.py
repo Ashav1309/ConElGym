@@ -205,7 +205,7 @@ def check_class_balance(positive_count: int, total_count: int) -> None:
     if total_count > 0 and positive_count / total_count < min_positive_ratio:
         raise ValueError(f"Слишком мало положительных примеров: {positive_count / total_count:.2%} < {min_positive_ratio * 100:.2f}%")
     
-    if positive_count > Config.MAX_POSITIVE_RATIO:
+    if total_count > 0 and positive_count / total_count > Config.MAX_POSITIVE_RATIO:
         raise ValueError(f"Слишком много положительных примеров: {positive_count / total_count:.2%} > {Config.MAX_POSITIVE_RATIO:.2%}")
     
     logger.info(f"Баланс классов в норме: {positive_count / total_count:.2%} положительных примеров")
