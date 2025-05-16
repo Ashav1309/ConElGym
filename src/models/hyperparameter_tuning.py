@@ -432,7 +432,7 @@ def objective(trial):
             print(f"  - {key}: {value}")
         
         # Создаем и обучаем модель
-        model = create_model(
+        model, class_weights = create_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=2,
             dropout_rate=params['dropout_rate'],
