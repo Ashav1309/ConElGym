@@ -22,7 +22,8 @@ class VideoDataLoader:
             data_path: путь к директории с данными
             max_videos: максимальное количество видео для загрузки (None для загрузки всех видео)
         """
-        self.positive_indices_cache = {}  # Кэш для индексов положительных кадров (инициализация первой!)
+        self.positive_indices_cache = {}  # Кэш для индексов положительных кадров
+        self.video_cache = {}  # Кэш для видео
         self.data_path = data_path
         self.max_videos = max_videos
         self.video_paths = []
@@ -187,29 +188,130 @@ class VideoDataLoader:
                 cap.release()
             raise
     
-    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):
-        """Получение батча данных с опциональным sampling положительных примеров и подробным debug-логом"""
+    def _collect_sequences(self, video_path, start_frame, batch_size, sequence_length, target_size, frame_labels, positive_indices=None, force_positive=False):
+        """
+        Сбор последовательностей из видео с улучшенной логикой для положительных примеров
+        
+        Args:
+            video_path: путь к видео
+            start_frame: начальный кадр
+            batch_size: размер батча
+            sequence_length: длина последовательности
+            target_size: размер кадра
+            frame_labels: метки кадров
+            positive_indices: индексы положительных кадров
+            force_positive: флаг принудительного добавления положительных примеров
+        """
         try:
+            batch_sequences = []
+            batch_labels = []
+            used_indices = set()
+            
+            # Получаем видео из кэша
+            cap, total_frames = self.video_cache[video_path]
+            
+            # Сначала добавляем положительные последовательности
+            if force_positive and positive_indices is not None and len(positive_indices) > 0:
+                num_positive = max(1, batch_size // 4)
+                print(f"[DEBUG] _collect_sequences: Добавляем {num_positive} положительных последовательностей")
+                
+                # Выбираем случайные положительные индексы
+                selected_pos_indices = np.random.choice(positive_indices, 
+                                                      size=min(num_positive, len(positive_indices)), 
+                                                      replace=False)
+                
+                for pos_idx in selected_pos_indices:
+                    # Центрируем последовательность вокруг положительного кадра
+                    start_idx = max(0, pos_idx - sequence_length // 2)
+                    end_idx = min(total_frames, start_idx + sequence_length)
+                    
+                    # Проверяем, что последовательность не выходит за границы
+                    if end_idx - start_idx < sequence_length:
+                        continue
+                    
+                    # Проверяем, что последовательность не пересекается с уже использованными
+                    if any(idx in used_indices for idx in range(start_idx, end_idx)):
+                        continue
+                    
+                    sequence = []
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                    
+                    # Собираем последовательность
+                    for _ in range(sequence_length):
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        if target_size:
+                            frame = cv2.resize(frame, target_size)
+                        sequence.append(frame)
+                    
+                    if len(sequence) == sequence_length:
+                        batch_sequences.append(np.array(sequence))
+                        # Используем метку центрального кадра
+                        batch_labels.append(frame_labels[pos_idx])
+                        # Отмечаем использованные кадры
+                        used_indices.update(range(start_idx, end_idx))
+                        print(f"[DEBUG] _collect_sequences: Добавлена положительная последовательность с кадра {start_idx} по {end_idx} (pos_idx={pos_idx})")
+            
+            # Добавляем обычные последовательности
+            current_frame = start_frame
+            while len(batch_sequences) < batch_size and current_frame < total_frames:
+                # Пропускаем уже использованные кадры
+                if current_frame in used_indices:
+                    current_frame += 1
+                    continue
+                
+                # Проверяем, что последовательность не выходит за границы
+                if current_frame + sequence_length > total_frames:
+                    break
+                
+                sequence = []
+                cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+                
+                # Собираем последовательность
+                for _ in range(sequence_length):
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if target_size:
+                        frame = cv2.resize(frame, target_size)
+                    sequence.append(frame)
+                
+                if len(sequence) == sequence_length:
+                    batch_sequences.append(np.array(sequence))
+                    batch_labels.append(frame_labels[current_frame])
+                    used_indices.add(current_frame)
+                
+                current_frame += 1
+            
+            return batch_sequences, batch_labels, current_frame
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка в _collect_sequences: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            return [], [], start_frame
+
+    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):
+        """Получение батча данных с улучшенной логикой переключения между видео"""
+        try:
+            # Проверяем, нужно ли переключиться на следующее видео
             if self.current_video_index >= len(self.video_paths):
-                print(f"[DEBUG] get_batch: current_video_index >= len(video_paths), сбрасываем индекс")
+                print(f"[DEBUG] get_batch: Обработаны все видео, начинаем новую эпоху")
                 self.current_video_index = 0
                 self.current_frame_index = 0
                 return None
             
             video_path = self.video_paths[self.current_video_index]
-            print(f"[DEBUG] get_batch: Начинаем обработку видео {video_path}")
-            cap, total_frames = self.load_video(video_path)
+            print(f"[DEBUG] get_batch: Обработка видео {os.path.basename(video_path)} (индекс {self.current_video_index + 1}/{len(self.video_paths)})")
             
-            # Проверяем, не достигли ли мы конца видео
-            if self.current_frame_index >= total_frames:
-                print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}")
-                self.current_video_index += 1
-                self.current_frame_index = 0
-                cap.release()
-                return None
-            
-            # Устанавливаем текущую позицию в видео
-            cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
+            # Загружаем или получаем из кэша видео
+            if video_path not in self.video_cache:
+                cap, total_frames = self.load_video(video_path)
+                self.video_cache[video_path] = (cap, total_frames)
+            else:
+                cap, total_frames = self.video_cache[video_path]
             
             # Загружаем аннотации
             annotations = self.labels[self.current_video_index]
@@ -226,201 +328,146 @@ class VideoDataLoader:
             else:
                 frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
             
-            batch_sequences = []
-            batch_labels = []
-            used_indices = set()
-            batches_for_this_video = 0
-            
-            # --- Кэширование индексов положительных кадров ---
+            # Получаем индексы положительных кадров
             if video_path not in self.positive_indices_cache:
                 positive_indices = np.where(np.any(frame_labels == 1, axis=1))[0]
                 self.positive_indices_cache[video_path] = positive_indices
             else:
                 positive_indices = self.positive_indices_cache[video_path]
             
-            # --- Новый sampling: гарантированное наличие положительных примеров ---
-            if force_positive and len(positive_indices) > 0:
-                num_positive = max(1, batch_size // 4)
-                print(f"[DEBUG] get_batch: Добавляем {num_positive} положительных последовательностей")
-                
-                selected_pos_indices = np.random.choice(positive_indices, size=min(num_positive, len(positive_indices)), replace=False)
-                
-                for pos_idx in selected_pos_indices:
-                    start_idx = max(0, pos_idx - sequence_length // 2)
-                    end_idx = min(total_frames, start_idx + sequence_length)
-                    start_idx = end_idx - sequence_length
-                    
-                    if start_idx >= 0 and end_idx <= total_frames:
-                        print(f"[DEBUG] get_batch: Добавляем положительную последовательность с кадра {start_idx} по {end_idx} (pos_idx={pos_idx})")
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                        frames = []
-                        labels = []
-                        for i in range(start_idx, end_idx):
-                            ret, frame = cap.read()
-                            if not ret:
-                                print(f"[DEBUG] get_batch: Не удалось прочитать кадр {i}")
-                                break
-                            frame = cv2.resize(frame, target_size)
-                            frames.append(frame)
-                            labels.append(frame_labels[i])
-                        if len(frames) == sequence_length:
-                            batch_sequences.append(frames)
-                            batch_labels.append(labels)
-                            used_indices.update(range(start_idx, end_idx))
-                            batches_for_this_video += 1
-                            # Очищаем память после каждой последовательности
-                            del frames
-                            del labels
-                            gc.collect()
+            # Собираем последовательности
+            batch_sequences, batch_labels, new_frame_index = self._collect_sequences(
+                video_path,
+                self.current_frame_index,
+                batch_size,
+                sequence_length,
+                target_size,
+                frame_labels,
+                positive_indices,
+                force_positive
+            )
             
-            # --- Добавляем обычные последовательности ---
-            unreadable_frames_count = 0  # Счетчик нечитаемых кадров
-            while len(batch_sequences) < batch_size:
-                if self.current_frame_index + sequence_length > total_frames:
-                    print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}")
-                    self.current_video_index += 1
-                    self.current_frame_index = 0
-                    cap.release()
-                    if len(batch_sequences) > 0:
-                        print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
-                        return None
+            # Обновляем индексы
+            self.current_frame_index = new_frame_index
+            
+            # Проверяем, нужно ли переключиться на следующее видео
+            if self.current_frame_index >= total_frames:
+                print(f"[DEBUG] get_batch: Достигнут конец видео {os.path.basename(video_path)}")
+                self.current_video_index += 1
+                self.current_frame_index = 0
+                if len(batch_sequences) == 0:
                     return None
-                
-                if any(idx in used_indices for idx in range(self.current_frame_index, self.current_frame_index + sequence_length)):
-                    self.current_frame_index += 1
-                    continue
-                
-                frames = []
-                labels = []
-                start_frame = self.current_frame_index
-                cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-                
-                # Читаем кадры до достижения нужной длины последовательности
-                while len(frames) < sequence_length and self.current_frame_index < total_frames:
-                    ret, frame = cap.read()
-                    if not ret:
-                        print(f"[DEBUG] get_batch: Не удалось прочитать кадр {self.current_frame_index}")
-                        unreadable_frames_count += 1
-                        self.current_frame_index += 1
-                        # Если слишком много нечитаемых кадров, пропускаем видео
-                        if unreadable_frames_count > 120:
-                            print(f"[WARNING] Слишком много нечитаемых кадров ({unreadable_frames_count}), пропускаем видео")
-                            self.current_video_index += 1
-                            self.current_frame_index = 0
-                            cap.release()
-                            return None
-                        continue
-                    frame = cv2.resize(frame, target_size)
-                    frames.append(frame)
-                    labels.append(frame_labels[self.current_frame_index])
-                    self.current_frame_index += 1
-
-                # Если последовательность неполная, но содержит положительный пример — паддим до нужной длины
-                if 0 < len(frames) < sequence_length:
-                    # Проверяем, есть ли положительный пример
-                    sequence_labels = np.array(labels)
-                    has_positive = np.any(sequence_labels[:, 1] == 1)
-                    if has_positive:
-                        print(f"[DEBUG] get_batch: Паддинг неполной последовательности с положительным примером. Длина: {len(frames)}")
-                        lost_positives = np.sum(sequence_labels[:, 1] == 1)
-                        print(f"[DEBUG] В этой последовательности было бы потеряно положительных примеров: {lost_positives}")
-                        # Паддинг копированием последнего кадра и метки
-                        while len(frames) < sequence_length:
-                            frames.append(frames[-1])
-                            labels.append(labels[-1])
-                        batch_sequences.append(frames)
-                        batch_labels.append(labels)
-                        batches_for_this_video += 1
-                        del frames
-                        del labels
-                        gc.collect()
-                        continue
-                    else:
-                        # Если нет положительных — просто выбрасываем
-                        del frames
-                        del labels
-                        gc.collect()
-                        continue
-
-                # Если удалось собрать последовательность нужной длины
-                if len(frames) == sequence_length:
-                    # Проверяем наличие положительных примеров в последовательности
-                    sequence_labels = np.array(labels)
-                    has_positive = np.any(sequence_labels[:, 1] == 1)
-                    if has_positive:
-                        print(f"[DEBUG] get_batch: Найдена положительная последовательность в обычных примерах")
-                    batch_sequences.append(frames)
-                    batch_labels.append(labels)
-                    batches_for_this_video += 1
-                    del frames
-                    del labels
-                    gc.collect()
-                else:
-                    # Если последовательность пустая или невалидная
-                    del frames
-                    del labels
-                    gc.collect()
-                    continue
             
-            if len(batch_sequences) != batch_size:
-                print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
-                print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
-                return None
+            # Проверяем наличие положительных примеров для train
+            if force_positive:
+                positive_count = np.sum([np.any(label == 1) for label in batch_labels])
+                if positive_count == 0:
+                    print(f"[WARNING] В батче нет положительных примеров, хотя force_positive=True")
+                    return self._resample_batch(video_path, batch_size, sequence_length, target_size, frame_labels, positive_indices)
             
-            # После успешного формирования батча обновляем индекс кадра
-            if len(batch_sequences) == batch_size:
-                print(f"[DEBUG] get_batch: Батч успешно собран. batch_sequences={len(batch_sequences)}")
-                print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
-                print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index}, текущий индекс кадра: {self.current_frame_index}")
-                
-                # Проверяем наличие положительных примеров в батче
-                positive_in_batch = [np.any(np.array(lbl)[:,1] == 1) for lbl in batch_labels]
-                num_positive = sum(positive_in_batch)
-                positive_indices = [i for i, v in enumerate(positive_in_batch) if v]
-                print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
-                print(f"[DEBUG] Индексы последовательностей с положительным примером в батче: {positive_indices}")
-                if num_positive > 0:
-                    print(f"[DEBUG] Распределение положительных примеров по кадрам:")
-                    for idx in positive_indices:
-                        positive_frames = np.where(np.array(batch_labels[idx])[:,1] == 1)[0]
-                        print(f"  - Последовательность {idx}: кадры {positive_frames.tolist()}")
-                
-                # Конвертируем в numpy массивы с оптимизированным типом данных
-                X = np.array(batch_sequences, dtype=np.float32) / 255.0
-                y = np.array(batch_labels, dtype=np.float32)
-                
-                # Очищаем память
-                del batch_sequences
-                del batch_labels
-                gc.collect()
-                
-                # Обновляем индекс кадра после формирования батча
-                self.current_frame_index += sequence_length
-                
-                print(f"[DEBUG] get_batch: Прогресс обработки видео: {self.current_frame_index}/{total_frames} кадров")
-                
-                if self.current_frame_index >= total_frames:
-                    print(f"[DEBUG] get_batch: Достигнут конец видео {video_path}, переходим к следующему")
-                    self.current_video_index += 1
-                    self.current_frame_index = 0
-                    cap.release()
-                    if self.current_video_index >= len(self.video_paths):
-                        print(f"[DEBUG] get_batch: Обработаны все видео")
-                        self.current_video_index = 0
-                        return None
-                
-                return X, y
-            else:
-                print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")
-                print(f"[DEBUG] get_batch: Для видео {video_path} собрано {batches_for_this_video} батчей")
-                return None
+            # Логируем информацию
+            print(f"[DEBUG] get_batch: Батч собран. Размер: {len(batch_sequences)}")
+            print(f"[DEBUG] get_batch: Положительных примеров: {np.sum([np.any(label == 1) for label in batch_labels])}")
+            print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index + 1}/{len(self.video_paths)}")
+            print(f"[DEBUG] get_batch: Текущий индекс кадра: {self.current_frame_index}/{total_frames}")
+            
+            return np.array(batch_sequences), np.array(batch_labels)
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при получении батча: {str(e)}")
+            print(f"[ERROR] Ошибка в get_batch: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
             return None
+    
+    def _resample_batch(self, video_path, batch_size, sequence_length, target_size, frame_labels, positive_indices):
+        """Пересборка батча с гарантированным наличием положительных примеров"""
+        max_attempts = 3
+        print(f"[DEBUG] Начинаем пересборку батча для видео {os.path.basename(video_path)}")
+        print(f"[DEBUG] Доступно положительных кадров: {len(positive_indices)}")
+        
+        for attempt in range(max_attempts):
+            print(f"\n[DEBUG] Попытка {attempt + 1}/{max_attempts} пересборки батча")
+            
+            # Пробуем взять кадры из другой части видео
+            new_start = np.random.randint(0, len(frame_labels) - sequence_length)
+            print(f"[DEBUG] Начинаем с кадра {new_start}")
+            
+            # Собираем новый батч
+            batch_sequences = []
+            batch_labels = []
+            
+            # Сначала добавляем положительные последовательности
+            if len(positive_indices) > 0:
+                num_positive = max(1, batch_size // 4)
+                print(f"[DEBUG] Пытаемся добавить {num_positive} положительных последовательностей")
+                
+                selected_pos_indices = np.random.choice(positive_indices, 
+                                                      size=min(num_positive, len(positive_indices)), 
+                                                      replace=False)
+                
+                for pos_idx in selected_pos_indices:
+                    start_idx = max(0, pos_idx - sequence_length // 2)
+                    end_idx = min(len(frame_labels), start_idx + sequence_length)
+                    
+                    if end_idx - start_idx < sequence_length:
+                        print(f"[DEBUG] Пропускаем последовательность: неполная длина ({end_idx - start_idx} < {sequence_length})")
+                        continue
+                    
+                    cap, _ = self.video_cache[video_path]
+                    sequence = []
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                    
+                    for _ in range(sequence_length):
+                        ret, frame = cap.read()
+                        if not ret:
+                            print(f"[DEBUG] Пропускаем последовательность: ошибка чтения кадра")
+                            break
+                        if target_size:
+                            frame = cv2.resize(frame, target_size)
+                        sequence.append(frame)
+                    
+                    if len(sequence) == sequence_length:
+                        batch_sequences.append(np.array(sequence))
+                        batch_labels.append(frame_labels[pos_idx])
+                        print(f"[DEBUG] Добавлена положительная последовательность с кадра {start_idx} по {end_idx}")
+            
+            # Добавляем обычные последовательности
+            print(f"[DEBUG] Добавляем обычные последовательности. Текущий размер батча: {len(batch_sequences)}")
+            while len(batch_sequences) < batch_size:
+                sequence = []
+                cap, _ = self.video_cache[video_path]
+                cap.set(cv2.CAP_PROP_POS_FRAMES, new_start)
+                
+                for _ in range(sequence_length):
+                    ret, frame = cap.read()
+                    if not ret:
+                        print(f"[DEBUG] Пропускаем последовательность: ошибка чтения кадра")
+                        break
+                    if target_size:
+                        frame = cv2.resize(frame, target_size)
+                    sequence.append(frame)
+                
+                if len(sequence) == sequence_length:
+                    batch_sequences.append(np.array(sequence))
+                    batch_labels.append(frame_labels[new_start])
+                    print(f"[DEBUG] Добавлена обычная последовательность с кадра {new_start}")
+                
+                new_start = (new_start + 1) % (len(frame_labels) - sequence_length)
+            
+            # Проверяем наличие положительных примеров
+            positive_count = np.sum([np.any(label == 1) for label in batch_labels])
+            print(f"[DEBUG] В пересобранном батче положительных примеров: {positive_count}")
+            
+            if positive_count > 0:
+                print(f"[DEBUG] Успешно пересобран батч с {positive_count} положительными примерами")
+                return np.array(batch_sequences), np.array(batch_labels)
+            else:
+                print(f"[DEBUG] Не удалось добавить положительные примеры в попытке {attempt + 1}")
+        
+        print(f"[ERROR] Не удалось собрать батч с положительными примерами после {max_attempts} попыток")
+        print(f"[DEBUG] Возвращаем последний собранный батч (размер: {len(batch_sequences)})")
+        return np.array(batch_sequences), np.array(batch_labels)
     
     def create_sequences(self, frames, annotations):
         """Создание последовательностей с оптимизацией памяти"""
