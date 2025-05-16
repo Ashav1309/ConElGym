@@ -366,8 +366,9 @@ class VideoDataLoader:
                     return self._resample_batch(video_path, batch_size, sequence_length, target_size, frame_labels, positive_indices)
             
             # Логируем информацию
+            num_positive = np.sum([label[0] == 1 for label in batch_labels])
             print(f"[DEBUG] get_batch: Батч собран. Размер: {len(batch_sequences)}")
-            print(f"[DEBUG] get_batch: Положительных примеров: {np.sum([np.any(label == 1) for label in batch_labels])}")
+            print(f"[DEBUG] get_batch: Положительных примеров (label[0] == 1): {num_positive}")
             print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index + 1}/{len(self.video_paths)}")
             print(f"[DEBUG] get_batch: Текущий индекс кадра: {self.current_frame_index}/{total_frames}")
             
