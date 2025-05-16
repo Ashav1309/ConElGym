@@ -35,6 +35,10 @@ class Config:
     MAX_SEQUENCES_PER_VIDEO = 200
     MAX_VIDEOS = 3
     
+    # Параметры загрузчика данных
+    MAX_STUCK_BATCHES = 10  # Максимальное количество попыток получения батча
+    CACHE_CLEANUP_THRESHOLD = 90  # Порог в процентах для очистки кэша видео
+    
     # Параметры оптимизации
     LEARNING_RATE = 0.00005  # Уменьшаем с 0.0001 до 0.00005
     DROPOUT_RATE = 0.3
