@@ -624,10 +624,20 @@ class VideoDataLoader:
         try:
             print("\n[DEBUG] ===== Запуск генератора данных =====")
             print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
+            
+            # Счетчик попыток найти необработанное видео
+            video_attempts = 0
+            max_video_attempts = len(self.video_paths)  # Максимум 1 попытка на каждое видео
+            
             while True:
                 # Проверяем, все ли видео обработаны
                 if len(self.processed_videos) >= len(self.video_paths):
                     print("[DEBUG] Все видео обработаны - конец эпохи")
+                    break
+                
+                # Проверяем количество попыток найти необработанное видео
+                if video_attempts >= max_video_attempts:
+                    print("[DEBUG] Достигнуто максимальное количество попыток найти необработанное видео")
                     break
                 
                 batch_data = self.get_batch(
@@ -638,9 +648,14 @@ class VideoDataLoader:
                     max_sequences_per_video=self.max_sequences_per_video,
                     force_positive=force_positive
                 )
+                
                 if batch_data is None:
-                    print("[DEBUG] Достигнут конец эпохи")
-                    break
+                    print("[DEBUG] Не удалось получить батч - увеличиваем счетчик попыток")
+                    video_attempts += 1
+                    continue
+                
+                # Сбрасываем счетчик попыток при успешном получении батча
+                video_attempts = 0
                 
                 X, y = batch_data
                 if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
@@ -668,6 +683,9 @@ class VideoDataLoader:
                     import traceback
                     traceback.print_exc()
                     continue
+            
+            print("[DEBUG] Завершение генератора данных")
+            return
                 
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
