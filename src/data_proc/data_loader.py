@@ -400,6 +400,11 @@ class VideoDataLoader:
             current_frame = self.current_frame_index
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
+            # Проверяем, что видео открыто и имеет кадры
+            if total_frames <= 0:
+                print(f"[ERROR] Некорректное количество кадров: {total_frames}")
+                return None, None
+            
             print(f"[DEBUG] Получение последовательности:")
             print(f"  - Текущий кадр: {current_frame}/{total_frames}")
             print(f"  - Длина последовательности: {sequence_length}")
