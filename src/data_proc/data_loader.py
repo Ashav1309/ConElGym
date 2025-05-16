@@ -222,12 +222,7 @@ class VideoDataLoader:
                         end_frame = annotation['end_frame']
                         for frame_idx in range(start_frame, end_frame + 1):
                             if frame_idx < len(frame_labels):
-                                if frame_idx == start_frame:
-                                    frame_labels[frame_idx] = [1, 0]  # Start
-                                elif frame_idx == end_frame:
-                                    frame_labels[frame_idx] = [0, 1]  # End
-                                else:
-                                    frame_labels[frame_idx] = [0, 0]  # Промежуточный кадр
+                                frame_labels[frame_idx] = [1, 0]
             else:
                 frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
             
@@ -429,80 +424,62 @@ class VideoDataLoader:
     
     def create_sequences(self, frames, annotations):
         """Создание последовательностей с оптимизацией памяти"""
-        try:
-            sequences = []
-            labels = []
-            
-            # Очищаем память перед созданием последовательностей
-            gc.collect()
-            
-            # Проверяем, что аннотации существуют
-            if annotations is None:
-                print("[WARNING] Аннотации не найдены, создаем пустые метки")
+        sequences = []
+        labels = []
+        if annotations is None:
+            print("[WARNING] Аннотации не найдены, создаем пустые метки")
+            annotations = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+        else:
+            # Загружаем аннотации из JSON файла
+            try:
+                with open(annotations, 'r') as f:
+                    ann_data = json.load(f)
+                    # Создаем массив меток для каждого кадра
+                    frame_labels = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+                    for annotation in ann_data['annotations']:
+                        start_frame = annotation['start_frame']
+                        end_frame = annotation['end_frame']
+                        for frame_idx in range(start_frame, end_frame + 1):
+                            if frame_idx < len(frame_labels):
+                                frame_labels[frame_idx] = [1, 0]
+                    annotations = frame_labels
+                    print(f"[DEBUG] Загружены аннотации формы: {annotations.shape}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
+                print("[WARNING] Создаем пустые метки")
                 annotations = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
-            else:
-                # Загружаем аннотации из JSON файла
-                try:
-                    with open(annotations, 'r') as f:
-                        ann_data = json.load(f)
-                        # Создаем массив меток для каждого кадра
-                        frame_labels = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
-                        for annotation in ann_data['annotations']:
-                            start_frame = annotation['start_frame']
-                            end_frame = annotation['end_frame']
-                            for frame_idx in range(start_frame, end_frame + 1):
-                                if frame_idx < len(frame_labels):
-                                    if frame_idx == start_frame:
-                                        frame_labels[frame_idx] = [1, 0]  # Start
-                                    elif frame_idx == end_frame:
-                                        frame_labels[frame_idx] = [0, 1]  # End
-                                    else:
-                                        frame_labels[frame_idx] = [0, 0]  # Промежуточный кадр
-                        annotations = frame_labels
-                        print(f"[DEBUG] Загружены аннотации формы: {annotations.shape}")
-                except Exception as e:
-                    print(f"[ERROR] Ошибка при загрузке аннотаций: {str(e)}")
-                    print("[WARNING] Создаем пустые метки")
-                    annotations = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
+        
+        # Проверяем размерности
+        if len(annotations) != len(frames):
+            print(f"[WARNING] Несоответствие размерностей: frames={len(frames)}, annotations={len(annotations)}")
+            # Обрезаем до минимальной длины
+            min_len = min(len(frames), len(annotations))
+            frames = frames[:min_len]
+            annotations = annotations[:min_len]
+        
+        # Создаем последовательности
+        for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
+            sequence = frames[i:i + self.sequence_length]
+            sequence_labels = annotations[i:i + self.sequence_length]
             
-            # Проверяем размерности
-            if len(annotations) != len(frames):
-                print(f"[WARNING] Несоответствие размерностей: frames={len(frames)}, annotations={len(annotations)}")
-                # Обрезаем до минимальной длины
-                min_len = min(len(frames), len(annotations))
-                frames = frames[:min_len]
-                annotations = annotations[:min_len]
+            # Проверяем размерности последовательности
+            if len(sequence) == self.sequence_length and len(sequence_labels) == self.sequence_length:
+                sequences.append(sequence)
+                labels.append(sequence_labels)
             
-            # Создаем последовательности
-            for i in range(0, len(frames) - self.sequence_length + 1, self.sequence_length // 2):
-                sequence = frames[i:i + self.sequence_length]
-                sequence_labels = annotations[i:i + self.sequence_length]
-                
-                # Проверяем размерности последовательности
-                if len(sequence) == self.sequence_length and len(sequence_labels) == self.sequence_length:
-                    sequences.append(sequence)
-                    labels.append(sequence_labels)
-                
-                # Очищаем память каждые 10 последовательностей
-                if len(sequences) % 10 == 0:
-                    gc.collect()
-            
-            # Преобразуем в numpy массивы с оптимизированным типом данных
-            sequences = np.array(sequences, dtype=np.float32)
-            labels = np.array(labels, dtype=np.float32)
-            
-            print(f"[DEBUG] Создано {len(sequences)} последовательностей")
-            print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
-            print(f"[DEBUG] Форма меток: {labels.shape}")
-            
-            return sequences, labels
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при создании последовательностей: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
-            raise
+            # Очищаем память каждые 10 последовательностей
+            if len(sequences) % 10 == 0:
+                gc.collect()
+        
+        # Преобразуем в numpy массивы с оптимизированным типом данных
+        sequences = np.array(sequences, dtype=np.float32)
+        labels = np.array(labels, dtype=np.float32)
+        
+        print(f"[DEBUG] Создано {len(sequences)} последовательностей")
+        print(f"[DEBUG] Форма последовательностей: {sequences.shape}")
+        print(f"[DEBUG] Форма меток: {labels.shape}")
+        
+        return sequences, labels
     
     def preload_video(self, video_path, target_size):
         """

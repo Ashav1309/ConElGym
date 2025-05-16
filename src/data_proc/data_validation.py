@@ -152,12 +152,7 @@ def calculate_positive_examples() -> Tuple[int, int]:
                 end_frame = annotation['end_frame']
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        if frame_idx == start_frame:
-                            frame_labels[frame_idx] = [1, 0]
-                        elif frame_idx == end_frame:
-                            frame_labels[frame_idx] = [0, 1]
-                        else:
-                            frame_labels[frame_idx] = [0, 0]
+                        frame_labels[frame_idx] = [1, 0]
             # Считаем положительные кадры
             positive_count += np.sum(np.any(frame_labels == 1, axis=1))
 
@@ -181,12 +176,7 @@ def calculate_positive_examples() -> Tuple[int, int]:
                 end_frame = annotation['end_frame']
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        if frame_idx == start_frame:
-                            frame_labels[frame_idx] = [1, 0]
-                        elif frame_idx == end_frame:
-                            frame_labels[frame_idx] = [0, 1]
-                        else:
-                            frame_labels[frame_idx] = [0, 0]
+                        frame_labels[frame_idx] = [1, 0]
             positive_count += np.sum(np.any(frame_labels == 1, axis=1))
 
     logger.info(f"Найдено {positive_count} положительных кадров из {total_count} всего")
