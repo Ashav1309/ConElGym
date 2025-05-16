@@ -915,7 +915,8 @@ class VideoDataLoader:
                 # Проверяем, что последовательность не пересекается с уже использованными кадрами
                 if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
                     print(f"[DEBUG] Попытка {attempts}: Последовательность пересекается с уже использованными кадрами")
-                    self.current_frame_index += 1
+                    # Пропускаем больше кадров при каждой следующей попытке
+                    self.current_frame_index += sequence_length
                     continue
                 
                 # Собираем последовательность
@@ -940,7 +941,7 @@ class VideoDataLoader:
                 self.used_frames_cache[video_path].update(range(current_frame, current_frame + sequence_length))
                 
                 # Увеличиваем индекс текущего кадра
-                self.current_frame_index += 1
+                self.current_frame_index += sequence_length
                 
                 return np.array(sequence), label
             
