@@ -379,17 +379,17 @@ class VideoDataLoader:
             
         Returns:
             Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метка) или (None, None)
-            
-        Raises:
-            CorruptedVideoError: если видео повреждено
         """
         try:
             # Получаем текущий индекс кадра
             current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
+            logger.debug(f"Получение последовательности: кадр {current_frame}/{total_frames}")
+            
             # Проверяем, что последовательность не выходит за границы
             if current_frame + sequence_length > total_frames:
+                logger.debug(f"Последовательность выходит за границы: {current_frame + sequence_length} > {total_frames}")
                 return None, None
             
             # Получаем множество использованных кадров для текущего видео
@@ -400,16 +400,18 @@ class VideoDataLoader:
             
             # Проверяем, не пересекается ли последовательность с уже использованными кадрами
             if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
+                logger.debug(f"Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
                 return None, None
             
             sequence = []
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
             
             # Собираем последовательность
-            for _ in range(sequence_length):
+            for i in range(sequence_length):
                 ret, frame = cap.read()
                 if not ret:
-                    raise CorruptedVideoError(f"Не удалось прочитать кадр {current_frame}")
+                    logger.error(f"Не удалось прочитать кадр {current_frame + i}")
+                    raise CorruptedVideoError(f"Не удалось прочитать кадр {current_frame + i}")
                 if target_size:
                     frame = cv2.resize(frame, target_size)
                 sequence.append(frame)
@@ -420,6 +422,7 @@ class VideoDataLoader:
             # Создаем метку (в данном случае просто 0, так как метки загружаются отдельно)
             label = np.zeros(2) if one_hot else 0
             
+            logger.debug(f"Последовательность успешно получена: {len(sequence)} кадров")
             return np.array(sequence), label
             
         except Exception as e:
@@ -442,10 +445,6 @@ class VideoDataLoader:
             
         Returns:
             Optional[Tuple[np.ndarray, np.ndarray]]: кортеж (X_batch, y_batch) или None, если батч не удалось собрать
-            
-        Raises:
-            CorruptedVideoError: если видео повреждено
-            InvalidAnnotationError: если формат аннотаций некорректен
         """
         try:
             # Используем значения из конфига, если параметры не указаны
@@ -478,6 +477,7 @@ class VideoDataLoader:
             
             while attempts < max_attempts:
                 attempts += 1
+                logger.debug(f"Попытка {attempts}/{max_attempts}")
                 
                 # Проверяем, что индекс видео не выходит за границы
                 if self.current_video_index >= len(self.video_paths):
@@ -490,6 +490,7 @@ class VideoDataLoader:
                 
                 # Получаем текущее видео
                 video_path = self.video_paths[self.current_video_index]
+                logger.debug(f"Обработка видео: {video_path}")
                 
                 # Если видео уже обработано, переходим к следующему
                 if video_path in self.processed_videos:
@@ -500,8 +501,6 @@ class VideoDataLoader:
                         self.current_video_index = 0
                     self.current_frame_index = 0
                     continue
-                
-                logger.debug(f"Загрузка видео: {video_path}")
                 
                 # Получаем информацию о видео
                 info = self._get_video_info(video_path)
@@ -515,7 +514,7 @@ class VideoDataLoader:
                     self.current_frame_index = 0
                     continue
                 
-                logger.debug(f"Размер файла: {info.file_size / (1024*1024):.2f} MB")
+                logger.debug(f"Информация о видео: {info}")
                 
                 # Проверяем, есть ли видео в кэше
                 if video_path in self.video_cache:
@@ -580,7 +579,8 @@ class VideoDataLoader:
                 X_batch = []
                 y_batch = []
                 
-                for _ in range(batch_size):
+                for i in range(batch_size):
+                    logger.debug(f"Получение последовательности {i+1}/{batch_size}")
                     # Получаем последовательность
                     sequence, label = self._get_sequence(
                         cap,
