@@ -360,6 +360,9 @@ class VideoDataLoader:
                     print(f"[DEBUG] Видео {video_path} уже обработано - переходим к следующему")
                     self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                     self.current_frame_index = 0
+                    # Очищаем кэш использованных кадров для предыдущего видео
+                    if video_path in self.used_frames_cache:
+                        del self.used_frames_cache[video_path]
                     continue
                 
                 print(f"[DEBUG] Загрузка видео: {video_path}")
@@ -443,11 +446,15 @@ class VideoDataLoader:
                                 break
                             else:
                                 print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - продолжаем")
-                                self.current_frame_index += 1
+                                # Если не можем найти непересекающуюся последовательность,
+                                # очищаем кэш использованных кадров и начинаем заново
+                                if video_path in self.used_frames_cache:
+                                    del self.used_frames_cache[video_path]
+                                self.current_frame_index = 0
                                 continue
                         else:
                             print("[DEBUG] Нет информации об использованных кадрах - продолжаем")
-                            self.current_frame_index += 1
+                            self.current_frame_index = 0
                             continue
                     
                     X_batch.append(sequence)
