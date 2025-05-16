@@ -368,28 +368,21 @@ class VideoDataLoader:
                      one_hot: bool = True, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Получение последовательности кадров из видео
-        
-        Args:
-            cap: объект VideoCapture
-            video_path: путь к видео файлу
-            sequence_length: длина последовательности
-            target_size: размер кадра
-            one_hot: использовать one-hot encoding для меток
-            force_positive: принудительно брать положительные примеры
-            
-        Returns:
-            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метка) или (None, None)
         """
         try:
             # Получаем текущий индекс кадра
             current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
-            logger.debug(f"Получение последовательности: кадр {current_frame}/{total_frames}")
+            print(f"[DEBUG] Получение последовательности:")
+            print(f"  - Текущий кадр: {current_frame}/{total_frames}")
+            print(f"  - Длина последовательности: {sequence_length}")
+            print(f"  - Размер кадра: {target_size}")
+            print(f"  - Force positive: {force_positive}")
             
             # Проверяем, что последовательность не выходит за границы
             if current_frame + sequence_length > total_frames:
-                logger.debug(f"Последовательность выходит за границы: {current_frame + sequence_length} > {total_frames}")
+                print(f"[DEBUG] Последовательность выходит за границы: {current_frame + sequence_length} > {total_frames}")
                 return None, None
             
             # Получаем множество использованных кадров для текущего видео
@@ -400,7 +393,7 @@ class VideoDataLoader:
             
             # Проверяем, не пересекается ли последовательность с уже использованными кадрами
             if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
-                logger.debug(f"Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
+                print(f"[DEBUG] Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
                 return None, None
             
             # Загружаем аннотации для видео
@@ -409,6 +402,8 @@ class VideoDataLoader:
                     Config.TRAIN_ANNOTATION_PATH if 'train' in video_path else Config.VALID_ANNOTATION_PATH,
                     os.path.splitext(os.path.basename(video_path))[0] + '.json'
                 )
+                
+                print(f"[DEBUG] Загрузка аннотаций из: {annotation_path}")
                 
                 if os.path.exists(annotation_path):
                     with open(annotation_path, 'r') as f:
@@ -425,8 +420,9 @@ class VideoDataLoader:
                     
                     # Сохраняем метки в кэш
                     self.positive_indices_cache[video_path] = frame_labels
+                    print(f"[DEBUG] Загружено {len(ann_data['annotations'])} аннотаций")
                 else:
-                    logger.warning(f"Аннотации не найдены для видео: {video_path}")
+                    print(f"[WARNING] Аннотации не найдены для видео: {video_path}")
                     self.positive_indices_cache[video_path] = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
             
             # Получаем метки из кэша
@@ -439,8 +435,10 @@ class VideoDataLoader:
                 has_positive = np.any(sequence_labels[:, 0] == 1)
                 
                 if not has_positive:
-                    logger.debug("Нет положительных примеров в последовательности")
+                    print("[DEBUG] Нет положительных примеров в последовательности")
                     return None, None
+                else:
+                    print("[DEBUG] Найдены положительные примеры в последовательности")
             
             sequence = []
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
@@ -449,7 +447,7 @@ class VideoDataLoader:
             for i in range(sequence_length):
                 ret, frame = cap.read()
                 if not ret:
-                    logger.error(f"Не удалось прочитать кадр {current_frame + i}")
+                    print(f"[ERROR] Не удалось прочитать кадр {current_frame + i}")
                     raise CorruptedVideoError(f"Не удалось прочитать кадр {current_frame + i}")
                 if target_size:
                     frame = cv2.resize(frame, target_size)
@@ -465,31 +463,46 @@ class VideoDataLoader:
             # Преобразуем последовательность в numpy массив и нормализуем
             sequence = np.array(sequence, dtype=np.float32) / 255.0
             
-            logger.debug(f"Последовательность успешно получена: {sequence.shape}")
-            logger.debug(f"Метка последовательности: {label}")
+            print(f"[DEBUG] Последовательность успешно получена:")
+            print(f"  - Размерность: {sequence.shape}")
+            print(f"  - Метка: {label}")
             
             return sequence, label
             
         except Exception as e:
-            logger.error(f"Ошибка при получении последовательности: {str(e)}")
+            print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
             return None, None
+
+    def _save_batch_statistics(self, batch_number: int, positive_count: int, negative_count: int, video_path: str):
+        """
+        Сохранение статистики по батчам в файл
+        
+        Args:
+            batch_number: номер батча
+            positive_count: количество положительных примеров
+            negative_count: количество отрицательных примеров
+            video_path: путь к видео
+        """
+        try:
+            stats_file = "batch_statistics.txt"
+            file_exists = os.path.exists(stats_file)
+            
+            with open(stats_file, 'a', encoding='utf-8') as f:
+                if not file_exists:
+                    f.write("Номер батча | Положительные | Отрицательные | Соотношение | Видео\n")
+                    f.write("-" * 80 + "\n")
+                
+                ratio = positive_count / negative_count if negative_count > 0 else float('inf')
+                f.write(f"{batch_number:10d} | {positive_count:12d} | {negative_count:12d} | {ratio:10.2f} | {os.path.basename(video_path)}\n")
+                
+        except Exception as e:
+            print(f"[ERROR] Ошибка при сохранении статистики: {str(e)}")
 
     def get_batch(self, batch_size: Optional[int] = None, sequence_length: Optional[int] = None,
                  target_size: Optional[Tuple[int, int]] = None, one_hot: bool = True,
                  max_sequences_per_video: Optional[int] = None, force_positive: bool = False) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
         Получение батча данных
-        
-        Args:
-            batch_size: размер батча (если None, используется значение из конфига)
-            sequence_length: длина последовательности (если None, используется значение из конфига)
-            target_size: размер кадра (если None, используется значение из конфига)
-            one_hot: использовать one-hot encoding для меток
-            max_sequences_per_video: максимальное количество последовательностей на видео
-            force_positive: принудительно брать положительные примеры
-            
-        Returns:
-            Optional[Tuple[np.ndarray, np.ndarray]]: кортеж (X_batch, y_batch) или None, если батч не удалось собрать
         """
         try:
             # Используем значения из конфига, если параметры не указаны
@@ -498,14 +511,18 @@ class VideoDataLoader:
             target_size = target_size or self.target_size
             max_sequences_per_video = max_sequences_per_video or self.max_sequences_per_video
             
-            logger.debug(f"\nПолучение батча (batch_size={batch_size}, sequence_length={sequence_length})")
-            logger.debug(f"Текущее видео: {self.current_video_index}/{len(self.video_paths)}")
-            logger.debug(f"Текущий кадр: {self.current_frame_index}")
-            logger.debug(f"Обработанные видео: {len(self.processed_videos)}/{len(self.video_paths)}")
+            print(f"[DEBUG] Получение батча:")
+            print(f"  - batch_size: {batch_size}")
+            print(f"  - sequence_length: {sequence_length}")
+            print(f"  - target_size: {target_size}")
+            print(f"  - force_positive: {force_positive}")
+            print(f"  - Текущее видео: {self.current_video_index}/{len(self.video_paths)}")
+            print(f"  - Текущий кадр: {self.current_frame_index}")
+            print(f"  - Обработанные видео: {len(self.processed_videos)}/{len(self.video_paths)}")
             
             # Очищаем кэш только при начале новой эпохи и только если все видео обработаны
             if self.current_batch == 0 and len(self.processed_videos) >= len(self.video_paths):
-                logger.debug("Начало новой эпохи - очистка кэшей")
+                print("[DEBUG] Начало новой эпохи - очистка кэшей")
                 self.clear_cache()
                 self.processed_videos.clear()
                 self.current_video_index = 0
@@ -513,7 +530,7 @@ class VideoDataLoader:
             
             # Проверяем, все ли видео обработаны
             if len(self.processed_videos) >= len(self.video_paths):
-                logger.debug("Все видео обработаны - конец эпохи")
+                print("[DEBUG] Все видео обработаны - конец эпохи")
                 return None
             
             # Счетчик попыток найти необработанное видео
@@ -522,11 +539,11 @@ class VideoDataLoader:
             
             while attempts < max_attempts:
                 attempts += 1
-                logger.debug(f"Попытка {attempts}/{max_attempts}")
+                print(f"[DEBUG] Попытка {attempts}/{max_attempts}")
                 
                 # Проверяем, что индекс видео не выходит за границы
                 if self.current_video_index >= len(self.video_paths):
-                    logger.debug("Достигнут конец списка видео - начинаем новую эпоху")
+                    print("[DEBUG] Достигнут конец списка видео - начинаем новую эпоху")
                     self.clear_cache()
                     self.processed_videos.clear()
                     self.current_video_index = 0
@@ -535,11 +552,11 @@ class VideoDataLoader:
                 
                 # Получаем текущее видео
                 video_path = self.video_paths[self.current_video_index]
-                logger.debug(f"Обработка видео: {video_path}")
+                print(f"[DEBUG] Обработка видео: {video_path}")
                 
                 # Если видео уже обработано, переходим к следующему
                 if video_path in self.processed_videos:
-                    logger.debug(f"Видео {video_path} уже обработано - переходим к следующему")
+                    print(f"[DEBUG] Видео {video_path} уже обработано - переходим к следующему")
                     if self.current_video_index < len(self.video_paths) - 1:
                         self.current_video_index += 1
                     else:
@@ -550,7 +567,7 @@ class VideoDataLoader:
                 # Получаем информацию о видео
                 info = self._get_video_info(video_path)
                 if not info.exists:
-                    logger.error(f"Видеофайл не найден: {video_path}")
+                    print(f"[ERROR] Видеофайл не найден: {video_path}")
                     self.processed_videos.add(video_path)
                     if self.current_video_index < len(self.video_paths) - 1:
                         self.current_video_index += 1
@@ -559,27 +576,27 @@ class VideoDataLoader:
                     self.current_frame_index = 0
                     continue
                 
-                logger.debug(f"Информация о видео: {info}")
+                print(f"[DEBUG] Информация о видео: {info}")
                 
                 # Проверяем, есть ли видео в кэше
                 if video_path in self.video_cache:
                     cap = self.video_cache[video_path]
-                    logger.debug("Видео загружено из кэша")
+                    print("[DEBUG] Видео загружено из кэша")
                 else:
                     # Очищаем предыдущее видео из кэша если оно есть
                     if hasattr(self, 'current_cap') and self.current_cap is not None:
                         self.current_cap.release()
                     
-                    logger.debug("Открываем видео через OpenCV")
+                    print("[DEBUG] Открываем видео через OpenCV")
                     cap = cv2.VideoCapture(video_path)
                     if not cap.isOpened():
-                        logger.error(f"Не удалось открыть видео: {video_path}")
+                        print(f"[ERROR] Не удалось открыть видео: {video_path}")
                         self.processed_videos.add(video_path)
                         if self.current_video_index < len(self.video_paths) - 1:
                             self.current_video_index += 1
                         else:
                             self.current_video_index = 0
-                        self.current_frame_index = 0
+                            self.current_frame_index = 0
                         continue
                     
                     self.video_cache[video_path] = cap
@@ -591,13 +608,13 @@ class VideoDataLoader:
                 
                 # Проверяем, нужно ли перейти к следующему видео
                 if self.current_frame_index >= info.total_frames - sequence_length:
-                    logger.debug(f"Достигнут конец видео {self.current_video_index}")
+                    print(f"[DEBUG] Достигнут конец видео {self.current_video_index}")
                     # Проверяем процент использованных кадров
                     if video_path in self.used_frames_cache:
                         used_frames = self.used_frames_cache[video_path]
                         used_percentage = len(used_frames) / info.total_frames * 100
                         if used_percentage > self.cache_cleanup_threshold:
-                            logger.debug(f"Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
+                            print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
                             self.processed_videos.add(video_path)
                             # Очищаем кэш для текущего видео
                             if video_path in self.video_cache:
@@ -608,7 +625,7 @@ class VideoDataLoader:
                             if video_path in self.positive_indices_cache:
                                 del self.positive_indices_cache[video_path]
                         else:
-                            logger.debug(f"Видео использовано на {used_percentage:.1f}% - начинаем сначала")
+                            print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - начинаем сначала")
                             self.current_frame_index = 0
                             continue
                     
@@ -625,7 +642,7 @@ class VideoDataLoader:
                 y_batch = []
                 
                 for i in range(batch_size):
-                    logger.debug(f"Получение последовательности {i+1}/{batch_size}")
+                    print(f"[DEBUG] Получение последовательности {i+1}/{batch_size}")
                     # Получаем последовательность
                     sequence, label = self._get_sequence(
                         cap,
@@ -637,13 +654,13 @@ class VideoDataLoader:
                     )
                     
                     if sequence is None:
-                        logger.debug("Не удалось получить последовательность")
+                        print("[DEBUG] Не удалось получить последовательность")
                         # Проверяем, действительно ли видео полностью использовано
                         if video_path in self.used_frames_cache:
                             used_frames = self.used_frames_cache[video_path]
                             used_percentage = len(used_frames) / info.total_frames * 100
                             if used_percentage > self.cache_cleanup_threshold:
-                                logger.debug(f"Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
+                                print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
                                 self.processed_videos.add(video_path)
                                 # Очищаем кэш для текущего видео
                                 if video_path in self.video_cache:
@@ -662,7 +679,7 @@ class VideoDataLoader:
                                 self.current_frame_index = 0
                                 break
                             else:
-                                logger.debug(f"Видео использовано на {used_percentage:.1f}% - продолжаем")
+                                print(f"[DEBUG] Видео использовано на {used_percentage:.1f}% - продолжаем")
                                 # Если не можем найти непересекающуюся последовательность,
                                 # очищаем кэш использованных кадров и начинаем заново
                                 if video_path in self.used_frames_cache:
@@ -670,7 +687,7 @@ class VideoDataLoader:
                                 self.current_frame_index = 0
                                 continue
                         else:
-                            logger.debug("Нет информации об использованных кадрах - продолжаем")
+                            print("[DEBUG] Нет информации об использованных кадрах - продолжаем")
                             self.current_frame_index = 0
                             continue
                     
@@ -686,16 +703,25 @@ class VideoDataLoader:
                     X_batch = np.array(X_batch)  # (batch_size, sequence_length, height, width, channels)
                     y_batch = np.array(y_batch)
                     
-                    # Проверяем размерности
-                    logger.debug(f"Размерности батча: X={X_batch.shape}, y={y_batch.shape}")
+                    # Подсчитываем статистику
+                    if one_hot:
+                        positive_count = np.sum(y_batch[:, 0] == 1)
+                        negative_count = np.sum(y_batch[:, 0] == 0)
+                    else:
+                        positive_count = np.sum(y_batch == 1)
+                        negative_count = np.sum(y_batch == 0)
                     
-                    # Проверяем процент использованных кадров
-                    if video_path in self.used_frames_cache:
-                        used_frames = self.used_frames_cache[video_path]
-                        used_percentage = len(used_frames) / info.total_frames * 100
-                        if used_percentage > self.cache_cleanup_threshold:
-                            logger.debug(f"Видео использовано на {used_percentage:.1f}% - помечаем как обработанное")
-                            self.processed_videos.add(video_path)
+                    # Сохраняем статистику
+                    self._save_batch_statistics(
+                        self.current_batch,
+                        positive_count,
+                        negative_count,
+                        video_path
+                    )
+                    
+                    # Проверяем размерности
+                    print(f"[DEBUG] Размерности батча: X={X_batch.shape}, y={y_batch.shape}")
+                    print(f"[DEBUG] Статистика батча: положительных={positive_count}, отрицательных={negative_count}")
                     
                     # Переходим к следующему видео после успешного сбора батча
                     if self.current_video_index < len(self.video_paths) - 1:
@@ -709,11 +735,11 @@ class VideoDataLoader:
                 # Если батч не собран полностью, продолжаем с следующим видео
                 continue
             
-            logger.debug("Не удалось найти необработанное видео после проверки всех видео")
+            print("[DEBUG] Не удалось найти необработанное видео после проверки всех видео")
             return None
             
         except Exception as e:
-            logger.error(f"Ошибка при получении батча: {str(e)}")
+            print(f"[ERROR] Ошибка при получении батча: {str(e)}")
             raise
 
     def data_generator(self, force_positive: bool = True) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
