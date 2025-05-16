@@ -28,8 +28,8 @@ class Config:
     INPUT_SIZE = (112, 112)  # Размер входного изображения
     SEQUENCE_LENGTH = 12  # Уменьшаем с 16 до 12 кадров для экономии памяти
     INPUT_SHAPE = (SEQUENCE_LENGTH, *INPUT_SIZE, 3)  # Полная форма входных данных
-    BATCH_SIZE = 64  # Увеличиваем с 2 до 4
-    EPOCHS = 20
+    BATCH_SIZE = 128
+    EPOCHS = 30
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 200
