@@ -340,7 +340,18 @@ class VideoDataLoader:
                 self.current_video_index = 0
                 self.current_frame_index = 0
             
-            while True:
+            # Проверяем, все ли видео обработаны
+            if len(self.processed_videos) >= len(self.video_paths):
+                print("[DEBUG] Все видео обработаны - конец эпохи")
+                return None
+            
+            # Счетчик попыток найти необработанное видео
+            attempts = 0
+            max_attempts = len(self.video_paths)
+            
+            while attempts < max_attempts:
+                attempts += 1
+                
                 # Получаем текущее видео
                 video_path = self.video_paths[self.current_video_index]
                 
@@ -443,6 +454,9 @@ class VideoDataLoader:
                 
                 # Если батч не собран полностью, продолжаем с следующим видео
                 continue
+            
+            print("[DEBUG] Не удалось найти необработанное видео после проверки всех видео")
+            return None
                 
         except Exception as e:
             print(f"[ERROR] Ошибка при получении батча: {str(e)}")
