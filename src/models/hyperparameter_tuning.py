@@ -586,9 +586,9 @@ def save_tuning_results(study, total_time, n_trials):
                 'epochs': Config.EPOCHS,
                 'positive_class_weight': Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
             },
-            'execution_time': total_time,
+            'execution_time': int(total_time),  # Конвертируем в секунды
             'n_trials': n_trials,
-            'best_value': study.best_value,
+            'best_value': float(study.best_value) if study.best_value is not None else None,  # Конвертируем в float
             'best_params': study.best_params,
             'all_trials': []
         }
@@ -597,10 +597,10 @@ def save_tuning_results(study, total_time, n_trials):
             if trial.value is not None:  # Проверяем, что trial завершился успешно
                 trial_data = {
                     'number': trial.number,
-                    'value': trial.value,
+                    'value': float(trial.value),  # Конвертируем в float
                     'params': trial.params,
                     'state': trial.state.name,
-                    'duration': trial.duration
+                    'duration': float(trial.duration) if trial.duration is not None else None  # Конвертируем в float
                 }
                 results_json['all_trials'].append(trial_data)
         
