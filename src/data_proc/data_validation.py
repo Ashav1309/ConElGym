@@ -201,15 +201,14 @@ def check_class_balance(positive_count: int, total_count: int) -> None:
     """
     logger.info("Проверка баланса классов...")
     
-    positive_ratio = positive_count / total_count if total_count > 0 else 0
+    min_positive_ratio = Config.MIN_POSITIVE_RATIO  # Теперь из конфига
+    if total_count > 0 and positive_count / total_count < min_positive_ratio:
+        raise ValueError(f"Слишком мало положительных примеров: {positive_count / total_count:.2%} < {min_positive_ratio * 100:.2f}%")
     
-    if positive_ratio < Config.MIN_POSITIVE_RATIO:
-        raise ValueError(f"Слишком мало положительных примеров: {positive_ratio:.2%} < {Config.MIN_POSITIVE_RATIO:.2%}")
+    if positive_count > Config.MAX_POSITIVE_RATIO:
+        raise ValueError(f"Слишком много положительных примеров: {positive_count / total_count:.2%} > {Config.MAX_POSITIVE_RATIO:.2%}")
     
-    if positive_ratio > Config.MAX_POSITIVE_RATIO:
-        raise ValueError(f"Слишком много положительных примеров: {positive_ratio:.2%} > {Config.MAX_POSITIVE_RATIO:.2%}")
-    
-    logger.info(f"Баланс классов в норме: {positive_ratio:.2%} положительных примеров")
+    logger.info(f"Баланс классов в норме: {positive_count / total_count:.2%} положительных примеров")
 
 def count_batches(data_loader: VideoDataLoader) -> int:
     """
@@ -242,11 +241,9 @@ def validate_data_pipeline() -> None:
     
     # Подсчет и проверка положительных примеров
     positive_count, total_count = calculate_positive_examples()
-    # Динамический порог: например, не менее 100% найденных (или можно 80%)
-    min_positive = positive_count  # 100% найденных
-    # min_positive = int(positive_count * 0.8)  # если нужен процент
-    if positive_count < min_positive:
-        raise ValueError(f"Недостаточно положительных примеров: {positive_count} < {min_positive}")
+    min_positive_ratio = Config.MIN_POSITIVE_RATIO  # Теперь из конфига
+    if total_count > 0 and positive_count / total_count < min_positive_ratio:
+        raise ValueError(f"Слишком мало положительных примеров: {positive_count / total_count:.2%} < {min_positive_ratio * 100:.2f}%")
     
     # Проверка баланса классов
     check_class_balance(positive_count, total_count)

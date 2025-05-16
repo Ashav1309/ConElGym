@@ -143,8 +143,8 @@ class Config:
     MIN_FPS = 15          # Минимальный FPS
     MIN_FRAMES_PER_VIDEO = 30  # Минимальное количество кадров в видео
     MIN_POSITIVE_EXAMPLES = 6
-    MIN_POSITIVE_RATIO = 0.1    # Минимальное соотношение положительных примеров (10%)
-    MAX_POSITIVE_RATIO = 0.9    # Максимальное соотношение положительных примеров (90%)
+    MIN_POSITIVE_RATIO = 0.0005
+    MAX_POSITIVE_RATIO = 0.9
     MIN_TRAIN_BATCHES = 100     # Минимальное количество батчей для обучения
     MIN_VAL_BATCHES = 20        # Минимальное количество батчей для валидации
     
