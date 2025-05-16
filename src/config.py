@@ -148,6 +148,21 @@ class Config:
     MIN_TRAIN_BATCHES = 100     # Минимальное количество батчей для обучения
     MIN_VAL_BATCHES = 20        # Минимальное количество батчей для валидации
     
+    DEBUG_SMALL_DATASET = True  # Включить для тестов на малых датасетах
+    
+    @classmethod
+    def apply_debug_small_dataset(cls):
+        if cls.DEBUG_SMALL_DATASET:
+            print("[WARNING] DEBUG_SMALL_DATASET включён: все пороги и размеры снижены для теста!")
+            cls.MIN_TRAIN_VIDEOS = 1
+            cls.MIN_VAL_VIDEOS = 1
+            cls.MIN_TRAIN_BATCHES = 1
+            cls.MIN_VAL_BATCHES = 1
+            cls.BATCH_SIZE = 1
+            cls.SEQUENCE_LENGTH = 4
+            cls.AUGMENTATION['enabled'] = False
+            cls.OVERFITTING_PREVENTION['early_stopping_patience'] = 20
+    
     @classmethod
     def validate(cls):
         """Проверка конфигурации"""
@@ -218,7 +233,8 @@ class Config:
         
         print("[DEBUG] Валидация конфигурации успешно завершена\n")
         
-# Валидация конфигурации при импорте
+# Валидация и применение debug-режима при импорте
+Config.apply_debug_small_dataset()
 Config.validate()
 
 def plot_tuning_results(study):
