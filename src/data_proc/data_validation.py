@@ -121,9 +121,9 @@ def check_data_quality(video_paths: List[str]) -> None:
 
 def calculate_positive_examples() -> Tuple[int, int]:
     """
-    Подсчет положительных примеров в датасете
+    Подсчет положительных примеров (кадров) в датасете
     Returns:
-        Tuple[int, int]: количество положительных примеров и общее количество примеров
+        Tuple[int, int]: количество положительных кадров и общее количество кадров
     """
     logger.info("Подсчет положительных примеров...")
 
@@ -139,11 +139,27 @@ def calculate_positive_examples() -> Tuple[int, int]:
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:
                 ann_data = json.load(f)
-                for annotation in ann_data['annotations']:
-                    total_count += 1
-                    # Любая аннотация с временными метками считается положительной
-                    if 'start_frame' in annotation and 'end_frame' in annotation:
-                        positive_count += 1
+            # Получаем общее количество кадров в видео
+            cap = cv2.VideoCapture(video_path)
+            num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            total_count += num_frames
+
+            # Создаем массив меток для каждого кадра
+            frame_labels = np.zeros((num_frames, Config.NUM_CLASSES), dtype=np.float32)
+            for annotation in ann_data['annotations']:
+                start_frame = annotation['start_frame']
+                end_frame = annotation['end_frame']
+                for frame_idx in range(start_frame, end_frame + 1):
+                    if frame_idx < len(frame_labels):
+                        if frame_idx == start_frame:
+                            frame_labels[frame_idx] = [1, 0]
+                        elif frame_idx == end_frame:
+                            frame_labels[frame_idx] = [0, 1]
+                        else:
+                            frame_labels[frame_idx] = [0, 0]
+            # Считаем положительные кадры
+            positive_count += np.sum(np.any(frame_labels == 1, axis=1))
 
     # Аналогично для валидационных данных
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
@@ -154,12 +170,26 @@ def calculate_positive_examples() -> Tuple[int, int]:
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:
                 ann_data = json.load(f)
-                for annotation in ann_data['annotations']:
-                    total_count += 1
-                    if 'start_frame' in annotation and 'end_frame' in annotation:
-                        positive_count += 1
+            cap = cv2.VideoCapture(video_path)
+            num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            total_count += num_frames
 
-    logger.info(f"Найдено {positive_count} положительных примеров из {total_count} всего")
+            frame_labels = np.zeros((num_frames, Config.NUM_CLASSES), dtype=np.float32)
+            for annotation in ann_data['annotations']:
+                start_frame = annotation['start_frame']
+                end_frame = annotation['end_frame']
+                for frame_idx in range(start_frame, end_frame + 1):
+                    if frame_idx < len(frame_labels):
+                        if frame_idx == start_frame:
+                            frame_labels[frame_idx] = [1, 0]
+                        elif frame_idx == end_frame:
+                            frame_labels[frame_idx] = [0, 1]
+                        else:
+                            frame_labels[frame_idx] = [0, 0]
+            positive_count += np.sum(np.any(frame_labels == 1, axis=1))
+
+    logger.info(f"Найдено {positive_count} положительных кадров из {total_count} всего")
     return positive_count, total_count
 
 def check_class_balance(positive_count: int, total_count: int) -> None:
