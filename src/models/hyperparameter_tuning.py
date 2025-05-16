@@ -45,6 +45,7 @@ import psutil
 from src.data_proc.data_augmentation import VideoAugmenter
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+from src.data_proc.data_validation import validate_data_pipeline
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -608,13 +609,29 @@ def save_tuning_results(study, total_time, n_trials):
         traceback.print_exc()
         raise
 
-def tune_hyperparameters(n_trials=20):
+def tune_hyperparameters(n_trials=None):
     """
     Запуск гиперпараметрического поиска с помощью Optuna
+    Args:
+        n_trials: количество trials (если None, берется из конфигурации)
     """
     import optuna
     import time
     print("\n[DEBUG] Начало подбора гиперпараметров...")
+    
+    # Используем значение из конфигурации, если n_trials не указан
+    if n_trials is None:
+        n_trials = Config.HYPERPARAM_TUNING['n_trials']
+    
+    print(f"[DEBUG] Количество trials: {n_trials}")
+    
+    # Валидация данных перед началом
+    try:
+        validate_data_pipeline()
+    except Exception as e:
+        print(f"[ERROR] Ошибка валидации данных: {str(e)}")
+        raise
+    
     start_time = time.time()
     study = optuna.create_study(direction='maximize', study_name='hyperparameter_tuning')
     study.optimize(objective, n_trials=n_trials)
