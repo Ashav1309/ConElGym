@@ -615,6 +615,11 @@ class VideoDataLoader:
             print("\n[DEBUG] ===== Запуск генератора данных =====")
             print(f"[DEBUG] Количество видео для обработки: {len(self.video_paths)}")
             while True:
+                # Проверяем, все ли видео обработаны
+                if len(self.processed_videos) >= len(self.video_paths):
+                    print("[DEBUG] Все видео обработаны - конец эпохи")
+                    break
+                
                 batch_data = self.get_batch(
                     batch_size=self.batch_size,
                     sequence_length=self.sequence_length,
