@@ -385,151 +385,104 @@ class VideoDataLoader:
             if cap is not None:
                 cap.release()
 
-    def _get_sequence(self, cap: cv2.VideoCapture, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None,
-                     one_hot: bool = True, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def _get_sequence(self, sequence_length, target_size, force_positive=False):
         """
-        Получение последовательности кадров из видео
+        Получение последовательности кадров
         
+        Args:
+            sequence_length: длина последовательности
+            target_size: целевой размер кадра (height, width)
+            force_positive: принудительно искать положительные примеры
+            
         Returns:
-            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: 
-                - sequence: последовательность кадров формы (sequence_length, height, width, channels)
-                - label: метка в формате one-hot encoding [1,0] для положительных примеров и [0,1] для отрицательных
+            tuple: (sequence, labels) или (None, None) в случае ошибки
         """
         try:
-            # Получаем текущий индекс кадра
-            current_frame = self.current_frame_index
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Проверяем, что видео открыто и имеет кадры
-            if total_frames <= 0:
-                print(f"[ERROR] Некорректное количество кадров: {total_frames}")
+            # Получаем случайное видео
+            video_path = self._get_random_video()
+            if video_path is None:
+                print("[DEBUG] Не удалось найти необработанное видео")
                 return None, None
             
-            print(f"[DEBUG] Получение последовательности:")
-            print(f"  - Текущий кадр: {current_frame}/{total_frames}")
-            print(f"  - Длина последовательности: {sequence_length}")
-            print(f"  - Размер кадра: {target_size}")
-            print(f"  - Force positive: {force_positive}")
+            print(f"[DEBUG] Обработка видео: {video_path}")
             
-            # Загружаем аннотации для видео
-            if video_path not in self.positive_indices_cache:
-                print(f"[DEBUG] Загрузка аннотаций для видео: {video_path}")
-                frame_labels = self._load_annotations(video_path)
-                self.positive_indices_cache[video_path] = frame_labels
-            else:
-                frame_labels = self.positive_indices_cache[video_path]
+            # Загружаем видео
+            video_info = self._load_video(video_path)
+            if video_info is None:
+                return None, None
             
-            # Если требуется принудительно брать положительные примеры
-            if force_positive:
-                # Находим все положительные кадры
-                positive_indices = np.where(frame_labels == 1.0)[0]
-                if len(positive_indices) == 0:
-                    print("[DEBUG] Нет положительных кадров в видео")
-                    return None, None
-                
+            print(f"[DEBUG] Информация о видео: {video_info}")
+            
+            # Проверяем количество кадров
+            if video_info.total_frames <= 0:
+                print(f"[ERROR] Некорректное количество кадров: {video_info.total_frames}")
+                return None, None
+            
+            # Загружаем аннотации
+            annotations = self._load_annotations(video_path)
+            if annotations is None:
+                return None, None
+            
+            # Находим положительные кадры
+            positive_frames = set()
+            for annotation in annotations:
+                start_frame = annotation['start_frame']
+                end_frame = annotation['end_frame']
+                positive_frames.update(range(start_frame, end_frame + 1))
+            
+            print(f"[DEBUG] Найдено положительных кадров: {len(positive_frames)}")
+            
+            # Выбираем начальный кадр
+            if force_positive and positive_frames:
                 # Находим ближайший положительный кадр
-                distances = np.abs(positive_indices - current_frame)
-                nearest_positive = positive_indices[np.argmin(distances)]
-                
-                # Если текущий кадр далеко от положительного, перемещаемся к нему
-                if distances[np.argmin(distances)] > sequence_length:
-                    # Перемещаемся к началу положительного диапазона
-                    self.current_frame_index = max(0, nearest_positive - sequence_length + 1)
-                    print(f"[DEBUG] Перемещаемся к кадру {self.current_frame_index} (ближайший положительный: {nearest_positive})")
+                current_frame = min(positive_frames)
+                print(f"[DEBUG] Выбран начальный кадр с положительным примером: {current_frame}")
+            else:
+                # Выбираем случайный кадр
+                max_start = video_info.total_frames - sequence_length
+                if max_start <= 0:
+                    print("[ERROR] Видео слишком короткое для заданной длины последовательности")
                     return None, None
+                current_frame = np.random.randint(0, max_start)
+                print(f"[DEBUG] Выбран случайный начальный кадр: {current_frame}")
             
-            # Проверяем, что последовательность не выходит за границы
-            if current_frame + sequence_length > total_frames:
-                print(f"[DEBUG] Последовательность выходит за границы: {current_frame + sequence_length} > {total_frames}")
-                return None, None
-            
-            # Получаем множество использованных кадров для текущего видео
-            if video_path not in self.used_frames_cache:
-                self.used_frames_cache[video_path] = set()
-            
-            used_frames = self.used_frames_cache[video_path]
-            
-            # Проверяем, не пересекается ли последовательность с уже использованными кадрами
-            if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
-                print(f"[DEBUG] Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
-                return None, None
-            
-            # Проверяем, есть ли положительные примеры в последовательности
-            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            has_positive = np.any(sequence_labels == 1.0)
-            
-            print(f"[DEBUG] Проверка положительных примеров:")
-            print(f"  - Диапазон кадров: {current_frame}-{current_frame + sequence_length}")
-            print(f"  - Метки в последовательности: {sequence_labels}")
-            print(f"  - Есть положительные: {has_positive}")
-            
-            if force_positive and not has_positive:
-                print("[DEBUG] Нет положительных примеров в последовательности")
-                # Если нет положительных примеров, ищем ближайший положительный кадр
-                positive_indices = np.where(frame_labels == 1.0)[0]
-                if len(positive_indices) > 0:
-                    # Находим ближайший положительный кадр
-                    distances = np.abs(positive_indices - current_frame)
-                    nearest_positive = positive_indices[np.argmin(distances)]
-                    print(f"[DEBUG] Ближайший положительный кадр: {nearest_positive}")
-                    # Перемещаемся к началу положительного диапазона
-                    self.current_frame_index = max(0, nearest_positive - sequence_length + 1)
-                    print(f"[DEBUG] Перемещаемся к кадру: {self.current_frame_index}")
-                else:
-                    # Если положительных кадров нет, увеличиваем индекс
-                    self.current_frame_index += 1
+            # Проверяем, что последовательность не выходит за пределы видео
+            if current_frame + sequence_length > video_info.total_frames:
+                print("[ERROR] Последовательность выходит за пределы видео")
                 return None, None
             
             # Собираем последовательность
             sequence = []
-            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+            labels = []
             
-            # Собираем последовательность
             for i in range(sequence_length):
-                ret, frame = cap.read()
-                if not ret:
-                    print(f"[ERROR] Не удалось прочитать кадр {current_frame + i}")
-                    raise CorruptedVideoError(f"Не удалось прочитать кадр {current_frame + i}")
-                if target_size:
-                    frame = cv2.resize(frame, target_size)
+                frame_idx = current_frame + i
+                frame = self._load_frame(video_path, frame_idx, target_size)
+                if frame is None:
+                    print(f"[ERROR] Не удалось загрузить кадр {frame_idx}")
+                    return None, None
+                
                 sequence.append(frame)
-                print(f"[DEBUG] Размерность кадра {i}: {frame.shape}")
+                labels.append(1 if frame_idx in positive_frames else 0)
             
-            # Отмечаем использованные кадры
-            used_frames.update(range(current_frame, current_frame + sequence_length))
-            
-            # Создаем метку в формате one-hot encoding
-            if has_positive:
-                label = np.array([1.0, 0.0], dtype=np.float32)  # [1,0] для положительного примера
-            else:
-                label = np.array([0.0, 1.0], dtype=np.float32)  # [0,1] для отрицательного примера
-            
-            # Преобразуем последовательность в numpy массив и нормализуем
-            sequence = np.array(sequence, dtype=np.float32) / 255.0
+            # Преобразуем в numpy массивы
+            sequence = np.array(sequence)
+            labels = np.array(labels)
             
             # Проверяем размерности
-            print(f"[DEBUG] Размерность последовательности до преобразования: {sequence.shape}")
-            if len(sequence.shape) != 4:  # (sequence_length, height, width, channels)
-                print(f"[ERROR] Неправильная размерность последовательности: {sequence.shape}")
+            if sequence.shape != (sequence_length, target_size[0], target_size[1], 3):
+                print(f"[ERROR] Некорректные размерности последовательности: {sequence.shape}")
+                print(f"[DEBUG] Ожидаемые размерности: {(sequence_length, target_size[0], target_size[1], 3)}")
                 return None, None
             
-            # Проверяем, что размерности соответствуют ожидаемым
-            expected_shape = (sequence_length, target_size[0], target_size[1], 3)
-            if sequence.shape != expected_shape:
-                print(f"[ERROR] Неправильная форма последовательности: {sequence.shape}, ожидается {expected_shape}")
-                return None, None
+            print(f"[DEBUG] Размерности последовательности: {sequence.shape}")
+            print(f"[DEBUG] Размерности меток: {labels.shape}")
             
-            # Увеличиваем индекс кадра для следующей последовательности
-            self.current_frame_index += 1
-            
-            print(f"[DEBUG] Последовательность успешно получена:")
-            print(f"  - Размерность: {sequence.shape}")
-            print(f"  - Метка (one-hot): {label}")
-            
-            return sequence, label
+            return sequence, labels
             
         except Exception as e:
             print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
             return None, None
@@ -559,182 +512,83 @@ class VideoDataLoader:
         except Exception as e:
             print(f"[ERROR] Ошибка при сохранении статистики: {str(e)}")
 
-    def get_batch(self, batch_size: Optional[int] = None, sequence_length: Optional[int] = None,
-                 target_size: Optional[Tuple[int, int]] = None, one_hot: bool = True,
-                 max_sequences_per_video: Optional[int] = None, force_positive: bool = False) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False):
         """
         Получение батча данных
         
+        Args:
+            batch_size: размер батча
+            sequence_length: длина последовательности
+            target_size: целевой размер кадра (height, width)
+            one_hot: использовать one-hot кодирование для меток
+            max_sequences_per_video: максимальное количество последовательностей из одного видео
+            force_positive: принудительно добавлять положительные примеры
+            
         Returns:
-            Tuple[np.ndarray, np.ndarray]: 
-                - X_batch: батч последовательностей формы (batch_size, sequence_length, height, width, channels)
-                - y_batch: батч меток формы (batch_size, 2) для one-hot encoding
+            tuple: (X_batch, y_batch) или None в случае ошибки
         """
         try:
-            # Используем значения из конфига, если параметры не указаны
-            batch_size = batch_size or self.batch_size
-            sequence_length = sequence_length or self.sequence_length
-            target_size = target_size or self.target_size
-            max_sequences_per_video = max_sequences_per_video or self.max_sequences_per_video
-            
-            print(f"[DEBUG] Получение батча:")
+            print(f"\n[DEBUG] Получение батча:")
             print(f"  - batch_size: {batch_size}")
             print(f"  - sequence_length: {sequence_length}")
             print(f"  - target_size: {target_size}")
+            print(f"  - one_hot: {one_hot}")
             print(f"  - force_positive: {force_positive}")
-            print(f"  - Текущее видео: {self.current_video_index}/{len(self.video_paths)}")
-            print(f"  - Текущий кадр: {self.current_frame_index}")
             
-            # Счетчик попыток найти необработанное видео
+            X_batch = []
+            y_batch = []
             attempts = 0
-            max_attempts = len(self.video_paths) * 2
+            max_attempts = 6  # Максимальное количество попыток
             
-            while attempts < max_attempts:
+            while len(X_batch) < batch_size and attempts < max_attempts:
                 attempts += 1
-                print(f"[DEBUG] Попытка {attempts}/{max_attempts}")
+                print(f"\n[DEBUG] Попытка {attempts}/{max_attempts}")
                 
-                # Проверяем, что индекс видео не выходит за границы
-                if self.current_video_index >= len(self.video_paths):
-                    print("[DEBUG] Достигнут конец списка видео - начинаем новую эпоху")
-                    self.clear_cache()
-                    self.current_video_index = 0
-                    self.current_frame_index = 0
+                # Получаем последовательность
+                sequence, labels = self._get_sequence(sequence_length, target_size, force_positive)
+                
+                if sequence is None or labels is None:
+                    print("[DEBUG] Не удалось получить последовательность")
                     continue
                 
-                # Получаем текущее видео
-                video_path = self.video_paths[self.current_video_index]
-                print(f"[DEBUG] Обработка видео: {video_path}")
-                
-                # Получаем информацию о видео
-                info = self._get_video_info(video_path)
-                if not info.exists:
-                    print(f"[ERROR] Видеофайл не найден: {video_path}")
-                    if self.current_video_index < len(self.video_paths) - 1:
-                        self.current_video_index += 1
-                    else:
-                        self.current_video_index = 0
-                    self.current_frame_index = 0
+                # Проверяем размерности
+                if sequence.shape != (sequence_length, target_size[0], target_length[1], 3):
+                    print(f"[ERROR] Некорректные размерности последовательности: {sequence.shape}")
+                    print(f"[DEBUG] Ожидаемые размерности: {(sequence_length, target_size[0], target_size[1], 3)}")
                     continue
                 
-                print(f"[DEBUG] Информация о видео: {info}")
+                X_batch.append(sequence)
+                y_batch.append(labels)
                 
-                # Проверяем, есть ли видео в кэше
-                if video_path in self.video_cache:
-                    cap = self.video_cache[video_path]
-                    print("[DEBUG] Видео загружено из кэша")
-                else:
-                    # Очищаем предыдущее видео из кэша если оно есть
-                    if hasattr(self, 'current_cap') and self.current_cap is not None:
-                        self.current_cap.release()
-                    
-                    print("[DEBUG] Открываем видео через OpenCV")
-                    cap = cv2.VideoCapture(video_path)
-                    if not cap.isOpened():
-                        print(f"[ERROR] Не удалось открыть видео: {video_path}")
-                        if self.current_video_index < len(self.video_paths) - 1:
-                            self.current_video_index += 1
-                        else:
-                            self.current_video_index = 0
-                            self.current_frame_index = 0
-                        continue
-                    
-                    self.video_cache[video_path] = cap
-                    self.current_cap = cap
-                
-                # Инициализируем кэш использованных кадров для текущего видео
-                if video_path not in self.used_frames_cache:
-                    self.used_frames_cache[video_path] = set()
-                
-                # Собираем батч
-                X_batch = []
-                y_batch = []
-                positive_count = 0
-                negative_count = 0
-                
-                # Собираем последовательности до достижения размера батча
-                while len(X_batch) < batch_size:
-                    sequence, label = self._get_sequence(
-                        cap,
-                        video_path,
-                        sequence_length,
-                        target_size,
-                        one_hot,
-                        force_positive
-                    )
-                    
-                    if sequence is None:
-                        print("[DEBUG] Не удалось получить последовательность")
-                        break
-                    
-                    print(f"[DEBUG] Получена последовательность размерности: {sequence.shape}")
-                    X_batch.append(sequence)
-                    y_batch.append(label)
-                    
-                    # Обновляем счетчики
-                    if label[0] == 1.0:  # Положительный пример [1,0]
-                        positive_count += 1
-                    else:  # Отрицательный пример [0,1]
-                        negative_count += 1
-                
-                # Если батч собран успешно
-                if len(X_batch) == batch_size:
-                    # Увеличиваем счетчик батчей
-                    self.current_batch += 1
-                    
-                    # Конвертируем в numpy массивы
-                    X_batch = np.array(X_batch)  # (batch_size, sequence_length, height, width, channels)
-                    y_batch = np.array(y_batch)  # (batch_size, 2) для one-hot encoding
-                    
-                    # Проверяем и исправляем размерности
-                    print(f"[DEBUG] Размерности до преобразования:")
-                    print(f"  - X_batch: {X_batch.shape}")
-                    print(f"  - y_batch: {y_batch.shape}")
-                    
-                    # Убеждаемся, что размерности правильные
-                    if len(X_batch.shape) != 5:
-                        print(f"[ERROR] Неправильная размерность X_batch: {X_batch.shape}")
-                        return None
-                    
-                    # Проверяем, что размерности соответствуют ожидаемым
-                    expected_shape = (batch_size, sequence_length, target_size[0], target_size[1], 3)
-                    if X_batch.shape != expected_shape:
-                        print(f"[ERROR] Неправильная форма X_batch: {X_batch.shape}, ожидается {expected_shape}")
-                        return None
-                    
-                    # Сохраняем статистику
-                    self._save_batch_statistics(
-                        self.current_batch,
-                        positive_count,
-                        negative_count,
-                        video_path
-                    )
-                    
-                    # Проверяем размерности
-                    print(f"[DEBUG] Размерности батча:")
-                    print(f"  - X_batch: {X_batch.shape}")
-                    print(f"  - y_batch: {y_batch.shape}")
-                    print(f"[DEBUG] Статистика батча: положительных={positive_count}, отрицательных={negative_count}")
-                    
-                    # Переходим к следующему видео после успешного сбора батча
-                    if self.current_video_index < len(self.video_paths) - 1:
-                        self.current_video_index += 1
-                    else:
-                        self.current_video_index = 0
-                    self.current_frame_index = 0
-                    
-                    return X_batch, y_batch
-                
-                # Если батч не собран полностью, продолжаем с следующим видео
-                continue
+                if len(X_batch) % 10 == 0:
+                    print(f"[DEBUG] Собрано последовательностей: {len(X_batch)}/{batch_size}")
             
-            print("[DEBUG] Не удалось найти необработанное видео после проверки всех видео")
-            return None
+            if not X_batch:
+                print("[DEBUG] Не удалось собрать батч")
+                return None
+            
+            # Преобразуем в numpy массивы
+            X_batch = np.array(X_batch)
+            y_batch = np.array(y_batch)
+            
+            # Проверяем размерности батча
+            expected_shape = (batch_size, sequence_length, target_size[0], target_size[1], 3)
+            if X_batch.shape != expected_shape:
+                print(f"[ERROR] Некорректные размерности X_batch: {X_batch.shape}")
+                print(f"[DEBUG] Ожидаемые размерности: {expected_shape}")
+                return None
+            
+            print(f"[DEBUG] Размерности X_batch: {X_batch.shape}")
+            print(f"[DEBUG] Размерности y_batch: {y_batch.shape}")
+            
+            return X_batch, y_batch
             
         except Exception as e:
             print(f"[ERROR] Ошибка при получении батча: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
-            raise
+            return None
 
     def data_generator(self, force_positive: bool = True) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
         """
