@@ -26,6 +26,7 @@ class VideoDataLoader:
         self.max_stuck_batches = 10
         self.positive_indices_cache = {}  # Кэш для индексов положительных кадров
         self.video_cache = {}  # Кэш для видео
+        self.used_frames_cache = {}  # Кэш для отслеживания использованных кадров
         self.data_path = data_path
         self.max_videos = max_videos
         self.video_paths = []
@@ -207,7 +208,9 @@ class VideoDataLoader:
         try:
             batch_sequences = []
             batch_labels = []
-            used_indices = set()
+            
+            # Получаем множество использованных кадров для текущего видео
+            used_indices = self.used_frames_cache[video_path]
             
             # Получаем видео из кэша
             cap, total_frames = self.video_cache[video_path]
@@ -217,43 +220,45 @@ class VideoDataLoader:
                 num_positive = max(1, batch_size // 4)
                 print(f"[DEBUG] _collect_sequences: Добавляем {num_positive} положительных последовательностей")
                 
-                # Выбираем случайные положительные индексы
-                selected_pos_indices = np.random.choice(positive_indices, 
-                                                      size=min(num_positive, len(positive_indices)), 
-                                                      replace=False)
+                # Фильтруем положительные индексы, исключая уже использованные
+                available_pos_indices = [idx for idx in positive_indices if idx not in used_indices]
                 
-                for pos_idx in selected_pos_indices:
-                    # Центрируем последовательность вокруг положительного кадра
-                    start_idx = max(0, pos_idx - sequence_length // 2)
-                    end_idx = min(total_frames, start_idx + sequence_length)
+                if len(available_pos_indices) > 0:
+                    selected_pos_indices = np.random.choice(available_pos_indices, 
+                                                          size=min(num_positive, len(available_pos_indices)), 
+                                                          replace=False)
                     
-                    # Проверяем, что последовательность не выходит за границы
-                    if end_idx - start_idx < sequence_length:
-                        continue
-                    
-                    # Проверяем, что последовательность не пересекается с уже использованными
-                    if any(idx in used_indices for idx in range(start_idx, end_idx)):
-                        continue
-                    
-                    sequence = []
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                    
-                    # Собираем последовательность
-                    for _ in range(sequence_length):
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        if target_size:
-                            frame = cv2.resize(frame, target_size)
-                        sequence.append(frame)
-                    
-                    if len(sequence) == sequence_length:
-                        batch_sequences.append(np.array(sequence))
-                        # Используем метку центрального кадра
-                        batch_labels.append(frame_labels[pos_idx])
-                        # Отмечаем использованные кадры
-                        used_indices.update(range(start_idx, end_idx))
-                        print(f"[DEBUG] _collect_sequences: Добавлена положительная последовательность с кадра {start_idx} по {end_idx} (pos_idx={pos_idx})")
+                    for pos_idx in selected_pos_indices:
+                        # Центрируем последовательность вокруг положительного кадра
+                        start_idx = max(0, pos_idx - sequence_length // 2)
+                        end_idx = min(total_frames, start_idx + sequence_length)
+                        
+                        # Проверяем, что последовательность не выходит за границы
+                        if end_idx - start_idx < sequence_length:
+                            continue
+                        
+                        # Проверяем, что последовательность не пересекается с уже использованными
+                        if any(idx in used_indices for idx in range(start_idx, end_idx)):
+                            continue
+                        
+                        sequence = []
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                        
+                        # Собираем последовательность
+                        for _ in range(sequence_length):
+                            ret, frame = cap.read()
+                            if not ret:
+                                break
+                            if target_size:
+                                frame = cv2.resize(frame, target_size)
+                            sequence.append(frame)
+                        
+                        if len(sequence) == sequence_length:
+                            batch_sequences.append(np.array(sequence))
+                            batch_labels.append(frame_labels[pos_idx])
+                            # Отмечаем использованные кадры
+                            used_indices.update(range(start_idx, end_idx))
+                            print(f"[DEBUG] _collect_sequences: Добавлена положительная последовательность с кадра {start_idx} по {end_idx} (pos_idx={pos_idx})")
             
             # Добавляем обычные последовательности
             current_frame = start_frame
@@ -282,7 +287,8 @@ class VideoDataLoader:
                 if len(sequence) == sequence_length:
                     batch_sequences.append(np.array(sequence))
                     batch_labels.append(frame_labels[current_frame])
-                    used_indices.add(current_frame)
+                    # Отмечаем использованные кадры
+                    used_indices.update(range(current_frame, current_frame + sequence_length))
                 
                 current_frame += 1
             
@@ -304,10 +310,15 @@ class VideoDataLoader:
                 self.current_video_index = 0
                 self.current_frame_index = 0
                 self.stuck_counter = 0
+                self.used_frames_cache.clear()  # Очищаем кэш использованных кадров
                 return None
             
             video_path = self.video_paths[self.current_video_index]
             print(f"[DEBUG] get_batch: Обработка видео {os.path.basename(video_path)} (индекс {self.current_video_index + 1}/{len(self.video_paths)})")
+            
+            # Инициализируем множество использованных кадров для текущего видео, если его еще нет
+            if video_path not in self.used_frames_cache:
+                self.used_frames_cache[video_path] = set()
             
             # Загружаем или получаем из кэша видео
             if video_path not in self.video_cache:
