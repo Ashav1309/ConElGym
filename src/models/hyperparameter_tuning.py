@@ -386,68 +386,75 @@ def count_total_sequences(video_paths, sequence_length, step):
 def objective(trial):
     """
     Целевая функция для оптимизации гиперпараметров
+    
+    Args:
+        trial: объект trial от Optuna
+        
+    Returns:
+        float: значение метрики (accuracy)
     """
     try:
-        print("\n" + "="*50)
+        print("\n==================================================")
         print(f"[TRIAL #{trial.number}] Начало нового trial")
-        print("="*50 + "\n")
+        print("==================================================\n")
         
-        # Очищаем память перед каждым trial
-        clear_memory()
+        # Очистка памяти перед каждым trial
+        print("[DEBUG] ===== Начало очистки памяти =====")
+        gc.collect()
+        tf.keras.backend.clear_session()
+        print("[DEBUG] ===== Очистка памяти завершена =====\n")
         
-        # Определяем тип модели
-        model_type = Config.MODEL_TYPE
+        # Загружаем positive_class_weight из конфигурационного файла
+        if not os.path.exists(Config.CONFIG_PATH):
+            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
+            
+        with open(Config.CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+            positive_class_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
+            
+        print(f"[DEBUG] Загружен positive_class_weight: {positive_class_weight}")
         
-        # Определяем гиперпараметры для оптимизации
-        learning_rate = trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True)
-        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        batch_size = trial.suggest_int('batch_size', 64, 512, step=8)  # Добавляем размер батча
+        # Получаем параметры из trial
+        params = {
+            'learning_rate': trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True),
+            'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
+            'batch_size': trial.suggest_int('batch_size', 64, 512, step=8),
+            'rnn_type': trial.suggest_categorical('rnn_type', ['lstm', 'bigru']),
+            'temporal_block_type': trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention']),
+            'lstm_units': trial.suggest_int('lstm_units', 16, 512),
+            'gamma': trial.suggest_float('gamma', 0.5, 5.0),
+            'alpha': trial.suggest_float('alpha', 0.1, 0.4),
+            'clipnorm': trial.suggest_float('clipnorm', 0.1, 5.0)
+        }
         
-        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention'])
+        print("[DEBUG] Параметры trial:")
+        for key, value in params.items():
+            print(f"  - {key}: {value}")
         
-        if model_type == 'v3':
-            lstm_units = trial.suggest_int('lstm_units', 16, 512)
-        else:
-            lstm_units = None
-        
-        # Оптимизируем параметры focal loss
-        gamma = trial.suggest_float('gamma', 0.5, 5.0)
-        alpha = trial.suggest_float('alpha', 0.1, 0.4)
-        clipnorm = trial.suggest_float('clipnorm', 0.1, 5.0)
-        
-        print(f"[DEBUG] Параметры trial:")
-        print(f"  - learning_rate: {learning_rate}")
-        print(f"  - dropout_rate: {dropout_rate}")
-        print(f"  - batch_size: {batch_size}")  # Добавляем в логи
-        if lstm_units:
-            print(f"  - lstm_units: {lstm_units}")
-        print(f"  - gamma: {gamma}")
-        print(f"  - alpha: {alpha}")
-        
-        # Создаем модель
-        input_shape = (Config.SEQUENCE_LENGTH,) + Config.INPUT_SIZE + (3,)
-        model, class_weights = create_and_compile_model(
-            input_shape=input_shape,
-            num_classes=Config.NUM_CLASSES,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units,
-            model_type=model_type,
-            positive_class_weight=positive_class_weight,
-            rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type
+        # Создаем и обучаем модель
+        model = create_model(
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+            num_classes=2,
+            learning_rate=params['learning_rate'],
+            dropout_rate=params['dropout_rate'],
+            rnn_type=params['rnn_type'],
+            temporal_block_type=params['temporal_block_type'],
+            lstm_units=params['lstm_units'],
+            gamma=params['gamma'],
+            alpha=params['alpha'],
+            clipnorm=params['clipnorm'],
+            positive_class_weight=positive_class_weight
         )
         
         # Создаем загрузчики данных
         train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
         
-        # Создаем оптимизированные pipeline данных с оптимизированным размером батча
+        # Создаем оптимизированные pipeline данных
         train_dataset = create_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
-            batch_size,  # Используем оптимизированный размер батча
+            params['batch_size'],
             Config.INPUT_SIZE,
             is_training=True,
             force_positive=True
@@ -456,7 +463,7 @@ def objective(trial):
         val_dataset = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
-            batch_size,  # Используем оптимизированный размер батча
+            params['batch_size'],
             Config.INPUT_SIZE,
             is_training=False,
             force_positive=False
@@ -467,7 +474,7 @@ def objective(trial):
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
             tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
+            tf.keras.metrics.AUC(name='auc')
         ]
         
         # Создаем адаптер для F1Score
@@ -487,27 +494,27 @@ def objective(trial):
         # Добавляем F1Score в метрики
         metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
-        # Компилируем модель с оптимизированными параметрами focal loss
+        # Компилируем модель
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm),
-            loss=focal_loss(gamma=gamma, alpha=alpha),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=params['learning_rate'], clipnorm=params['clipnorm']),
+            loss=focal_loss(gamma=params['gamma'], alpha=params['alpha']),
             metrics=metrics
         )
         
-        # Создаем колбэки с улучшенными параметрами
+        # Создаем колбэки
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_f1_score_element',
-                patience=5,  # Увеличиваем с 3 до 5
+                patience=5,
                 restore_best_weights=True,
-                mode='max'  # Явно указываем режим максимизации
+                mode='max'
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_f1_score_element',
-                factor=0.1,  # Уменьшаем с 0.2 до 0.1
-                patience=3,  # Увеличиваем с 2 до 3
-                min_lr=1e-7,  # Уменьшаем с 1e-6 до 1e-7
-                mode='max'  # Явно указываем режим максимизации
+                factor=0.1,
+                patience=3,
+                min_lr=1e-7,
+                mode='max'
             )
         ]
         
@@ -515,8 +522,8 @@ def objective(trial):
         step = Config.SEQUENCE_LENGTH // 2 if Config.SEQUENCE_LENGTH > 1 else 1
         train_total_sequences = count_total_sequences(train_loader.video_paths, Config.SEQUENCE_LENGTH, step)
         val_total_sequences = count_total_sequences(val_loader.video_paths, Config.SEQUENCE_LENGTH, step)
-        steps_per_epoch = max(1, train_total_sequences // Config.BATCH_SIZE)
-        validation_steps = max(1, val_total_sequences // Config.BATCH_SIZE)
+        steps_per_epoch = max(1, train_total_sequences // params['batch_size'])
+        validation_steps = max(1, val_total_sequences // params['batch_size'])
 
         # Обучаем модель
         history = model.fit(
@@ -526,8 +533,7 @@ def objective(trial):
             validation_data=val_dataset.repeat(),
             validation_steps=validation_steps,
             callbacks=callbacks,
-            verbose=1,
-            class_weight=class_weights
+            verbose=1
         )
         
         # Получаем лучший F1-score
