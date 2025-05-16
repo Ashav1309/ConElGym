@@ -360,6 +360,19 @@ class VideoDataLoader:
                     print(f"[DEBUG] Видео {video_path} уже обработано - переходим к следующему")
                     self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                     self.current_frame_index = 0
+                    
+                    # Если мы прошли через все видео в текущей группе, переходим к следующей группе
+                    if self.current_video_index % Config.MAX_VIDEOS == 0:
+                        print(f"[DEBUG] Завершена обработка группы из {Config.MAX_VIDEOS} видео - переходим к следующей группе")
+                        # Если все видео обработаны, начинаем новую эпоху
+                        if len(self.processed_videos) >= len(self.video_paths):
+                            print("[DEBUG] Все видео обработаны - начинаем новую эпоху")
+                            self.used_frames_cache.clear()
+                            self.positive_indices_cache.clear()
+                            self.video_cache.clear()
+                            self.processed_videos.clear()
+                            self.current_video_index = 0
+                            self.current_frame_index = 0
                     continue
                 
                 print(f"[DEBUG] Загрузка видео: {video_path}")
