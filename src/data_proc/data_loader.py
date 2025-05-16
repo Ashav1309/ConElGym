@@ -741,6 +741,9 @@ class VideoDataLoader:
                 # Проверяем, что можем получить последовательность
                 if current_frame + sequence_length > total_frames:
                     print(f"[DEBUG] Недостаточно кадров для последовательности: {current_frame} + {sequence_length} > {total_frames}")
+                    # Переходим к следующему видео
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
                     return None, None
                 
                 # Получаем путь к текущему видео
@@ -749,6 +752,22 @@ class VideoDataLoader:
                 # Получаем метки для текущего видео
                 if video_path not in self.used_frames_cache:
                     self.used_frames_cache[video_path] = set()
+                
+                # Проверяем, сколько кадров уже использовано
+                used_frames = self.used_frames_cache[video_path]
+                used_percentage = len(used_frames) / total_frames * 100
+                
+                # Если использовано более 90% кадров, переходим к следующему видео
+                if used_percentage > 90:
+                    print(f"[DEBUG] Видео {video_path} использовано на {used_percentage:.1f}% - переходим к следующему")
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
+                    # Очищаем кэш для текущего видео
+                    if video_path in self.used_frames_cache:
+                        del self.used_frames_cache[video_path]
+                    if video_path in self.positive_indices_cache:
+                        del self.positive_indices_cache[video_path]
+                    return None, None
                 
                 # Загружаем аннотации
                 ann_path = self.labels[self.current_video_index]
@@ -782,7 +801,7 @@ class VideoDataLoader:
                     # Если есть положительные кадры
                     if len(positive_indices) > 0:
                         # Фильтруем уже использованные
-                        available_pos_indices = [idx for idx in positive_indices if idx not in self.used_frames_cache[video_path]]
+                        available_pos_indices = [idx for idx in positive_indices if idx not in used_frames]
                         
                         if len(available_pos_indices) > 0:
                             # Выбираем случайный положительный кадр
@@ -791,7 +810,6 @@ class VideoDataLoader:
                             current_frame = max(0, pos_idx - sequence_length // 2)
                 
                 # Проверяем, что последовательность не пересекается с уже использованными кадрами
-                used_frames = self.used_frames_cache[video_path]
                 if any(frame in used_frames for frame in range(current_frame, current_frame + sequence_length)):
                     print(f"[DEBUG] Попытка {attempts}: Последовательность пересекается с уже использованными кадрами")
                     self.current_frame_index += 1
@@ -824,6 +842,9 @@ class VideoDataLoader:
                 return np.array(sequence), label
             
             print(f"[WARNING] Не удалось получить последовательность после {max_attempts} попыток")
+            # Переходим к следующему видео
+            self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+            self.current_frame_index = 0
             return None, None
             
         except Exception as e:
