@@ -253,8 +253,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         model_type=model_type,
         positive_class_weight=positive_class_weight,
         rnn_type=rnn_type,
-        temporal_block_type=temporal_block_type,
-        clipnorm=clipnorm
+        temporal_block_type=temporal_block_type
     )
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm)
@@ -437,8 +436,7 @@ def objective(trial):
             model_type=model_type,
             positive_class_weight=positive_class_weight,
             rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type,
-            clipnorm=clipnorm
+            temporal_block_type=temporal_block_type
         )
         
         # Создаем загрузчики данных
