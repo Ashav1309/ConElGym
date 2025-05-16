@@ -424,10 +424,10 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = 32):
         batch_size,
         Config.TARGET_SIZE,
         one_hot=True,
-        infinite_loop=False,
+        infinite_loop=True,
         max_sequences_per_video=None,  # Убираем ограничение
         is_train=False,
-        force_positive=True
+        force_positive=False  # Исправлено: sampling только для train
     )
     
     # Создаем аугментатор

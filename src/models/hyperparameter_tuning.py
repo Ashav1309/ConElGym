@@ -334,7 +334,7 @@ def load_and_prepare_data(batch_size):
         
         # Создание оптимизированных pipeline данных
         train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True)
-        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False, True)
+        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False, False)
         
         return train_dataset, val_dataset
     except Exception as e:
@@ -461,7 +461,7 @@ def objective(trial):
             Config.BATCH_SIZE,
             Config.INPUT_SIZE,
             is_training=False,
-            force_positive=True
+            force_positive=False
         )
         
         # Создаем метрики

@@ -217,13 +217,17 @@ class VideoDataLoader:
                 with open(annotations, 'r') as f:
                     ann_data = json.load(f)
                     frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-                    # Для каждого аннотированного интервала отмечаем все кадры как положительные
                     for annotation in ann_data['annotations']:
                         start_frame = annotation['start_frame']
                         end_frame = annotation['end_frame']
                         for frame_idx in range(start_frame, end_frame + 1):
                             if frame_idx < len(frame_labels):
-                                frame_labels[frame_idx] = [1, 0]  # Положительный класс
+                                if frame_idx == start_frame:
+                                    frame_labels[frame_idx] = [1, 0]  # Start
+                                elif frame_idx == end_frame:
+                                    frame_labels[frame_idx] = [0, 1]  # End
+                                else:
+                                    frame_labels[frame_idx] = [0, 0]  # Промежуточный кадр
             else:
                 frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
             
@@ -443,13 +447,17 @@ class VideoDataLoader:
                         ann_data = json.load(f)
                         # Создаем массив меток для каждого кадра
                         frame_labels = np.zeros((len(frames), Config.NUM_CLASSES), dtype=np.float32)
-                        # Для каждого аннотированного интервала отмечаем все кадры как положительные
                         for annotation in ann_data['annotations']:
                             start_frame = annotation['start_frame']
                             end_frame = annotation['end_frame']
                             for frame_idx in range(start_frame, end_frame + 1):
                                 if frame_idx < len(frame_labels):
-                                    frame_labels[frame_idx] = [1, 0]  # Положительный класс
+                                    if frame_idx == start_frame:
+                                        frame_labels[frame_idx] = [1, 0]  # Start
+                                    elif frame_idx == end_frame:
+                                        frame_labels[frame_idx] = [0, 1]  # End
+                                    else:
+                                        frame_labels[frame_idx] = [0, 0]  # Промежуточный кадр
                         annotations = frame_labels
                         print(f"[DEBUG] Загружены аннотации формы: {annotations.shape}")
                 except Exception as e:
