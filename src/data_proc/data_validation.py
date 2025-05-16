@@ -13,13 +13,17 @@ def validate_dataset() -> Tuple[List[str], List[str]]:
     """
     Проверка наличия и качества данных перед началом обучения
     Returns:
-        Tuple[List[str], List[str]]: списки путей к видео для обучения и валидации
+        Tuple[List[str], List[str]]: списки полных путей к видео для обучения и валидации
     """
     logger.info("Начало валидации датасета...")
     
     # Проверка наличия файлов
-    train_videos = [f for f in os.listdir(Config.TRAIN_DATA_PATH) if f.endswith('.mp4')]
-    val_videos = [f for f in os.listdir(Config.VALID_DATA_PATH) if f.endswith('.mp4')]
+    train_videos = [os.path.join(Config.TRAIN_DATA_PATH, f) 
+                   for f in os.listdir(Config.TRAIN_DATA_PATH) 
+                   if f.endswith('.mp4')]
+    val_videos = [os.path.join(Config.VALID_DATA_PATH, f) 
+                 for f in os.listdir(Config.VALID_DATA_PATH) 
+                 if f.endswith('.mp4')]
     
     if len(train_videos) < Config.MIN_TRAIN_VIDEOS:
         raise ValueError(f"Недостаточно видео для обучения: {len(train_videos)} < {Config.MIN_TRAIN_VIDEOS}")
@@ -50,30 +54,69 @@ def check_data_quality(video_paths: List[str]) -> None:
     
     for video_path in video_paths:
         try:
+            # Проверяем существование файла
+            if not os.path.exists(video_path):
+                raise FileNotFoundError(f"Файл не найден: {video_path}")
+            
+            # Проверяем права доступа
+            if not os.access(video_path, os.R_OK):
+                raise PermissionError(f"Нет прав на чтение файла: {video_path}")
+            
+            # Проверяем размер файла
+            file_size = os.path.getsize(video_path)
+            logger.info(f"Размер файла {video_path}: {file_size / (1024*1024):.2f} MB")
+            
+            if file_size == 0:
+                raise ValueError(f"Файл пустой: {video_path}")
+            
+            # Пробуем открыть видео
+            logger.info(f"Попытка открыть видео: {video_path}")
             cap = cv2.VideoCapture(video_path)
+            
             if not cap.isOpened():
-                raise ValueError(f"Не удалось открыть видео: {video_path}")
+                # Пробуем альтернативный способ открытия
+                logger.warning(f"Первый способ открытия не удался, пробуем альтернативный для {video_path}")
+                cap = cv2.VideoCapture(str(video_path))
+                
+                if not cap.isOpened():
+                    raise ValueError(f"Не удалось открыть видео: {video_path}")
             
             # Проверка размера
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            logger.info(f"Размер видео {video_path}: {width}x{height}")
+            
             if width < Config.MIN_VIDEO_WIDTH or height < Config.MIN_VIDEO_HEIGHT:
                 raise ValueError(f"Видео {video_path} слишком маленького размера: {width}x{height}")
             
             # Проверка FPS
             fps = cap.get(cv2.CAP_PROP_FPS)
+            logger.info(f"FPS видео {video_path}: {fps}")
+            
             if fps < Config.MIN_FPS:
                 raise ValueError(f"Видео {video_path} имеет слишком низкий FPS: {fps}")
             
             # Проверка количества кадров
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            logger.info(f"Количество кадров в видео {video_path}: {total_frames}")
+            
             if total_frames < Config.MIN_FRAMES_PER_VIDEO:
                 raise ValueError(f"Видео {video_path} слишком короткое: {total_frames} кадров")
             
+            # Пробуем прочитать первый кадр
+            ret, frame = cap.read()
+            if not ret:
+                raise ValueError(f"Не удалось прочитать первый кадр из видео: {video_path}")
+            
+            logger.info(f"Видео {video_path} успешно проверено")
             cap.release()
             
         except Exception as e:
             logger.error(f"Ошибка при проверке видео {video_path}: {str(e)}")
+            logger.error(f"Полный путь к файлу: {os.path.abspath(video_path)}")
+            logger.error(f"Тип ошибки: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
 def calculate_positive_examples() -> Tuple[int, int]:
