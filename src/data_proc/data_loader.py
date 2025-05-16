@@ -335,6 +335,7 @@ class VideoDataLoader:
             else:
                 positive_indices = self.positive_indices_cache[video_path]
             
+            old_frame_index = self.current_frame_index
             # Собираем последовательности
             batch_sequences, batch_labels, new_frame_index = self._collect_sequences(
                 video_path,
@@ -346,16 +347,24 @@ class VideoDataLoader:
                 positive_indices,
                 force_positive
             )
-            
             # Обновляем индексы
             self.current_frame_index = new_frame_index
-            
-            # Проверяем, нужно ли переключиться на следующее видео
-            if self.current_frame_index >= total_frames:
-                print(f"[DEBUG] get_batch: Достигнут конец видео {os.path.basename(video_path)}")
-                self.current_video_index += 1
-                self.current_frame_index = 0
-                if len(batch_sequences) == 0:
+
+            # Если не удалось продвинуться по кадрам (застряли в конце видео)
+            if self.current_frame_index == old_frame_index:
+                print(f"[DEBUG] get_batch: Не удалось продвинуться по кадрам, возможно конец видео. Размер батча: {len(batch_sequences)}")
+                if len(batch_sequences) > 0:
+                    # Возвращаем маленький батч
+                    num_positive = np.sum([label[0] == 1 for label in batch_labels])
+                    print(f"[DEBUG] get_batch: Возвращаем маленький батч. Положительных примеров (label[0] == 1): {num_positive}")
+                    print(f"[DEBUG] get_batch: Текущий индекс видео: {self.current_video_index + 1}/{len(self.video_paths)}")
+                    print(f"[DEBUG] get_batch: Текущий индекс кадра: {self.current_frame_index}/{total_frames}")
+                    return np.array(batch_sequences), np.array(batch_labels)
+                else:
+                    # Переходим к следующему видео
+                    print(f"[DEBUG] get_batch: Батч пустой, переходим к следующему видео")
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
                     return None
             
             # Проверяем наличие положительных примеров для train
@@ -560,7 +569,7 @@ class VideoDataLoader:
                 
                 try:
                     num_positive = int((y[...,1] == 1).sum())
-                    print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
+                    # print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
                     
                     # Конвертируем в тензоры с оптимизацией памяти
                     x = tf.convert_to_tensor(X, dtype=tf.float32)
