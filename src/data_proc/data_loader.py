@@ -470,6 +470,11 @@ class VideoDataLoader:
                     y_batch = np.array(y_batch)
                     
                     print(f"[DEBUG] Батч успешно собран: {X_batch.shape}, {y_batch.shape}")
+                    
+                    # Переходим к следующему видео после успешного сбора батча
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
+                    
                     return X_batch, y_batch
                 
                 # Если батч не собран полностью, продолжаем с следующим видео
@@ -477,7 +482,7 @@ class VideoDataLoader:
             
             print("[DEBUG] Не удалось найти необработанное видео после проверки всех видео")
             return None
-                
+            
         except Exception as e:
             print(f"[ERROR] Ошибка при получении батча: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
