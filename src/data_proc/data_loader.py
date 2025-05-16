@@ -471,6 +471,10 @@ class VideoDataLoader:
                     
                     print(f"[DEBUG] Батч успешно собран: {X_batch.shape}, {y_batch.shape}")
                     
+                    # Очищаем кэш использованных кадров для текущего видео
+                    if video_path in self.used_frames_cache:
+                        del self.used_frames_cache[video_path]
+                    
                     # Переходим к следующему видео после успешного сбора батча
                     self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
                     self.current_frame_index = 0
