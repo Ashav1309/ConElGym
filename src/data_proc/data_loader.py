@@ -406,6 +406,33 @@ class VideoDataLoader:
             print(f"  - Размер кадра: {target_size}")
             print(f"  - Force positive: {force_positive}")
             
+            # Загружаем аннотации для видео
+            if video_path not in self.positive_indices_cache:
+                print(f"[DEBUG] Загрузка аннотаций для видео: {video_path}")
+                frame_labels = self._load_annotations(video_path)
+                self.positive_indices_cache[video_path] = frame_labels
+            else:
+                frame_labels = self.positive_indices_cache[video_path]
+            
+            # Если требуется принудительно брать положительные примеры
+            if force_positive:
+                # Находим все положительные кадры
+                positive_indices = np.where(frame_labels == 1.0)[0]
+                if len(positive_indices) == 0:
+                    print("[DEBUG] Нет положительных кадров в видео")
+                    return None, None
+                
+                # Находим ближайший положительный кадр
+                distances = np.abs(positive_indices - current_frame)
+                nearest_positive = positive_indices[np.argmin(distances)]
+                
+                # Если текущий кадр далеко от положительного, перемещаемся к нему
+                if distances[np.argmin(distances)] > sequence_length:
+                    # Перемещаемся к началу положительного диапазона
+                    self.current_frame_index = max(0, nearest_positive - sequence_length + 1)
+                    print(f"[DEBUG] Перемещаемся к кадру {self.current_frame_index} (ближайший положительный: {nearest_positive})")
+                    return None, None
+            
             # Проверяем, что последовательность не выходит за границы
             if current_frame + sequence_length > total_frames:
                 print(f"[DEBUG] Последовательность выходит за границы: {current_frame + sequence_length} > {total_frames}")
@@ -422,30 +449,31 @@ class VideoDataLoader:
                 print(f"[DEBUG] Последовательность пересекается с использованными кадрами: {current_frame}-{current_frame + sequence_length}")
                 return None, None
             
-            # Загружаем аннотации для видео
-            if video_path not in self.positive_indices_cache:
-                print(f"[DEBUG] Загрузка аннотаций для видео: {video_path}")
-                frame_labels = self._load_annotations(video_path)
-                self.positive_indices_cache[video_path] = frame_labels
-            else:
-                frame_labels = self.positive_indices_cache[video_path]
+            # Проверяем, есть ли положительные примеры в последовательности
+            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
+            has_positive = np.any(sequence_labels == 1.0)
             
-            # Если требуется принудительно брать положительные примеры
-            if force_positive:
-                # Проверяем, есть ли положительные примеры в последовательности
-                sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-                has_positive = np.any(sequence_labels == 1.0)
-                
-                print(f"[DEBUG] Проверка положительных примеров:")
-                print(f"  - Диапазон кадров: {current_frame}-{current_frame + sequence_length}")
-                print(f"  - Метки в последовательности: {sequence_labels}")
-                print(f"  - Есть положительные: {has_positive}")
-                
-                if not has_positive:
-                    print("[DEBUG] Нет положительных примеров в последовательности")
-                    # Увеличиваем индекс кадра для следующей попытки
+            print(f"[DEBUG] Проверка положительных примеров:")
+            print(f"  - Диапазон кадров: {current_frame}-{current_frame + sequence_length}")
+            print(f"  - Метки в последовательности: {sequence_labels}")
+            print(f"  - Есть положительные: {has_positive}")
+            
+            if force_positive and not has_positive:
+                print("[DEBUG] Нет положительных примеров в последовательности")
+                # Если нет положительных примеров, ищем ближайший положительный кадр
+                positive_indices = np.where(frame_labels == 1.0)[0]
+                if len(positive_indices) > 0:
+                    # Находим ближайший положительный кадр
+                    distances = np.abs(positive_indices - current_frame)
+                    nearest_positive = positive_indices[np.argmin(distances)]
+                    print(f"[DEBUG] Ближайший положительный кадр: {nearest_positive}")
+                    # Перемещаемся к началу положительного диапазона
+                    self.current_frame_index = max(0, nearest_positive - sequence_length + 1)
+                    print(f"[DEBUG] Перемещаемся к кадру: {self.current_frame_index}")
+                else:
+                    # Если положительных кадров нет, увеличиваем индекс
                     self.current_frame_index += 1
-                    return None, None
+                return None, None
             
             # Собираем последовательность
             sequence = []
@@ -464,10 +492,6 @@ class VideoDataLoader:
             
             # Отмечаем использованные кадры
             used_frames.update(range(current_frame, current_frame + sequence_length))
-            
-            # Получаем метку для последовательности
-            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            has_positive = np.any(sequence_labels == 1.0)
             
             # Создаем метку в формате one-hot encoding
             if has_positive:
