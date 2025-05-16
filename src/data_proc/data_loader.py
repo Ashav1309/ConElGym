@@ -408,22 +408,22 @@ class VideoDataLoader:
                 if os.path.exists(annotation_path):
                     with open(annotation_path, 'r') as f:
                         ann_data = json.load(f)
-                    
-                    # Создаем массив меток для каждого кадра
-                    frame_labels = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
-                    for annotation in ann_data['annotations']:
-                        start_frame = annotation['start_frame']
-                        end_frame = annotation['end_frame']
-                        for frame_idx in range(start_frame, end_frame + 1):
-                            if frame_idx < len(frame_labels):
-                                frame_labels[frame_idx] = [1, 0]  # Положительный класс
-                    
-                    # Сохраняем метки в кэш
-                    self.positive_indices_cache[video_path] = frame_labels
-                    print(f"[DEBUG] Загружено {len(ann_data['annotations'])} аннотаций")
+                        
+                        # Создаем массив меток для каждого кадра
+                        frame_labels = np.zeros(total_frames, dtype=np.float32)
+                        for annotation in ann_data['annotations']:
+                            start_frame = annotation['start_frame']
+                            end_frame = annotation['end_frame']
+                            for frame_idx in range(start_frame, end_frame + 1):
+                                if frame_idx < len(frame_labels):
+                                    frame_labels[frame_idx] = 1.0  # Положительный класс
+                        
+                        # Сохраняем метки в кэш
+                        self.positive_indices_cache[video_path] = frame_labels
+                        print(f"[DEBUG] Загружено {len(ann_data['annotations'])} аннотаций")
                 else:
                     print(f"[WARNING] Аннотации не найдены для видео: {video_path}")
-                    self.positive_indices_cache[video_path] = np.zeros((total_frames, Config.NUM_CLASSES), dtype=np.float32)
+                    self.positive_indices_cache[video_path] = np.zeros(total_frames, dtype=np.float32)
             
             # Получаем метки из кэша
             frame_labels = self.positive_indices_cache[video_path]
@@ -432,7 +432,7 @@ class VideoDataLoader:
             if force_positive:
                 # Проверяем, есть ли положительные примеры в последовательности
                 sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-                has_positive = np.any(sequence_labels[:, 0] == 1)
+                has_positive = np.any(sequence_labels == 1.0)
                 
                 if not has_positive:
                     print("[DEBUG] Нет положительных примеров в последовательности")
@@ -458,7 +458,7 @@ class VideoDataLoader:
             
             # Получаем метку для последовательности
             sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            label = np.max(sequence_labels, axis=0) if one_hot else np.max(sequence_labels[:, 0])
+            label = np.max(sequence_labels)  # 1.0 если есть хотя бы один положительный кадр
             
             # Преобразуем последовательность в numpy массив и нормализуем
             sequence = np.array(sequence, dtype=np.float32) / 255.0
