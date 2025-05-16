@@ -126,38 +126,39 @@ def calculate_positive_examples() -> Tuple[int, int]:
         Tuple[int, int]: количество положительных примеров и общее количество примеров
     """
     logger.info("Подсчет положительных примеров...")
-    
+
     total_count = 0
     positive_count = 0
-    
+
     # Проверяем тренировочные данные
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     for video_path in train_loader.video_paths:
         annotation_path = os.path.join(Config.TRAIN_ANNOTATION_PATH, 
                                      os.path.splitext(os.path.basename(video_path))[0] + '.json')
-        
+
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:
                 ann_data = json.load(f)
                 for annotation in ann_data['annotations']:
                     total_count += 1
-                    if annotation.get('is_positive', False):
+                    # Любая аннотация с временными метками считается положительной
+                    if 'start_frame' in annotation and 'end_frame' in annotation:
                         positive_count += 1
-    
-    # Проверяем валидационные данные
+
+    # Аналогично для валидационных данных
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     for video_path in val_loader.video_paths:
         annotation_path = os.path.join(Config.VALID_ANNOTATION_PATH, 
                                      os.path.splitext(os.path.basename(video_path))[0] + '.json')
-        
+
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:
                 ann_data = json.load(f)
                 for annotation in ann_data['annotations']:
                     total_count += 1
-                    if annotation.get('is_positive', False):
+                    if 'start_frame' in annotation and 'end_frame' in annotation:
                         positive_count += 1
-    
+
     logger.info(f"Найдено {positive_count} положительных примеров из {total_count} всего")
     return positive_count, total_count
 
