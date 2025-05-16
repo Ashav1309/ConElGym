@@ -77,20 +77,18 @@ def calculate_dataset_weights():
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
                 
-                # Добавляем уникальные положительные кадры
-                positive_frames.add(start_frame)
-                positive_frames.add(end_frame)
-                video_stats[video_name]['positive_frames'].add(start_frame)
-                video_stats[video_name]['positive_frames'].add(end_frame)
-                
+                # Добавляем все кадры между start и end как положительные
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        if frame_idx == start_frame:
-                            frame_labels[frame_idx] = [1, 0]
-                        elif frame_idx == end_frame:
-                            frame_labels[frame_idx] = [0, 1]
-                        else:
-                            frame_labels[frame_idx] = [0, 0]
+                        positive_frames.add(frame_idx)
+                        video_stats[video_name]['positive_frames'].add(frame_idx)
+                        frame_labels[frame_idx] = [1, 0]  # Все кадры внутри интервала - положительные
+                
+                # Отмечаем начало и конец специальными метками
+                if start_frame < len(frame_labels):
+                    frame_labels[start_frame] = [1, 0]  # Начало
+                if end_frame < len(frame_labels):
+                    frame_labels[end_frame] = [0, 1]  # Конец
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
