@@ -435,14 +435,10 @@ def objective(trial):
         model = create_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=2,
-            learning_rate=params['learning_rate'],
             dropout_rate=params['dropout_rate'],
             rnn_type=params['rnn_type'],
             temporal_block_type=params['temporal_block_type'],
             lstm_units=params['lstm_units'],
-            gamma=params['gamma'],
-            alpha=params['alpha'],
-            clipnorm=params['clipnorm'],
             positive_class_weight=positive_class_weight
         )
         
