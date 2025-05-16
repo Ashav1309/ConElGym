@@ -117,16 +117,13 @@ def calculate_dataset_weights():
     negative_sequences = total_sequences - positive_sequences
     sequence_weight = negative_sequences / positive_sequences if positive_sequences > 0 else 1.0
     
-    # Учитываем также соотношение положительных и отрицательных кадров
+    # Учитываем соотношение положительных и отрицательных кадров
     positive_frames_count = len(positive_frames)  # Используем количество уникальных кадров
     negative_frames = total_frames - positive_frames_count
     frame_weight = negative_frames / positive_frames_count if positive_frames_count > 0 else 1.0
     
-    # Используем взвешенное среднее для комбинирования весов
-    # Даем больший вес последовательностям, так как они важнее для обучения
-    sequence_weight_factor = 0.7
-    frame_weight_factor = 0.3
-    final_weight = (sequence_weight * sequence_weight_factor + frame_weight * frame_weight_factor)
+    # Используем только вес на основе кадров и ограничиваем его
+    final_weight = min(frame_weight, 10.0)  # Ограничиваем максимальный вес
     
     # Выводим детальную статистику по каждому видео
     print("\n[DEBUG] Детальная статистика по видео:")
