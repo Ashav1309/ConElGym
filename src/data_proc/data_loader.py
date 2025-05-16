@@ -679,14 +679,11 @@ class VideoDataLoader:
             
         Yields:
             Tuple[tf.Tensor, tf.Tensor]: кортеж (X_batch, y_batch)
-            
-        Raises:
-            CorruptedVideoError: если видео повреждено
-            InvalidAnnotationError: если формат аннотаций некорректен
         """
         try:
             logger.info("\n===== Запуск генератора данных =====")
             logger.info(f"Количество видео для обработки: {len(self.video_paths)}")
+            print(f"[DEBUG] Запуск генератора данных с {len(self.video_paths)} видео")
             
             # Счетчик попыток найти необработанное видео
             video_attempts = 0
@@ -695,14 +692,15 @@ class VideoDataLoader:
             while True:
                 # Проверяем, все ли видео обработаны
                 if len(self.processed_videos) >= len(self.video_paths):
-                    logger.debug("Все видео обработаны - конец эпохи")
+                    print("[DEBUG] Все видео обработаны - конец эпохи")
                     break
                 
                 # Проверяем количество попыток найти необработанное видео
                 if video_attempts >= max_video_attempts:
-                    logger.debug("Достигнуто максимальное количество попыток найти необработанное видео")
+                    print("[DEBUG] Достигнуто максимальное количество попыток найти необработанное видео")
                     break
                 
+                print(f"[DEBUG] Попытка получить батч (попытка {video_attempts + 1}/{max_video_attempts})")
                 batch_data = self.get_batch(
                     batch_size=self.batch_size,
                     sequence_length=self.sequence_length,
@@ -713,7 +711,7 @@ class VideoDataLoader:
                 )
                 
                 if batch_data is None:
-                    logger.debug("Не удалось получить батч - увеличиваем счетчик попыток")
+                    print("[DEBUG] Не удалось получить батч - увеличиваем счетчик попыток")
                     video_attempts += 1
                     continue
                 
@@ -722,12 +720,12 @@ class VideoDataLoader:
                 
                 X, y = batch_data
                 if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
-                    logger.warning("Получен пустой батч")
+                    print("[DEBUG] Получен пустой батч")
                     continue
                 
                 try:
                     num_positive = int((y[...,1] == 1).sum())
-                    logger.debug(f"В батче положительных примеров (class 1): {num_positive}")
+                    print(f"[DEBUG] В батче положительных примеров (class 1): {num_positive}")
                     
                     # Конвертируем в тензоры с оптимизацией памяти
                     x = tf.convert_to_tensor(X, dtype=tf.float32)
@@ -741,14 +739,14 @@ class VideoDataLoader:
                     yield (x, y_tensor)
                     
                 except Exception as e:
-                    logger.error(f"Ошибка при обработке батча: {str(e)}")
+                    print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
                     continue
             
-            logger.debug("Завершение генератора данных")
+            print("[DEBUG] Завершение генератора данных")
             return
                 
         except Exception as e:
-            logger.error(f"Ошибка в генераторе данных: {str(e)}")
+            print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
             raise
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
@@ -774,8 +772,12 @@ class VideoDataLoader:
         try:
             print("[DEBUG] Начало расчета общего количества батчей")
             batch_count = 0
-            for _ in self.data_generator():
+            for batch in self.data_generator():
                 batch_count += 1
+                print(f"[DEBUG] Получен батч {batch_count}")
+                if batch_count >= 10:  # Ограничиваем количество батчей для отладки
+                    print("[DEBUG] Достигнуто максимальное количество батчей для отладки")
+                    break
             self.total_batches = batch_count
             print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
         except Exception as e:
