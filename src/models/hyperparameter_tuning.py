@@ -140,59 +140,85 @@ device_available = setup_device()
 
 def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
     """
-    Создание оптимизированного пайплайна данных.
+    Создание оптимизированного pipeline данных для подбора гиперпараметров
+    
     Args:
-        data_loader: Загрузчик данных
-        sequence_length: Длина последовательности
-        batch_size: Размер батча
-        input_size: Размер входного изображения
-        is_training: Флаг обучения
-        force_positive: Флаг принудительного включения положительных примеров
-    Returns:
-        tf.data.Dataset: Оптимизированный датасет
+        data_loader: загрузчик данных
+        sequence_length: длина последовательности
+        batch_size: Размер батча (берется из конфига)
+        input_size: размер входного изображения
+        is_training: флаг обучения
+        force_positive: флаг принудительного добавления положительных примеров
     """
     try:
-        print("\n[DEBUG] ===== Создание пайплайна данных =====")
+        print("\n[DEBUG] Создание pipeline данных для подбора гиперпараметров...")
         print(f"[DEBUG] Параметры:")
-        print(f"  - batch_size: {batch_size}")
         print(f"  - sequence_length: {sequence_length}")
+        print(f"  - batch_size: {batch_size}")
         print(f"  - input_size: {input_size}")
         print(f"  - is_training: {is_training}")
         print(f"  - force_positive: {force_positive}")
         
-        # Проверяем количество загруженных видео
-        if hasattr(data_loader, 'video_count'):
-            print(f"[DEBUG] Количество загруженных видео: {data_loader.video_count}")
-            if data_loader.video_count > Config.MAX_VIDEOS:
-                print(f"[WARNING] Загружено слишком много видео: {data_loader.video_count} > {Config.MAX_VIDEOS}")
-        
-        # Устанавливаем размер батча в загрузчике данных
+        # Устанавливаем размер батча в загрузчике
         data_loader.batch_size = batch_size
         
-        # Создаем датасет из генератора
-        dataset = tf.data.Dataset.from_generator(
-            data_loader.data_generator,
-            output_signature=(
-                tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
-            )
+        # Создаем генератор данных
+        def data_generator():
+            while True:
+                try:
+                    batch_data = data_loader.get_batch(
+                        batch_size=batch_size,
+                        sequence_length=sequence_length,
+                        target_size=input_size,
+                        one_hot=True,
+                        max_sequences_per_video=None,
+                        force_positive=force_positive
+                    )
+                    
+                    if batch_data is None:
+                        print("[WARNING] Получен пустой батч данных")
+                        continue
+                        
+                    X, y = batch_data
+                    
+                    if X.shape[0] == 0 or y.shape[0] == 0:
+                        print("[WARNING] Получен батч с нулевой размерностью")
+                        continue
+                        
+                    yield X, y
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+                    continue
+                
+                break
+        
+        # Создаем dataset
+        output_signature = (
+            tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
         )
         
-        # Применяем оптимизации
-        if Config.MEMORY_OPTIMIZATION['cache_dataset']:
-            dataset = dataset.cache()
+        dataset = tf.data.Dataset.from_generator(
+            data_generator,
+            output_signature=output_signature
+        )
         
+        # Оптимизация производительности
         if is_training:
-            dataset = dataset.shuffle(buffer_size=1000)
-        
+            dataset = dataset.shuffle(64)
+            dataset = dataset.batch(batch_size, drop_remainder=True)
+        else:
+            dataset = dataset.batch(batch_size)
+            
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
-        print("[DEBUG] Pipeline данных успешно создан")
         return dataset
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при создании пайплайна данных: {str(e)}")
+        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
+        import traceback
         traceback.print_exc()
         raise
 

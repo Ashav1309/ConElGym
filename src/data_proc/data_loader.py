@@ -32,7 +32,7 @@ class VideoDataLoader:
         self.video_paths = []
         self.labels = []
         self.video_count = 0
-        self.batch_size = 32
+        self.batch_size = Config.BATCH_SIZE  # Берем размер батча из конфига
         self.current_video_index = 0
         self.current_frame_index = 0
         self.current_batch = 0
@@ -310,8 +310,10 @@ class VideoDataLoader:
                 self.current_video_index = 0
                 self.current_frame_index = 0
                 self.stuck_counter = 0
-                self.used_frames_cache.clear()  # Очищаем кэш использованных кадров
-                self.positive_indices_cache.clear()  # Очищаем кэш положительных индексов
+                # Полностью очищаем все кэши при начале новой эпохи
+                self.used_frames_cache.clear()
+                self.positive_indices_cache.clear()
+                self.video_cache.clear()
                 return None
             
             video_path = self.video_paths[self.current_video_index]
@@ -362,6 +364,7 @@ class VideoDataLoader:
                 positive_indices,
                 force_positive
             )
+            
             # Обновляем индексы
             self.current_frame_index = new_frame_index
 
@@ -369,17 +372,25 @@ class VideoDataLoader:
             if self.current_frame_index == old_frame_index:
                 self.stuck_counter += 1
                 print(f"[DEBUG] get_batch: Не удалось продвинуться по кадрам {self.stuck_counter} раз подряд")
+                
                 if self.stuck_counter >= self.max_stuck_batches:
                     print(f"[DEBUG] get_batch: Достигнут лимит маленьких батчей, переходим к следующему видео")
-                    self.current_video_index += 1
-                    self.current_frame_index = 0
-                    self.stuck_counter = 0
-                    # Очищаем кэш для текущего видео
+                    # Очищаем кэш для текущего видео перед переходом к следующему
                     if video_path in self.used_frames_cache:
                         del self.used_frames_cache[video_path]
                     if video_path in self.positive_indices_cache:
                         del self.positive_indices_cache[video_path]
+                    if video_path in self.video_cache:
+                        cap, _ = self.video_cache[video_path]
+                        cap.release()
+                        del self.video_cache[video_path]
+                    
+                    # Переходим к следующему видео
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    self.stuck_counter = 0
                     return None
+                    
                 if len(batch_sequences) > 0:
                     # Возвращаем маленький батч
                     num_positive = np.sum([label[0] == 1 for label in batch_labels])
@@ -390,14 +401,20 @@ class VideoDataLoader:
                 else:
                     # Переходим к следующему видео
                     print(f"[DEBUG] get_batch: Батч пустой, переходим к следующему видео")
-                    self.current_video_index += 1
-                    self.current_frame_index = 0
-                    self.stuck_counter = 0
-                    # Очищаем кэш для текущего видео
+                    # Очищаем кэш для текущего видео перед переходом к следующему
                     if video_path in self.used_frames_cache:
                         del self.used_frames_cache[video_path]
                     if video_path in self.positive_indices_cache:
                         del self.positive_indices_cache[video_path]
+                    if video_path in self.video_cache:
+                        cap, _ = self.video_cache[video_path]
+                        cap.release()
+                        del self.video_cache[video_path]
+                    
+                    # Переходим к следующему видео
+                    self.current_video_index += 1
+                    self.current_frame_index = 0
+                    self.stuck_counter = 0
                     return None
             else:
                 self.stuck_counter = 0
