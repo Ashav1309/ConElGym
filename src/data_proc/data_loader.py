@@ -364,14 +364,28 @@ class VideoDataLoader:
                 
                 print(f"[DEBUG] Загрузка видео: {video_path}")
                 
+                # Проверяем существование файла
+                if not os.path.exists(video_path):
+                    print(f"[ERROR] Видеофайл не найден: {video_path}")
+                    self.processed_videos.add(video_path)
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
+                    continue
+                
+                # Проверяем размер файла
+                file_size = os.path.getsize(video_path)
+                print(f"[DEBUG] Размер файла: {file_size / (1024*1024):.2f} MB")
+                
                 # Проверяем, есть ли видео в кэше
                 if video_path in self.video_cache:
                     cap = self.video_cache[video_path]
+                    print("[DEBUG] Видео загружено из кэша")
                 else:
                     # Очищаем предыдущее видео из кэша если оно есть
                     if hasattr(self, 'current_cap') and self.current_cap is not None:
                         self.current_cap.release()
                     
+                    print("[DEBUG] Открываем видео через OpenCV")
                     cap = cv2.VideoCapture(video_path)
                     if not cap.isOpened():
                         print(f"[ERROR] Не удалось открыть видео: {video_path}")
@@ -385,6 +399,24 @@ class VideoDataLoader:
                 
                 # Получаем общее количество кадров
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                print(f"[DEBUG] Общее количество кадров: {total_frames}")
+                
+                # Проверяем корректность total_frames
+                if total_frames <= 0:
+                    print(f"[ERROR] Некорректное количество кадров в видео: {total_frames}")
+                    print("[DEBUG] Проверяем другие свойства видео:")
+                    print(f"  - Ширина: {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+                    print(f"  - Высота: {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+                    print(f"  - FPS: {cap.get(cv2.CAP_PROP_FPS)}")
+                    print(f"  - Формат: {cap.get(cv2.CAP_PROP_FOURCC)}")
+                    self.processed_videos.add(video_path)
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
+                    continue
+                
+                # Инициализируем кэш использованных кадров для текущего видео
+                if video_path not in self.used_frames_cache:
+                    self.used_frames_cache[video_path] = set()
                 
                 # Проверяем, нужно ли перейти к следующему видео
                 if self.current_frame_index >= total_frames - sequence_length:
