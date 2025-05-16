@@ -307,7 +307,6 @@ class VideoDataLoader:
                         print(f"[DEBUG] get_batch: Не удалось прочитать кадр {self.current_frame_index}")
                         unreadable_frames_count += 1
                         self.current_frame_index += 1
-                        
                         # Если слишком много нечитаемых кадров, пропускаем видео
                         if unreadable_frames_count > 120:
                             print(f"[WARNING] Слишком много нечитаемых кадров ({unreadable_frames_count}), пропускаем видео")
@@ -316,34 +315,57 @@ class VideoDataLoader:
                             cap.release()
                             return None
                         continue
-                    
                     frame = cv2.resize(frame, target_size)
                     frames.append(frame)
                     labels.append(frame_labels[self.current_frame_index])
                     self.current_frame_index += 1
-                
+
+                # Если последовательность неполная, но содержит положительный пример — паддим до нужной длины
+                if 0 < len(frames) < sequence_length:
+                    # Проверяем, есть ли положительный пример
+                    sequence_labels = np.array(labels)
+                    has_positive = np.any(sequence_labels[:, 1] == 1)
+                    if has_positive:
+                        print(f"[DEBUG] get_batch: Паддинг неполной последовательности с положительным примером. Длина: {len(frames)}")
+                        lost_positives = np.sum(sequence_labels[:, 1] == 1)
+                        print(f"[DEBUG] В этой последовательности было бы потеряно положительных примеров: {lost_positives}")
+                        # Паддинг копированием последнего кадра и метки
+                        while len(frames) < sequence_length:
+                            frames.append(frames[-1])
+                            labels.append(labels[-1])
+                        batch_sequences.append(frames)
+                        batch_labels.append(labels)
+                        batches_for_this_video += 1
+                        del frames
+                        del labels
+                        gc.collect()
+                        continue
+                    else:
+                        # Если нет положительных — просто выбрасываем
+                        del frames
+                        del labels
+                        gc.collect()
+                        continue
+
                 # Если удалось собрать последовательность нужной длины
                 if len(frames) == sequence_length:
                     # Проверяем наличие положительных примеров в последовательности
                     sequence_labels = np.array(labels)
                     has_positive = np.any(sequence_labels[:, 1] == 1)
-                    
                     if has_positive:
                         print(f"[DEBUG] get_batch: Найдена положительная последовательность в обычных примерах")
-                    
                     batch_sequences.append(frames)
                     batch_labels.append(labels)
                     batches_for_this_video += 1
-                    # Очищаем память после каждой последовательности
                     del frames
                     del labels
                     gc.collect()
                 else:
-                    print(f"[DEBUG] get_batch: Не удалось собрать последовательность нужной длины. Получено кадров: {len(frames)}")
-                    # Очищаем память
+                    # Если последовательность пустая или невалидная
                     del frames
                     del labels
                     gc.collect()
+                    continue
             
             if len(batch_sequences) != batch_size:
                 print(f"[WARNING] Не удалось собрать полный батч. Получено последовательностей: {len(batch_sequences)}")

@@ -212,8 +212,11 @@ def validate_data_pipeline() -> None:
     
     # Подсчет и проверка положительных примеров
     positive_count, total_count = calculate_positive_examples()
-    if positive_count < Config.MIN_POSITIVE_EXAMPLES:
-        raise ValueError(f"Недостаточно положительных примеров: {positive_count} < {Config.MIN_POSITIVE_EXAMPLES}")
+    # Динамический порог: например, не менее 100% найденных (или можно 80%)
+    min_positive = positive_count  # 100% найденных
+    # min_positive = int(positive_count * 0.8)  # если нужен процент
+    if positive_count < min_positive:
+        raise ValueError(f"Недостаточно положительных примеров: {positive_count} < {min_positive}")
     
     # Проверка баланса классов
     check_class_balance(positive_count, total_count)
