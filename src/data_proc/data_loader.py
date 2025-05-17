@@ -227,7 +227,7 @@ class VideoDataLoader:
             raise
 
     def _load_videos(self):
-        """Загрузка видео из директории"""
+        """Загрузка видео из директории с поддержкой лимита MAX_VIDEOS на одну сессию"""
         try:
             video_files = []
             for ext in ['.mp4', '.avi', '.mov']:
@@ -239,28 +239,29 @@ class VideoDataLoader:
             # Сортируем видео по имени для воспроизводимости
             video_files.sort()
             
-            # Ограничиваем количество видео
-            if len(video_files) > Config.MAX_VIDEOS:
-                print(f"[DEBUG] Ограничение количества видео до {Config.MAX_VIDEOS}")
-                video_files = video_files[:Config.MAX_VIDEOS]
+            # Сохраняем все пути к видео
+            self.all_video_paths = [str(path) for path in video_files]
+            self.total_videos = len(self.all_video_paths)
             
-            # Определяем тип данных (train/valid) на основе пути
+            # Загружаем только MAX_VIDEOS видео за раз
+            self.current_video_index = 0
+            self._load_video_chunk()
+            
             data_type = 'train' if 'train' in str(self.data_path) else 'valid'
-            print(f"[DEBUG] Загрузка {data_type} данных из {len(video_files)} видео")
-            
-            self.video_paths = [str(path) for path in video_files]
-            self.labels = [None] * len(video_files)
-            self.video_count = len(video_files)
-            
-            print(f"[DEBUG] Пути к видео:")
-            for path in self.video_paths:
-                print(f"  - {path}")
-            
-            return self.video_paths
-            
+            print(f"[DEBUG] Всего найдено {self.total_videos} видео")
+            print(f"[DEBUG] Загружено {self.video_count} видео из {self.total_videos} для текущей сессии")
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
+
+    def _load_video_chunk(self):
+        """Загружает очередную порцию видео согласно MAX_VIDEOS"""
+        start_idx = self.current_video_index
+        end_idx = min(start_idx + self.max_videos, self.total_videos)
+        self.video_paths = self.all_video_paths[start_idx:end_idx]
+        self.video_count = len(self.video_paths)
+        self.labels = [None] * self.video_count
+        print(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
 
     def _load_annotations(self, video_path: str) -> np.ndarray:
         """
@@ -406,48 +407,46 @@ class VideoDataLoader:
 
     def _get_random_video(self) -> Optional[str]:
         """
-        Получение случайного видео из списка
-        
-        Returns:
-            Optional[str]: путь к случайному видео или None, если список пуст
+        Получение случайного видео из текущей порции. Если все видео обработаны — загружается новая порция.
         """
         try:
             if not self.video_paths:
-                print("[DEBUG] Список видео пуст")
-                return None
-            
+                print("[DEBUG] Список видео пуст, загружаем новую порцию")
+                self.current_video_index += self.max_videos
+                if self.current_video_index >= self.total_videos:
+                    self.current_video_index = 0  # Циклически
+                self._load_video_chunk()
+                if not self.video_paths:
+                    print("[ERROR] Нет доступных видео для загрузки")
+                    return None
             # Получаем список необработанных видео
             unprocessed_videos = [v for v in self.video_paths if v not in self.processed_videos]
             if not unprocessed_videos:
-                print("[DEBUG] Все видео обработаны")
-                # Сбрасываем список обработанных видео
+                print("[DEBUG] Все видео из текущей порции обработаны, загружаем новую порцию")
+                self.current_video_index += self.max_videos
+                if self.current_video_index >= self.total_videos:
+                    self.current_video_index = 0
+                self._load_video_chunk()
                 self.processed_videos.clear()
-                print("[DEBUG] Список обработанных видео очищен")
                 unprocessed_videos = self.video_paths
-            
-            # Выбираем случайное видео из необработанных
+                if not unprocessed_videos:
+                    print("[ERROR] Нет доступных видео после обновления порции")
+                    return None
             video_path = np.random.choice(unprocessed_videos)
             print(f"[DEBUG] Выбрано видео: {video_path}")
-            
-            # Проверяем существование файла
             if not os.path.exists(video_path):
                 print(f"[ERROR] Видео не найдено: {video_path}")
                 self.processed_videos.add(video_path)
                 return None
-            
-            # Проверяем, не все ли кадры использованы
             if video_path in self.used_frames_cache:
                 video_info = self._get_video_info(video_path)
                 if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
                     print(f"[DEBUG] Все кадры видео {video_path} уже использованы")
                     self.processed_videos.add(video_path)
                     return None
-            
             return video_path
-            
         except Exception as e:
             print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
             return None
@@ -614,7 +613,7 @@ class VideoDataLoader:
         X_batch = []
         y_batch = []
         attempts = 0
-        max_attempts = batch_size * 10  # Увеличиваем максимальное количество попыток
+        max_attempts = 10
         
         positive_count = 0
         negative_count = 0
