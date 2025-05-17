@@ -365,16 +365,22 @@ class VideoDataLoader:
             
             # Отмечаем фоновые кадры (там, где ни действие, ни переход)
             background_mask = (labels[:, 1] == 0) & (labels[:, 2] == 0)
-            # Статистика
-            background_frames = np.sum(labels[:, 0] == 1)
-            action_frames = np.sum(labels[:, 1] == 1)
-            transition_frames = np.sum(labels[:, 2] == 1)
+            
+            # Считаем фоновые кадры
+            # Сначала считаем уникальные кадры действия и перехода
+            action_frames = np.sum(labels[:, 1] == 1)  # Количество кадров действия
+            transition_frames = np.sum(labels[:, 2] == 1)  # Количество кадров перехода
+            # Считаем кадры, которые являются и действием, и переходом
+            overlapping_frames = np.sum((labels[:, 1] == 1) & (labels[:, 2] == 1))
+            # Вычитаем из общего числа кадров действия и переходы, учитывая перекрытие
+            background_frames = total_frames - (action_frames + transition_frames - overlapping_frames)
             
             print(f"[DEBUG] Статистика аннотаций:")
             print(f"  - Всего кадров: {total_frames}")
             print(f"  - Фоновых кадров: {background_frames}")
             print(f"  - Кадров действия: {action_frames}")
             print(f"  - Кадров перехода: {transition_frames}")
+            print(f"  - Перекрывающихся кадров: {overlapping_frames}")
             
             return labels
             
