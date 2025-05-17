@@ -106,19 +106,6 @@ def calculate_dataset_weights():
     # Нормализуем веса
     max_count = max(total_background, total_action, total_transition)
     weights = {
-        'MODEL_PARAMS': {
-            'v3': {
-                'dropout_rate': 0.3,
-                'lstm_units': 128,
-                'base_input_shape': [224, 224, 3]
-            },
-            'v4': {
-                'dropout_rate': 0.3,
-                'expansion_factor': 4,
-                'se_ratio': 0.25,
-                'base_input_shape': [224, 224, 3]
-            }
-        },
         'class_weights': {
             'background': max_count / total_background if total_background > 0 else 1.0,
             'action': max_count / total_action if total_action > 0 else 1.0,
