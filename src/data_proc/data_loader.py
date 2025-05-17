@@ -363,6 +363,8 @@ class VideoDataLoader:
                 labels[start_frame, 2] = 1  # [0,0,1] - начало
                 labels[end_frame, 2] = 1    # [0,0,1] - конец
             
+            # Отмечаем фоновые кадры (там, где ни действие, ни переход)
+            background_mask = (labels[:, 1] == 0) & (labels[:, 2] == 0)
             # Статистика
             background_frames = np.sum(labels[:, 0] == 1)
             action_frames = np.sum(labels[:, 1] == 1)
