@@ -62,6 +62,7 @@ class VideoDataLoader:
         self.used_frames_cache: Dict[str, Set[int]] = {}
         self.file_info_cache: Dict[str, VideoInfo] = {}
         self.processed_videos: Set[str] = set()
+        self.open_videos: Set[str] = set()  # Множество открытых видео
         
         self.data_path = Path(data_path)
         self.max_videos = max_videos or Config.MAX_VIDEOS
@@ -110,6 +111,7 @@ class VideoDataLoader:
             self.positive_indices_cache.clear()
             self.file_info_cache.clear()
             self.processed_videos.clear()
+            self.open_videos.clear()
             
             # Принудительная очистка памяти
             gc.collect()
@@ -457,18 +459,13 @@ class VideoDataLoader:
             tuple: (sequence, labels) или (None, None) в случае ошибки
         """
         try:
-            # Получаем случайное видео
-            video_path = self._get_random_video()
-            if video_path is None:
-                print("[DEBUG] Не удалось найти необработанное видео")
-                return None, None
-            
+            # Выбираем случайное видео
+            video_path = np.random.choice(self.video_paths)
             print(f"[DEBUG] Обработка видео: {video_path}")
             
             # Загружаем видео
             video_info = self._get_video_info(video_path)
             if video_info is None:
-                self.processed_videos.add(video_path)
                 return None, None
             
             print(f"[DEBUG] Информация о видео: {video_info}")
@@ -476,73 +473,81 @@ class VideoDataLoader:
             # Проверяем количество кадров
             if video_info.total_frames <= 0:
                 print(f"[ERROR] Некорректное количество кадров: {video_info.total_frames}")
-                self.processed_videos.add(video_path)
                 return None, None
             
             # Загружаем аннотации
             frame_labels = self._load_annotations(video_path)
             if frame_labels is None:
-                self.processed_videos.add(video_path)
                 return None, None
             
             # Находим положительные кадры
             positive_frames = np.where(frame_labels == 1.0)[0]
             print(f"[DEBUG] Найдено положительных кадров: {len(positive_frames)}")
             
-            # Инициализируем множество использованных кадров для этого видео
-            if video_path not in self.used_frames_cache:
-                self.used_frames_cache[video_path] = set()
-            
             # Выбираем начальный кадр
             if force_positive and len(positive_frames) > 0:
-                # Находим первый неиспользованный положительный кадр
-                for frame in positive_frames:
-                    if frame not in self.used_frames_cache[video_path]:
-                        current_frame = frame
-                        break
-                else:
-                    print("[DEBUG] Все положительные кадры уже использованы")
-                    self.processed_videos.add(video_path)
-                    return None, None
-                print(f"[DEBUG] Выбран начальный кадр с положительным примером: {current_frame}")
+                # Выбираем случайный положительный кадр
+                start_idx = np.random.choice(positive_frames)
+                # Убеждаемся, что последовательность не выйдет за пределы видео
+                if start_idx + sequence_length > video_info.total_frames:
+                    start_idx = video_info.total_frames - sequence_length
+                print(f"[DEBUG] Выбран начальный кадр с положительным примером: {start_idx}")
             else:
-                # Выбираем случайный неиспользованный кадр
+                # Выбираем случайный кадр
                 max_start = video_info.total_frames - sequence_length
                 if max_start <= 0:
                     print("[ERROR] Видео слишком короткое для заданной длины последовательности")
-                    self.processed_videos.add(video_path)
                     return None, None
-                
-                available_frames = set(range(max_start)) - self.used_frames_cache[video_path]
-                if not available_frames:
-                    print("[DEBUG] Все кадры уже использованы")
-                    self.processed_videos.add(video_path)
-                    return None, None
-                
-                current_frame = np.random.choice(list(available_frames))
-                print(f"[DEBUG] Выбран случайный начальный кадр: {current_frame}")
-            
-            # Проверяем, что последовательность не выходит за пределы видео
-            if current_frame + sequence_length > video_info.total_frames:
-                print("[ERROR] Последовательность выходит за пределы видео")
-                self.processed_videos.add(video_path)
-                return None, None
+                start_idx = np.random.randint(0, max_start)
+                print(f"[DEBUG] Выбран случайный начальный кадр: {start_idx}")
             
             # Собираем последовательность
             sequence = []
             labels = []
             
+            # Проверяем, не открыто ли уже видео
+            if video_path in self.open_videos:
+                print(f"[DEBUG] Видео {video_path} уже открыто, закрываем его")
+                cap = self.video_cache.get(video_path)
+                if cap is not None:
+                    cap.release()
+                self.open_videos.remove(video_path)
+                self.video_cache.pop(video_path, None)
+            
+            # Открываем видео
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                print(f"[ERROR] Не удалось открыть видео: {video_path}")
+                return None, None
+            
+            # Добавляем видео в список открытых
+            self.open_videos.add(video_path)
+            self.video_cache[video_path] = cap
+            
+            # Устанавливаем позицию
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+            
             for i in range(sequence_length):
-                frame_idx = current_frame + i
-                frame = self._load_frame(video_path, frame_idx, target_size)
-                if frame is None:
-                    print(f"[ERROR] Не удалось загрузить кадр {frame_idx}")
-                    self.processed_videos.add(video_path)
+                ret, frame = cap.read()
+                if not ret:
+                    print(f"[ERROR] Не удалось прочитать кадр {start_idx + i}")
+                    cap.release()
+                    self.open_videos.remove(video_path)
+                    self.video_cache.pop(video_path, None)
                     return None, None
                 
+                # Изменяем размер
+                frame = cv2.resize(frame, target_size)
+                # Нормализуем
+                frame = frame.astype(np.float32) / 255.0
+                
                 sequence.append(frame)
-                labels.append(frame_labels[frame_idx])
-                self.used_frames_cache[video_path].add(frame_idx)
+                labels.append(frame_labels[start_idx + i])
+            
+            # Закрываем видео после использования
+            cap.release()
+            self.open_videos.remove(video_path)
+            self.video_cache.pop(video_path, None)
             
             # Преобразуем в numpy массивы
             sequence = np.array(sequence)
@@ -552,7 +557,6 @@ class VideoDataLoader:
             if sequence.shape != (sequence_length, target_size[0], target_size[1], 3):
                 print(f"[ERROR] Некорректные размерности последовательности: {sequence.shape}")
                 print(f"[DEBUG] Ожидаемые размерности: {(sequence_length, target_size[0], target_size[1], 3)}")
-                self.processed_videos.add(video_path)
                 return None, None
             
             print(f"[DEBUG] Размерности последовательности: {sequence.shape}")
@@ -618,7 +622,7 @@ class VideoDataLoader:
             X_batch = []
             y_batch = []
             attempts = 0
-            max_attempts = 6  # Максимальное количество попыток
+            max_attempts = batch_size * 2  # Увеличиваем количество попыток
             
             while len(X_batch) < batch_size and attempts < max_attempts:
                 attempts += 1
@@ -629,12 +633,6 @@ class VideoDataLoader:
                 
                 if sequence is None or labels is None:
                     print("[DEBUG] Не удалось получить последовательность")
-                    continue
-                
-                # Проверяем размерности
-                if sequence.shape != (sequence_length, target_size[0], target_size[1], 3):
-                    print(f"[ERROR] Некорректные размерности последовательности: {sequence.shape}")
-                    print(f"[DEBUG] Ожидаемые размерности: {(sequence_length, target_size[0], target_size[1], 3)}")
                     continue
                 
                 X_batch.append(sequence)
