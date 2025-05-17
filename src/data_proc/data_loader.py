@@ -622,6 +622,28 @@ class VideoDataLoader:
 
         return None, None
 
+    def _save_batch_statistics(self, X_batch: np.ndarray, y_batch: np.ndarray, batch_number: int, positive_count: int, negative_count: int, video_path: str):
+        """
+        Сохранение статистики по батчу
+        
+        Args:
+            X_batch: батч данных
+            y_batch: батч меток
+            batch_number: номер батча
+            positive_count: количество положительных примеров
+            negative_count: количество отрицательных примеров
+            video_path: путь к видео
+        """
+        try:
+            print(f"[DEBUG] Статистика батча {batch_number}:")
+            print(f"  - Размер батча: {X_batch.shape}")
+            print(f"  - Положительных примеров: {positive_count}")
+            print(f"  - Отрицательных примеров: {negative_count}")
+            print(f"  - Видео: {video_path}")
+            print(f"  - Уникальные метки: {np.unique(y_batch, axis=0, return_counts=True)}")
+        except Exception as e:
+            print(f"[WARNING] Ошибка при сохранении статистики батча: {str(e)}")
+
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
         Получение батча данных с пропуском некорректных кадров
@@ -677,6 +699,8 @@ class VideoDataLoader:
         
         # Сохраняем статистику батча
         self._save_batch_statistics(
+            X_batch=np.array(X_batch),
+            y_batch=np.array(y_batch),
             batch_number=self.current_batch,
             positive_count=sum(1 for y in y_batch if np.any(y == 1)),
             negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
