@@ -57,11 +57,19 @@ def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+        
+        # Проверяем и исправляем размерности
+        if len(y_true.shape) == 3:  # [batch, sequence, classes]
+            y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
+        
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+        
+        # Вычисляем focal loss
         cross_entropy = -y_true * tf.math.log(y_pred)
         weight = alpha * tf.pow(1 - y_pred, gamma)
         loss = weight * cross_entropy
+        
         return tf.reduce_mean(loss)
     return focal_loss_fixed
 
