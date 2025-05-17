@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import (
-    Input, Dense, Bidirectional, LSTM, 
+    Input, Dense, Bidirectional, LSTM, GRU, 
     GlobalAveragePooling2D, Reshape,
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
@@ -556,12 +556,17 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
 
     # Временной блок
     if temporal_block_type == 'rnn':
-        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+        if rnn_type == 'lstm':
+            x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+        else:  # bigru
+            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
     elif temporal_block_type == 'hybrid':
-        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+        if rnn_type == 'lstm':
+            x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+        else:  # bigru
+            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
         x = TemporalAttention(lstm_units)(x)
     elif temporal_block_type == '3d_attention':
-        # Для 3d_attention предполагается, что x имеет форму (batch, seq, h, w, c)
         x = Reshape((input_shape[0], 1, 1, lstm_units))(x) if len(x.shape) == 3 else x
         x = SpatioTemporal3DAttention()(x)
         x = GlobalAveragePooling3D()(x)
