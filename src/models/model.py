@@ -521,14 +521,9 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     """
     print("[DEBUG] Создание модели MobileNetV3...")
     
-    # Получаем параметры модели из конфигурации
     model_params = Config.MODEL_PARAMS['v3']
-    
-    # Используем параметры из конфигурации, если не указаны явно
     dropout_rate = dropout_rate or model_params['dropout_rate']
     lstm_units = lstm_units or model_params['lstm_units']
-    
-    # Загружаем веса классов из конфига
     if class_weights is None:
         print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
         class_weights = {
@@ -536,58 +531,61 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             'action': 4.299630443449974,
             'transition': 10.0
         }
-    
-    # Преобразуем веса в формат для TensorFlow
     tf_class_weights = {
         0: class_weights['background'],
         1: class_weights['action'],
         2: class_weights['transition']
     }
-    
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     
-    # Создаем модель
+    inputs = Input(shape=input_shape)  # (seq, h, w, c)
+    print(f"[SHAPE] Input: {inputs.shape}")
     base_model = MobileNetV3Small(input_shape=input_shape[1:], include_top=False, weights='imagenet')
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
+    base_model.trainable = True
+    feature_extractor = Model(base_model.input, GlobalAveragePooling2D()(base_model.output))
+    print(f"[SHAPE] Feature extractor output: {feature_extractor.output_shape}")
+    x = TimeDistributed(feature_extractor)(inputs)
+    print(f"[SHAPE] After TimeDistributed: {x.shape}")
     x = Dense(lstm_units, activation='relu')(x)
+    print(f"[SHAPE] After Dense: {x.shape}")
     x = Dropout(dropout_rate)(x)
-    x = Reshape((input_shape[0], lstm_units))(x) if len(input_shape) == 4 else x
-
-    # Временной блок
+    print(f"[SHAPE] After Dropout: {x.shape}")
     if temporal_block_type == 'rnn':
         if rnn_type == 'lstm':
             x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-        else:  # bigru
+        else:
             x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
+        print(f"[SHAPE] After RNN: {x.shape}")
     elif temporal_block_type == 'hybrid':
         if rnn_type == 'lstm':
             x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-        else:  # bigru
+        else:
             x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
+        print(f"[SHAPE] After RNN: {x.shape}")
         x = TemporalAttention(lstm_units)(x)
+        print(f"[SHAPE] After TemporalAttention: {x.shape}")
     elif temporal_block_type == '3d_attention':
-        x = Reshape((input_shape[0], 1, 1, lstm_units))(x) if len(x.shape) == 3 else x
+        x = Reshape((input_shape[0], 1, 1, lstm_units))(x)
+        print(f"[SHAPE] After Reshape: {x.shape}")
         x = SpatioTemporal3DAttention()(x)
+        print(f"[SHAPE] After SpatioTemporal3DAttention: {x.shape}")
         x = GlobalAveragePooling3D()(x)
+        print(f"[SHAPE] After GlobalAveragePooling3D: {x.shape}")
     elif temporal_block_type == 'transformer':
         x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=128)(x)
+        print(f"[SHAPE] After TransformerBlock: {x.shape}")
     else:
         raise ValueError(f"Неизвестный temporal_block_type: {temporal_block_type}")
-
-    x = GlobalAveragePooling1D()(x) if len(x.shape) == 3 else x
+    x = GlobalAveragePooling1D()(x)
+    print(f"[SHAPE] After GlobalAveragePooling1D: {x.shape}")
     x = Dropout(dropout_rate)(x)
+    print(f"[SHAPE] After final Dropout: {x.shape}")
     outputs = Dense(num_classes, activation='softmax')(x)
-    model = Model(inputs=base_model.input, outputs=outputs)
-    
-    # Компилируем модель с весами
+    print(f"[SHAPE] Output: {outputs.shape}")
+    model = Model(inputs=inputs, outputs=outputs)
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    # Включаем mixed precision если используется GPU
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-    
-    # Создаем метрики для трех классов
     metrics = [
         'accuracy',
         tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
@@ -597,13 +595,10 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
     ]
-    
-    # Создаем адаптер для F1Score
     class F1ScoreAdapter(tf.keras.metrics.F1Score):
         def __init__(self, name, class_id, threshold=0.5):
             super().__init__(name=name, threshold=threshold)
             self.class_id = class_id
-            
         def update_state(self, y_true, y_pred, sample_weight=None):
             y_true = tf.argmax(y_true, axis=-1)
             y_pred = tf.argmax(y_pred, axis=-1)
@@ -612,18 +607,14 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
             y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
             return super().update_state(y_true, y_pred, sample_weight)
-        
         def result(self):
             result = super().result()
             return result[self.class_id]
-    
-    # Добавляем F1Score для каждого класса
     metrics.extend([
         F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
         F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
         F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
     ])
-    
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
@@ -631,7 +622,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         weighted_metrics=['accuracy'],
         class_weights=tf_class_weights
     )
-    
     return model, tf_class_weights
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
