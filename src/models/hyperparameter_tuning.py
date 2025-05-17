@@ -454,7 +454,7 @@ def objective(trial):
         # Обучаем модель
         history = model.fit(
             train_data,
-            epochs=Config.HYPERPARAMETER_TUNING['epochs'],
+            epochs=Config.HYPERPARAM_TUNING['epochs'],
             validation_data=val_data,
             callbacks=callbacks,
             verbose=1
@@ -584,8 +584,14 @@ def tune_hyperparameters(n_trials=None):
     try:
         print("\n[DEBUG] Начало подбора гиперпараметров...")
         
+        # Загружаем данные
+        print("[DEBUG] Загрузка данных...")
+        train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
+        if train_data is None or val_data is None:
+            raise ValueError("Не удалось загрузить данные для обучения")
+        
         # Ограничиваем количество попыток
-        n_trials = min(n_trials or Config.HYPERPARAMETER_TUNING['n_trials'], 20)
+        n_trials = min(n_trials or Config.HYPERPARAM_TUNING['n_trials'], 20)
         print(f"[DEBUG] Количество попыток: {n_trials}")
         
         # Создаем study
@@ -598,7 +604,7 @@ def tune_hyperparameters(n_trials=None):
         study.optimize(
             objective,
             n_trials=n_trials,
-            timeout=Config.HYPERPARAMETER_TUNING['timeout']
+            timeout=Config.HYPERPARAM_TUNING['timeout']
         )
         
         # Сохраняем результаты
