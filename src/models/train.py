@@ -66,75 +66,46 @@ def clear_memory():
 
 def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None, is_train=True, force_positive=True):
     """
-    Создание оптимизированного pipeline данных
+    Создание pipeline данных для обучения
+    
+    Args:
+        loader: загрузчик данных
+        sequence_length: длина последовательности
+        batch_size: размер батча
+        target_size: размер кадра
+        one_hot: использовать one-hot encoding
+        infinite_loop: бесконечный цикл
+        max_sequences_per_video: максимальное количество последовательностей на видео
+        is_train: флаг обучения
+        force_positive: принудительно использовать положительные примеры
     """
     try:
-        print("\n[DEBUG] Создание pipeline данных...")
+        print("[DEBUG] Создание pipeline данных")
         print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
-        # Проверка VideoDataLoader на загрузку всех видео
-        if hasattr(loader, 'video_count') and loader.video_count > 50:
-            print(f"[WARNING] VideoDataLoader содержит {loader.video_count} видео. Проверьте, не загружаются ли все видео в память!")
-        # Валидация входных параметров
-        if not isinstance(loader, VideoDataLoader):
-            raise ValueError("loader должен быть экземпляром VideoDataLoader")
-            
-        if sequence_length <= 0:
-            raise ValueError(f"Длина последовательности должна быть положительной: {sequence_length}")
-            
-        if batch_size <= 0:
-            raise ValueError(f"Размер батча должен быть положительным: {batch_size}")
-            
-        if not isinstance(target_size, tuple) or len(target_size) != 2:
-            raise ValueError(f"Неверный формат target_size: {target_size}. Ожидается (height, width)")
-            
-        if max_sequences_per_video is not None and max_sequences_per_video <= 0:
-            raise ValueError(f"Максимальное количество последовательностей должно быть положительным: {max_sequences_per_video}")
         
-        # Создаем генератор данных
-        def data_generator():
-            while True:
-                try:
-                    # Получаем батч данных
-                    batch_data = loader.get_batch(
-                        batch_size=batch_size,
-                        sequence_length=sequence_length,
-                        target_size=target_size,
-                        one_hot=one_hot,
-                        max_sequences_per_video=max_sequences_per_video,
-                        force_positive=force_positive
-                    )
-                    
-                    if batch_data is None:
-                        print("[WARNING] Получен пустой батч данных")
-                        continue
-                        
-                    X, y = batch_data
-                    
-                    # Проверяем размерности
-                    if X.shape[0] == 0 or y.shape[0] == 0:
-                        print("[WARNING] Получен батч с нулевой размерностью")
-                        continue
-                        
-                    yield X, y
-                    
-                except Exception as e:
-                    print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
-                    print("[DEBUG] Stack trace:", flush=True)
-                    import traceback
-                    traceback.print_exc()
-                    continue
-                
-                if not infinite_loop:
-                    break
+        # Предварительно собираем все батчи
+        print("[DEBUG] Начинаем предварительный сбор батчей")
+        X_batches, y_batches = loader.prepare_batches(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            target_size=target_size
+        )
         
-        # Создаем dataset
+        # Сохраняем батчи в загрузчике
+        loader.prepared_X_batches = X_batches
+        loader.prepared_y_batches = y_batches
+        
+        print(f"[DEBUG] Собрано {len(X_batches)} батчей")
+        print(f"[DEBUG] RAM после сбора батчей: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+        
+        # Создаем dataset из предварительно собранных батчей
         output_signature = (
             tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
         )
         
         dataset = tf.data.Dataset.from_generator(
-            data_generator,
+            loader.data_generator,
             output_signature=output_signature
         )
         
@@ -147,6 +118,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         else:
             dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
