@@ -420,9 +420,9 @@ class VideoDataLoader:
         except Exception as e:
             raise InvalidAnnotationError(f"Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
 
-    def create_sequences(self, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[List[np.ndarray], List[int]]:
+    def create_sequences(self, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Создание последовательностей из видео
+        Создание одной последовательности из видео
         
         Args:
             video_path: путь к видео файлу
@@ -430,7 +430,7 @@ class VideoDataLoader:
             target_size: размер кадра
             
         Returns:
-            Tuple[List[np.ndarray], List[int]]: кортеж (список последовательностей, список меток)
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метка)
             
         Raises:
             CorruptedVideoError: если видео повреждено
@@ -447,35 +447,50 @@ class VideoDataLoader:
             if len(frame_labels) != total_frames:
                 raise InvalidAnnotationError(f"Количество меток ({len(frame_labels)}) не соответствует количеству кадров ({total_frames})")
             
-            sequences = []
-            labels = []
-            
-            # Создаем последовательности
-            for i in range(0, total_frames - sequence_length + 1, sequence_length):
-                sequence = []
-                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            # Выбираем случайную начальную позицию
+            max_start = total_frames - sequence_length
+            if max_start < 0:
+                logger.warning(f"Видео слишком короткое: {total_frames} кадров, требуется {sequence_length}")
+                return None, None
                 
-                for _ in range(sequence_length):
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    if target_size:
+            start_frame = np.random.randint(0, max_start + 1)
+            
+            # Создаем последовательность
+            sequence = []
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            
+            for _ in range(sequence_length):
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning(f"Не удалось прочитать кадр на позиции {start_frame + len(sequence)}")
+                    return None, None
+                    
+                if target_size:
+                    try:
                         frame = cv2.resize(frame, target_size)
-                    sequence.append(frame)
-                
-                if len(sequence) == sequence_length:
-                    sequences.append(np.array(sequence))
-                    labels.append(frame_labels[i])
-                
-                # Очищаем память каждые 10 последовательностей
-                if len(sequences) % 10 == 0:
-                    gc.collect()
+                    except Exception as e:
+                        logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
+                        return None, None
+                        
+                sequence.append(frame)
             
-            return sequences, labels
+            if len(sequence) != sequence_length:
+                logger.warning(f"Неполная последовательность: {len(sequence)} кадров вместо {sequence_length}")
+                return None, None
+                
+            # Преобразуем в numpy array и проверяем форму
+            sequence_array = np.array(sequence)
+            expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
+            
+            if sequence_array.shape != expected_shape:
+                logger.warning(f"Некорректная форма последовательности: {sequence_array.shape}, ожидалось: {expected_shape}")
+                return None, None
+            
+            return sequence_array, frame_labels[start_frame]
             
         except Exception as e:
-            logger.error(f"Ошибка при создании последовательностей: {str(e)}")
-            raise
+            logger.error(f"Ошибка при создании последовательности: {str(e)}")
+            return None, None
         finally:
             if cap is not None:
                 cap.release()
@@ -655,6 +670,9 @@ class VideoDataLoader:
         max_empty_sequences = 5
         empty_sequence_count = 0
         
+        # Ожидаемая форма последовательности
+        expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
+        
         while len(X_batch) < batch_size and attempts < max_attempts:
             try:
                 X_seq, y_seq = self._get_sequence(
@@ -665,6 +683,13 @@ class VideoDataLoader:
                 )
                 
                 if X_seq is not None and y_seq is not None:
+                    # Проверяем форму последовательности
+                    if X_seq.shape != expected_shape:
+                        logger.warning(f"Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
+                        empty_sequence_count += 1
+                        attempts += 1
+                        continue
+                        
                     X_batch.append(X_seq)
                     y_batch.append(y_seq)
                     empty_sequence_count = 0
@@ -697,18 +722,27 @@ class VideoDataLoader:
         if len(X_batch) == 0:
             return None, None
         
-        # Сохраняем статистику батча
-        self._save_batch_statistics(
-            X_batch=np.array(X_batch),
-            y_batch=np.array(y_batch),
-            batch_number=self.current_batch,
-            positive_count=sum(1 for y in y_batch if np.any(y == 1)),
-            negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
-            video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
-        )
-        
-        self.current_batch += 1
-        return np.array(X_batch), np.array(y_batch)
+        try:
+            # Преобразуем списки в массивы с явным указанием формы
+            X_batch_array = np.stack(X_batch)
+            y_batch_array = np.stack(y_batch)
+            
+            # Сохраняем статистику батча
+            self._save_batch_statistics(
+                X_batch=X_batch_array,
+                y_batch=y_batch_array,
+                batch_number=self.current_batch,
+                positive_count=sum(1 for y in y_batch if np.any(y == 1)),
+                negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
+                video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
+            )
+            
+            self.current_batch += 1
+            return X_batch_array, y_batch_array
+            
+        except Exception as e:
+            logger.error(f"Ошибка при формировании батча: {str(e)}")
+            return None, None
 
     def prepare_batches(self, batch_size: int, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         """
@@ -811,22 +845,25 @@ class VideoDataLoader:
         try:
             print("[DEBUG] Начало расчета общего количества батчей")
             
-            # Рассчитываем количество батчей на основе количества видео и кадров
-            total_frames = 0
+            # Рассчитываем количество батчей на основе количества видео и ограничений
+            total_sequences = 0
             for video_path in self.video_paths:
                 info = self._get_video_info(video_path)
                 if info.exists:
-                    total_frames += info.total_frames
+                    # Берем минимум из:
+                    # 1. Максимального количества последовательностей на видео
+                    # 2. Количества возможных последовательностей в видео
+                    sequences_per_video = min(
+                        self.max_sequences_per_video,
+                        max(0, info.total_frames - self.sequence_length + 1)
+                    )
+                    total_sequences += sequences_per_video
             
-            # Количество последовательностей = (общее количество кадров - длина последовательности + 1)
-            total_sequences = total_frames - self.sequence_length + 1
-            
-            # Количество батчей = количество последовательностей / размер батча
+            # Количество батчей = общее количество последовательностей / размер батча
             self.total_batches = total_sequences // self.batch_size
             
             print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
-            print(f"[DEBUG] Общее количество кадров: {total_frames}")
-            print(f"[DEBUG] Количество последовательностей: {total_sequences}")
+            print(f"[DEBUG] Общее количество последовательностей: {total_sequences}")
             
         except Exception as e:
             print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
