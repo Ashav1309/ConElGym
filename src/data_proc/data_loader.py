@@ -596,78 +596,94 @@ class VideoDataLoader:
             print(f"[ERROR] Ошибка при сохранении статистики: {str(e)}")
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
-        try:
-            X_batch = []
-            y_batch = []
-            positive_count = 0
-            negative_count = 0
+        """
+        Получение батча данных
+        
+        Args:
+            batch_size: размер батча
+            sequence_length: длина последовательности
+            target_size: размер кадра (ширина, высота)
+            one_hot: использовать one-hot кодирование для меток
+            max_sequences_per_video: максимальное количество последовательностей из одного видео
+            force_positive: принудительно использовать положительные примеры
+            is_validation: флаг валидации
             
-            while len(X_batch) < batch_size:
-                sequence, labels = self._get_sequence(
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: батч данных и меток
+        """
+        X_batch = []
+        y_batch = []
+        attempts = 0
+        max_attempts = batch_size * 10  # Увеличиваем максимальное количество попыток
+        
+        positive_count = 0
+        negative_count = 0
+        
+        while len(X_batch) < batch_size and attempts < max_attempts:
+            try:
+                sequence, label = self._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
                     force_positive=force_positive,
                     is_validation=is_validation
                 )
                 
-                if sequence is None or labels is None:
+                if sequence is None or label is None:
+                    attempts += 1
                     continue
                 
-                # Для обучения проверяем баланс классов
+                # Проверяем баланс классов только для тренировочных данных
                 if not is_validation:
-                    current_positive_count = np.sum(labels == 1.0)
-                    if current_positive_count > 0 and len(X_batch) > 0:
-                        # Если это положительный пример, проверяем баланс
-                        current_positive_ratio = (positive_count + current_positive_count) / ((len(X_batch) + 1) * sequence_length)
-                        if current_positive_ratio > 0.7:  # Максимальная доля положительных примеров
-                            print(f"[DEBUG] Пропускаем последовательность для баланса классов")
-                            continue
+                    current_positive_ratio = (positive_count + 1) / (len(X_batch) + 1)
+                    if current_positive_ratio > 0.7:  # Допускаем до 70% положительных примеров
+                        attempts += 1
+                        continue
                 
                 X_batch.append(sequence)
-                y_batch.append(labels)
+                y_batch.append(label)
                 
-                # Обновляем счетчики
-                positive_count += np.sum(labels == 1.0)
-                negative_count += np.sum(labels == 0.0)
+                if label == 1:
+                    positive_count += 1
+                else:
+                    negative_count += 1
                 
-                # Сохраняем статистику батча
-                self._save_batch_statistics(
-                    batch_number=len(X_batch),
-                    positive_count=positive_count,
-                    negative_count=negative_count,
-                    video_path=os.path.basename(self.video_paths[self.current_video_index])
-                )
-            
-            # Преобразуем в numpy массивы
-            X_batch = np.array(X_batch)
-            y_batch = np.array(y_batch)
-            
-            # Применяем one-hot кодирование если нужно
-            if one_hot:
-                y_batch = tf.keras.utils.to_categorical(y_batch, num_classes=2)
-            
-            print(f"[DEBUG] Статистика батча:")
-            print(f"  - Размер батча: {len(X_batch)}")
-            print(f"  - Положительных кадров: {positive_count}")
-            print(f"  - Отрицательных кадров: {negative_count}")
-            print(f"  - Соотношение положительных: {positive_count/(positive_count+negative_count):.2f}")
-            
-            return X_batch, y_batch
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при получении батча: {str(e)}")
-            return None, None
+            except Exception as e:
+                print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
+                attempts += 1
+                continue
+        
+        # Проверяем, удалось ли собрать полный батч
+        if len(X_batch) < batch_size:
+            print(f"[WARNING] Не удалось собрать полный батч после {attempts} попыток")
+            print(f"[WARNING] Собрано последовательностей: {len(X_batch)}/{batch_size}")
+            return None, None  # Всегда возвращаем None для неполного батча
+        
+        # Преобразуем в numpy массивы
+        X_batch = np.array(X_batch)
+        y_batch = np.array(y_batch)
+        
+        # Применяем one-hot кодирование если нужно
+        if one_hot:
+            y_batch = tf.keras.utils.to_categorical(y_batch, num_classes=2)
+        
+        # Выводим статистику батча
+        print(f"[DEBUG] Размер батча: {len(X_batch)}")
+        print(f"[DEBUG] Положительных примеров: {positive_count}")
+        print(f"[DEBUG] Отрицательных примеров: {negative_count}")
+        print(f"[DEBUG] Попыток собрать батч: {attempts}")
+        
+        return X_batch, y_batch
 
     def data_generator(self, force_positive: bool = True, is_validation: bool = False) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
         """
-        Генератор данных для обучения/валидации
+        Генератор данных для обучения
         
         Args:
-            force_positive: принудительно добавлять положительные примеры
-            is_validation: флаг валидационного режима
+            force_positive: принудительно использовать положительные примеры
+            is_validation: флаг валидации
             
         Yields:
-            tuple: (X_batch, y_batch)
+            Tuple[tf.Tensor, tf.Tensor]: батч данных и меток
         """
         while True:
             try:
@@ -682,8 +698,8 @@ class VideoDataLoader:
                 )
                 
                 if X_batch is None or y_batch is None:
-                    print("[ERROR] Не удалось получить батч")
-                    continue
+                    print("[WARNING] Пропускаем неполный батч")
+                    continue  # Пропускаем неполный батч и пробуем собрать новый
                     
                 yield X_batch, y_batch
                 
