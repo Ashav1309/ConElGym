@@ -152,14 +152,6 @@ device_available = setup_device()
 def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
     """
     Создание оптимизированного pipeline данных для подбора гиперпараметров
-    
-    Args:
-        data_loader: загрузчик данных
-        sequence_length: длина последовательности
-        batch_size: Размер батча (берется из конфига)
-        input_size: размер входного изображения
-        is_training: флаг обучения
-        force_positive: флаг принудительного добавления положительных примеров
     """
     try:
         print("\n[DEBUG] Создание pipeline данных для подбора гиперпараметров...")
@@ -169,79 +161,45 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         print(f"  - input_size: {input_size}")
         print(f"  - is_training: {is_training}")
         print(f"  - force_positive: {force_positive}")
-        
+
         # Устанавливаем размер батча в загрузчике
         data_loader.batch_size = batch_size
-        
-        # Создаем генератор данных
-        def data_generator():
-            batch_count = 0
-            max_empty_batches = 10
-            empty_batch_count = 0
-            
-            while batch_count < data_loader.total_batches:
-                try:
-                    batch_data = data_loader.get_batch(
-                        batch_size=batch_size,
-                        sequence_length=sequence_length,
-                        target_size=input_size,
-                        one_hot=True,
-                        max_sequences_per_video=None,
-                        force_positive=force_positive
-                    )
-                    
-                    if batch_data is None:
-                        empty_batch_count += 1
-                        print(f"[WARNING] Получен пустой батч данных ({empty_batch_count}/{max_empty_batches})")
-                        
-                        if empty_batch_count >= max_empty_batches:
-                            print("[ERROR] Слишком много пустых батчей подряд, завершаем генерацию")
-                            break
-                        continue
-                        
-                    X, y = batch_data
-                    
-                    if X.shape[0] == 0 or y.shape[0] == 0:
-                        print("[WARNING] Получен батч с нулевой размерностью")
-                        empty_batch_count += 1
-                        if empty_batch_count >= max_empty_batches:
-                            break
-                        continue
-                    
-                    empty_batch_count = 0  # Сбрасываем счетчик при успешном батче
-                    batch_count += 1
-                    yield X, y
-                    
-                except Exception as e:
-                    print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
-                    empty_batch_count += 1
-                    if empty_batch_count >= max_empty_batches:
-                        print("[ERROR] Слишком много ошибок подряд, завершаем генерацию")
-                        break
-                    continue
-        
-        # Создаем dataset
-        output_signature = (
-            tf.TensorSpec(shape=(batch_size, sequence_length, *input_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(batch_size, sequence_length, Config.NUM_CLASSES), dtype=tf.float32)
+
+        # Предварительно собираем все батчи
+        print("[DEBUG] Начинаем предварительный сбор батчей")
+        X_batches, y_batches = data_loader.prepare_batches(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            target_size=input_size
         )
-        
+
+        # Сохраняем батчи в загрузчике
+        data_loader.prepared_X_batches = X_batches
+        data_loader.prepared_y_batches = y_batches
+
+        print(f"[DEBUG] Собрано {len(X_batches)} батчей")
+        print(f"[DEBUG] RAM после сбора батчей: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+
+        # Создаем dataset из предварительно собранных батчей
+        output_signature = (
+            tf.TensorSpec(shape=(None, sequence_length, *input_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
+        )
+
         dataset = tf.data.Dataset.from_generator(
-            data_generator,
+            data_loader.data_generator,
             output_signature=output_signature
         )
-        
+
         # Оптимизация производительности
         if is_training:
             dataset = dataset.shuffle(64)
-            # dataset = dataset.batch(batch_size, drop_remainder=True)  # УДАЛЕНО двойное батчирование
-        else:
-            # dataset = dataset.batch(batch_size)  # УДАЛЕНО двойное батчирование
-            pass
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
-        
+
+        print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
+        print("[DEBUG] Pipeline данных успешно создан")
         return dataset
-        
+
     except Exception as e:
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
