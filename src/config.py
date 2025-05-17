@@ -4,13 +4,19 @@ import optuna.visualization
 import plotly.io as pio
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import json
+from pathlib import Path
 
 class Config:
+    # Пути
+    BASE_DIR = Path(__file__).parent.parent
+    CONFIG_PATH = os.path.join(BASE_DIR, 'config_weights.json')
+    MODEL_PATH = os.path.join(BASE_DIR, 'models', 'best_model.h5')
+    
     # Базовые пути
     DATA_DIR = 'data'
     MODEL_SAVE_PATH = 'models'
     LOG_DIR = 'logs'
-    CONFIG_PATH = 'config_weights.json'  # Путь к конфигурационному файлу
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
@@ -23,13 +29,15 @@ class Config:
     VALID_ANNOTATION_PATH = os.path.join(VALID_DATA_PATH, 'annotations')
     
     # Параметры модели
-    MODEL_TYPE = 'v3'  # 'v3' или 'v4'
-    NUM_CLASSES = 2  # Фон и элемент
-    INPUT_SIZE = (112, 112)  # Размер входного изображения
+    MODEL_TYPE = 'v3'
+    INPUT_SHAPE = (224, 224, 3)
+    BATCH_SIZE = 32
+    EPOCHS = 100
+    LEARNING_RATE = 0.001
+    EARLY_STOPPING_PATIENCE = 10
+    NUM_CLASSES = 3  # Фон, действие и переход
     SEQUENCE_LENGTH = 12  # Уменьшаем с 16 до 12 кадров для экономии памяти
-    INPUT_SHAPE = (SEQUENCE_LENGTH, *INPUT_SIZE, 3)  # Полная форма входных данных
-    BATCH_SIZE = 256
-    EPOCHS = 30
+    INPUT_SIZE = (112, 112)  # Размер входного изображения
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 200
@@ -40,7 +48,6 @@ class Config:
     CACHE_CLEANUP_THRESHOLD = 90  # Порог в процентах для очистки кэша видео
     
     # Параметры оптимизации
-    LEARNING_RATE = 0.00005  # Уменьшаем с 0.0001 до 0.00005
     DROPOUT_RATE = 0.3
     LSTM_UNITS = 128  # Уменьшаем с 256 до 128
     
@@ -48,15 +55,23 @@ class Config:
     MODEL_PARAMS = {
         'v3': {
             'dropout_rate': 0.3,
-            'lstm_units': 256,  # Увеличиваем с 128 до 256
-            'positive_class_weight': None,  # Будет рассчитано автоматически на основе данных
+            'lstm_units': 256,
+            'class_weights': {
+                'background': None,  # Будет рассчитано автоматически
+                'action': None,      # Будет рассчитано автоматически
+                'transition': None   # Будет рассчитано автоматически
+            },
             'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
         },
         'v4': {
             'dropout_rate': 0.3,
             'expansion_factor': 4,
             'se_ratio': 0.25,
-            'positive_class_weight': None,  # Будет рассчитано автоматически на основе данных
+            'class_weights': {
+                'background': None,  # Будет рассчитано автоматически
+                'action': None,      # Будет рассчитано автоматически
+                'transition': None   # Будет рассчитано автоматически
+            },
             'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
         }
     }
@@ -116,8 +131,7 @@ class Config:
     FOCAL_LOSS = {
         'gamma': 2.0,
         'alpha': 0.25,
-        'use_class_weights': True,  # Добавляем использование весов классов
-        'class_weights': {0: 1.0, 1: 50.0}  # Добавляем веса классов
+        'beta': 0.999
     }
     
     # Алиас для весов классов
@@ -128,16 +142,18 @@ class Config:
         'enabled': True,
         'threshold_range': (0.1, 1.0),
         'threshold_step': 0.05,
-        'use_validation': True,  # Добавляем использование валидационного набора
-        'update_frequency': 1  # Обновляем порог каждую эпоху
+        'use_validation': True,
+        'update_frequency': 1,
+        'num_classes': 3  # 3 класса: фон, действие, переход
     }
     
     # Параметры метрик
     METRICS = {
-        'use_auc': True,  # Добавляем AUC
-        'use_f1': True,  # Используем F1-score
-        'use_precision_recall': True,  # Используем Precision и Recall
-        'threshold': 0.5  # Порог для бинарной классификации
+        'use_auc': True,
+        'use_f1': True,
+        'use_precision_recall': True,
+        'threshold': 0.5,
+        'num_classes': 3  # 3 класса: фон, действие, переход
     }
     
     # Константы для валидации данных
@@ -155,6 +171,22 @@ class Config:
     
     DEBUG_SMALL_DATASET = True  # Включить для тестов на малых датасетах
     AUGMENT_POSITIVE_ONLY = True  # Применять аугментацию только к положительным примерам
+    
+    # Параметры балансировки
+    BALANCING = {
+        'enabled': True,
+        'update_frequency': 5,
+        'f1_threshold': 0.5,
+        'weight_increase': 1.1
+    }
+    
+    # Параметры адаптивного обучения
+    ADAPTIVE_LEARNING = {
+        'enabled': True,
+        'patience': 3,
+        'lr_reduction': 0.5,
+        'weight_increase': 1.1
+    }
     
     @classmethod
     def apply_debug_small_dataset(cls):
@@ -245,6 +277,19 @@ class Config:
         
         print("[DEBUG] Валидация конфигурации успешно завершена\n")
         
+    @classmethod
+    def load_config(cls):
+        """Загружает конфигурацию из JSON файла"""
+        with open(cls.CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+        return config
+    
+    @classmethod
+    def save_config(cls, config):
+        """Сохраняет конфигурацию в JSON файл"""
+        with open(cls.CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=4)
+
 # Валидация и применение debug-режима при импорте
 Config.apply_debug_small_dataset()
 Config.validate()

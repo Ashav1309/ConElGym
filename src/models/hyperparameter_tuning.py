@@ -227,7 +227,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     Создание и компиляция модели с заданными параметрами
     Args:
         input_shape: форма входных данных
-        num_classes: количество классов
+        num_classes: количество классов (3 для three-hot encoding)
         learning_rate: скорость обучения
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях (только для v3)
@@ -273,7 +273,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     
     model, class_weights = create_model(
         input_shape=full_input_shape,
-        num_classes=num_classes,
+        num_classes=3,  # 3 класса: фон, действие, переход
         dropout_rate=dropout_rate,
         lstm_units=lstm_units,
         model_type=model_type,
@@ -288,33 +288,46 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
-    # Создаем метрики
+    # Создаем метрики для трех классов
     print("[DEBUG] Создание метрик...")
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5)
+        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
     ]
 
     print("[DEBUG] Добавление F1Score...")
     try:
-        # Создаем адаптер для F1Score
+        # Создаем адаптер для F1Score для каждого класса
         class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def __init__(self, name, class_id, threshold=0.5):
+                super().__init__(name=name, threshold=threshold)
+                self.class_id = class_id
+                
             def update_state(self, y_true, y_pred, sample_weight=None):
                 y_true = tf.argmax(y_true, axis=-1)
                 y_pred = tf.argmax(y_pred, axis=-1)
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
                 return super().update_state(y_true, y_pred, sample_weight)
+            
             def result(self):
                 result = super().result()
-                return tf.reduce_mean(result)
+                return result[self.class_id]
         
-        f1_metric = F1ScoreAdapter(name='f1_score_element', threshold=0.5)
-        print(f"[DEBUG] F1Score создан успешно: {f1_metric}")
-        metrics.append(f1_metric)
+        # Добавляем F1Score для каждого класса
+        metrics.extend([
+            F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
+            F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
+            F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
+        ])
+        print(f"[DEBUG] F1Score создан успешно")
     except Exception as e:
         print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
@@ -323,7 +336,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
 
     print(f"[DEBUG] Итоговый список метрик: {metrics}")
 
-    # Компилируем модель
+    # Компилируем модель с focal loss для трех классов
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=0.25),

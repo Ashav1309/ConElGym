@@ -128,7 +128,9 @@ def calculate_positive_examples() -> Tuple[int, int]:
     logger.info("Подсчет положительных примеров...")
 
     total_count = 0
-    positive_count = 0
+    background_count = 0
+    action_count = 0
+    transition_count = 0
 
     # Проверяем тренировочные данные
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
@@ -146,15 +148,26 @@ def calculate_positive_examples() -> Tuple[int, int]:
             total_count += num_frames
 
             # Создаем массив меток для каждого кадра
-            frame_labels = np.zeros((num_frames, Config.NUM_CLASSES), dtype=np.float32)
+            frame_labels = np.zeros((num_frames, 3), dtype=np.float32)  # 3 класса: фон, действие, переход
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
+                
+                # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        frame_labels[frame_idx] = [1, 0]
-            # Считаем положительные кадры
-            positive_count += np.sum(np.any(frame_labels == 1, axis=1))
+                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
+                
+                # Отмечаем переходы
+                if start_frame < len(frame_labels):
+                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
+                if end_frame < len(frame_labels):
+                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+            
+            # Считаем кадры каждого класса
+            background_count += np.sum(frame_labels[:, 0] == 1)
+            action_count += np.sum(frame_labels[:, 1] == 1)
+            transition_count += np.sum(frame_labels[:, 2] == 1)
 
     # Аналогично для валидационных данных
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
@@ -170,17 +183,33 @@ def calculate_positive_examples() -> Tuple[int, int]:
             cap.release()
             total_count += num_frames
 
-            frame_labels = np.zeros((num_frames, Config.NUM_CLASSES), dtype=np.float32)
+            frame_labels = np.zeros((num_frames, 3), dtype=np.float32)
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
+                
+                # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        frame_labels[frame_idx] = [1, 0]
-            positive_count += np.sum(np.any(frame_labels == 1, axis=1))
+                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
+                
+                # Отмечаем переходы
+                if start_frame < len(frame_labels):
+                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
+                if end_frame < len(frame_labels):
+                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+            
+            # Считаем кадры каждого класса
+            background_count += np.sum(frame_labels[:, 0] == 1)
+            action_count += np.sum(frame_labels[:, 1] == 1)
+            transition_count += np.sum(frame_labels[:, 2] == 1)
 
-    logger.info(f"Найдено {positive_count} положительных кадров из {total_count} всего")
-    return positive_count, total_count
+    logger.info(f"Всего кадров: {total_count}")
+    logger.info(f"Фоновых кадров: {background_count}")
+    logger.info(f"Кадров действия: {action_count}")
+    logger.info(f"Кадров перехода: {transition_count}")
+
+    return action_count, total_count
 
 def check_class_balance(positive_count: int, total_count: int) -> None:
     """

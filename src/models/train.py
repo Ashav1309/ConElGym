@@ -130,7 +130,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         # Создаем dataset
         output_signature = (
             tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, sequence_length, 2 if one_hot else 1), dtype=tf.float32)
+            tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
         )
         
         dataset = tf.data.Dataset.from_generator(
@@ -241,14 +241,28 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
     plt.close()
 
 def f1_score_element(y_true, y_pred):
-    y_true = tf.argmax(y_true, axis=-1)
-    y_pred = tf.argmax(y_pred, axis=-1)
-    true_positives = tf.reduce_sum(tf.cast((y_true == 1) & (y_pred == 1), tf.float32))
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred == 1, tf.float32))
-    possible_positives = tf.reduce_sum(tf.cast(y_true == 1, tf.float32))
-    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    recall = true_positives / (possible_positives + tf.keras.backend.epsilon())
-    return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+    """
+    Вычисление F1-score для элемента с учетом временной размерности и three-hot encoded меток
+    """
+    # Объединяем классы действия и перехода в один положительный класс
+    y_true_bin = tf.reduce_any(y_true[:, :, 1:], axis=-1)  # Объединяем действие и переход
+    y_pred_bin = tf.reduce_any(y_pred[:, :, 1:], axis=-1)  # Объединяем действие и переход
+    
+    true_positives = tf.reduce_sum(tf.cast((y_true_bin == 1) & (y_pred_bin == 1), tf.float32))
+    predicted_positives = tf.reduce_sum(tf.cast(y_pred_bin == 1, tf.float32))
+    possible_positives = tf.reduce_sum(tf.cast(y_true_bin == 1, tf.float32))
+    
+    # Добавляем epsilon для предотвращения деления на ноль
+    epsilon = tf.keras.backend.epsilon()
+    
+    # Вычисляем precision и recall
+    precision = true_positives / (predicted_positives + epsilon)
+    recall = true_positives / (possible_positives + epsilon)
+    
+    # Вычисляем F1-score
+    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
+    
+    return f1
 
 def load_best_params(model_type=None):
     """
@@ -352,6 +366,20 @@ def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
+        
+        # Загружаем веса классов
+        with open(Config.CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+            class_weights = config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
+        
+        # Применяем веса к каждому классу
+        weights = tf.constant([
+            class_weights['background'],
+            class_weights['action'],
+            class_weights['transition']
+        ])
+        
+        # Вычисляем focal loss с весами
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
         
@@ -363,12 +391,11 @@ def focal_loss(gamma=2., alpha=0.25):
         focal_weight = tf.pow(1 - pt, gamma)
         
         # Вычисляем кросс-энтропию
-        cross_entropy = -y_true * tf.math.log(y_pred) - (1 - y_true) * tf.math.log(1 - y_pred)
+        cross_entropy = -y_true * tf.math.log(y_pred)
         
-        # Применяем веса
-        loss = alpha_weight * focal_weight * cross_entropy
+        # Применяем веса классов и фокусный вес
+        loss = alpha_weight * focal_weight * cross_entropy * weights
         
-        # Возвращаем среднее значение по батчу
         return tf.reduce_mean(loss)
     return focal_loss_fixed
 
@@ -458,8 +485,8 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
                 y_pred = tf.argmax(y_pred, axis=-1)
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)  # 3 класса
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)  # 3 класса
                 return super().update_state(y_true, y_pred, sample_weight)
             
             def result(self):

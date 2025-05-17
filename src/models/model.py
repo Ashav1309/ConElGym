@@ -18,6 +18,8 @@ from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
 from src.config import Config
 import numpy as np
+from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
+from src.data.augmentation import BalancedDataGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -483,7 +485,7 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         out = tf.reshape(attn_out, [b, t, h, w, c])
         return out
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели MobileNetV3
     temporal_block_type: 'rnn', 'hybrid', '3d_attention'
@@ -496,222 +498,113 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     # Используем параметры из конфигурации, если не указаны явно
     dropout_rate = dropout_rate or model_params['dropout_rate']
     lstm_units = lstm_units or model_params['lstm_units']
-    positive_class_weight = positive_class_weight or model_params['positive_class_weight']
     
-    try:
-        print(f"\n[DEBUG] Инициализация MobileNetV3: input_shape={input_shape}, num_classes={num_classes}, dropout_rate={dropout_rate}, rnn_type={rnn_type}, temporal_block_type={temporal_block_type}")
-        
-        # Проверяем и корректируем input_shape
-        if len(input_shape) == 3:  # Если это (height, width, channels)
-            full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
-        elif len(input_shape) == 4:  # Если это (sequence_length, height, width, channels)
-            full_input_shape = input_shape
-        elif len(input_shape) == 5:  # Если есть лишняя размерность
-            full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
-        else:
-            raise ValueError(f"Неверная форма входных данных: {input_shape}")
-        
-        print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
-        
-        # Создаем базовую модель MobileNetV3
-        base_input_shape = full_input_shape[1:]
-        print(f"[DEBUG] Форма входных данных для базовой модели: {base_input_shape}")
-        
-        base_model = MobileNetV3Small(
-            input_shape=base_input_shape,
-            include_top=False,
-            weights='imagenet'
-        )
-        
-        # Создаем модель с отладочными слоями для проверки размерностей
-        inputs = tf.keras.layers.Input(shape=full_input_shape)
-        print(f"[DEBUG] Входной слой: {inputs.shape}")
-        
-        x = tf.keras.layers.TimeDistributed(base_model)(inputs)
-        print(f"[DEBUG] После TimeDistributed(base_model): {x.shape}")
-        
-        # Добавляем Spatial Attention для каждого кадра
-        x = tf.keras.layers.TimeDistributed(SpatialAttention(kernel_size=7))(x)
-        print(f"[DEBUG] После Spatial Attention: {x.shape}")
-        
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.GlobalAveragePooling2D())(x)
-        print(f"[DEBUG] После GlobalAveragePooling2D: {x.shape}")
-        
-        if temporal_block_type == '3d_attention':
-            # Внимание по (seq, h, w)
-            # Восстанавливаем spatial размерности для attention
-            x_spatial = tf.keras.layers.TimeDistributed(
-                tf.keras.layers.Reshape((1, 1, -1))
-            )(x) if len(x.shape) == 3 else x
-            # x_spatial: (batch, seq, 1, 1, features)
-            # Для совместимости с 3D attention делаем фиктивные spatial размерности
-            x_attn = SpatioTemporal3DAttention(num_heads=4, key_dim=x.shape[-1]//4)(x_spatial)
-            # Сжимаем обратно к (batch, seq, features)
-            x = tf.keras.layers.Reshape((x.shape[1], -1))(x_attn)
-            print(f"[DEBUG] После SpatioTemporal3DAttention: {x.shape}")
-        
-        # Выбор типа рекуррентного слоя
-        RNNLayer = tf.keras.layers.LSTM if rnn_type == 'lstm' else tf.keras.layers.GRU
-        
-        # Первый RNN слой с увеличенным количеством юнитов
-        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units, return_sequences=True))(x)
-        print(f"[DEBUG] После первого Bidirectional {rnn_type.upper()}: {x.shape}")
-        x = tf.keras.layers.Dropout(dropout_rate)(x)
-        
-        # Второй RNN слой с уменьшенным количеством юнитов
-        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units // 2, return_sequences=True))(x)
-        print(f"[DEBUG] После второго Bidirectional {rnn_type.upper()}: {x.shape}")
-        x = tf.keras.layers.Dropout(dropout_rate)(x)
-        
-        # Третий RNN слой с ещё меньшим количеством юнитов
-        x = tf.keras.layers.Bidirectional(RNNLayer(lstm_units // 4, return_sequences=True))(x)
-        print(f"[DEBUG] После третьего Bidirectional {rnn_type.upper()}: {x.shape}")
-        x = tf.keras.layers.Dropout(dropout_rate)(x)
-        
-        if temporal_block_type == 'hybrid':
-            attn = MultiHeadAttention(num_heads=4, key_dim=x.shape[-1])(x, x)
-            x = LayerNormalization()(x + attn)
-            print(f"[DEBUG] После MultiHeadAttention: {x.shape}")
-        
-        # Добавляем Temporal Attention
-        x = TemporalAttention(lstm_units // 4)(x)
-        print(f"[DEBUG] После Temporal Attention: {x.shape}")
-        
-        # Добавляем слой нормализации для стабилизации обучения
-        x = tf.keras.layers.LayerNormalization()(x)
-        
-        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
-        print(f"[DEBUG] Выходной слой: {outputs.shape}")
-        
-        model = tf.keras.Model(inputs=inputs, outputs=outputs)
-        
-        print("[DEBUG] MobileNetV3 успешно создана")
-        
-        # Создаем словарь весов классов
-        class_weights = {1: positive_class_weight} if positive_class_weight else None
-        print(f"[DEBUG] Веса классов: {class_weights}")
-        
-        return model, class_weights
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании MobileNetV3: {str(e)}")
-        print(f"[ERROR] Stack trace: {traceback.format_exc()}")
-        raise
+    # Загружаем веса классов из конфига
+    class_weights = model_params['class_weights']
+    if class_weights['background'] is None:
+        print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
+        class_weights = {
+            'background': 1.0,
+            'action': 50.0,
+            'transition': 25.0
+        }
+    
+    # Преобразуем веса в формат для TensorFlow
+    tf_class_weights = {
+        0: class_weights['background'],
+        1: class_weights['action'],
+        2: class_weights['transition']
+    }
+    
+    print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
+    
+    # Создаем модель
+    model = create_model(
+        input_shape=input_shape,
+        num_classes=num_classes,
+        dropout_rate=dropout_rate,
+        lstm_units=lstm_units,
+        model_type='v3',
+        rnn_type=rnn_type,
+        temporal_block_type=temporal_block_type
+    )
+    
+    # Компилируем модель с весами
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    
+    # Включаем mixed precision если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    
+    model.compile(
+        optimizer=optimizer,
+        loss='categorical_crossentropy',
+        metrics=['accuracy', f1_score_element],
+        weighted_metrics=['accuracy'],
+        class_weights=tf_class_weights
+    )
+    
+    return model, tf_class_weights
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25, positive_class_weight=None):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25):
     """
     Создает модель на основе MobileNetV4 с улучшенной архитектурой
-    
-    Args:
-        input_shape: Форма входных данных (высота, ширина, каналы)
-        num_classes: Количество классов
-        dropout_rate: Коэффициент dropout
-        expansion_factor: Фактор расширения для UIB блоков
-        se_ratio: Коэффициент для Squeeze-and-Excitation блоков
-        positive_class_weight: Вес положительного класса для взвешенной функции потерь
-    
-    Returns:
-        tf.keras.Model: Скомпилированная модель
     """
-    try:
-        print(f"\nСоздание MobileNetV4 модели:")
-        print(f"Входная форма: {input_shape}")
-        print(f"Количество классов: {num_classes}")
-        print(f"Dropout: {dropout_rate}")
-        print(f"Фактор расширения: {expansion_factor}")
-        print(f"SE ratio: {se_ratio}")
-        print(f"Вес положительного класса: {positive_class_weight}")
-        
-        # Проверяем и корректируем входную форму
-        if len(input_shape) == 2:
-            input_shape = (input_shape[0], input_shape[1], 3)
-            print(f"Скорректированная входная форма: {input_shape}")
-        
-        # Создаем входной слой
-        inputs = Input(shape=input_shape)
-        
-        # Первый UIB блок с увеличенным количеством фильтров
-        x = UniversalInvertedBottleneck(
-            filters=64,
-            kernel_size=3,
-            strides=2,
-            expansion_factor=expansion_factor,
-            se_ratio=se_ratio,
-            name='uib_1'
-        )(inputs)
-        x = Dropout(dropout_rate)(x)
-        
-        # Второй UIB блок
-        x = UniversalInvertedBottleneck(
-            filters=128,
-            kernel_size=3,
-            strides=2,
-            expansion_factor=expansion_factor,
-            se_ratio=se_ratio,
-            name='uib_2'
-        )(x)
-        x = Dropout(dropout_rate)(x)
-        
-        # Третий UIB блок
-        x = UniversalInvertedBottleneck(
-            filters=256,
-            kernel_size=3,
-            strides=2,
-            expansion_factor=expansion_factor,
-            se_ratio=se_ratio,
-            name='uib_3'
-        )(x)
-        x = Dropout(dropout_rate)(x)
-        
-        # Четвертый UIB блок
-        x = UniversalInvertedBottleneck(
-            filters=512,
-            kernel_size=3,
-            strides=2,
-            expansion_factor=expansion_factor,
-            se_ratio=se_ratio,
-            name='uib_4'
-        )(x)
-        x = Dropout(dropout_rate)(x)
-        
-        # Добавляем LSTM слои для обработки временных зависимостей
-        x = Reshape((-1, 512))(x)
-        x = Bidirectional(LSTM(256, return_sequences=True))(x)
-        x = Bidirectional(LSTM(128, return_sequences=True))(x)
-        
-        # Добавляем временное внимание
-        x = TemporalAttention(128)(x)
-        
-        # Финальный слой классификации
-        outputs = Dense(num_classes, activation='softmax')(x)
-        
-        # Создаем модель
-        model = Model(inputs=inputs, outputs=outputs)
-        
-        # Компилируем модель с взвешенной функцией потерь
-        if positive_class_weight is not None:
-            class_weights = {0: 1.0, 1: positive_class_weight}
-            print(f"Используются веса классов: {class_weights}")
-            model.compile(
-                optimizer=Adam(learning_rate=0.001),
-                loss='categorical_crossentropy',
-                metrics=['accuracy', f1_score_element],
-                weighted_metrics=['accuracy']
-            )
-        else:
-            model.compile(
-                optimizer=Adam(learning_rate=0.001),
-                loss='categorical_crossentropy',
-                metrics=['accuracy', f1_score_element]
-            )
-        
-        print("Модель успешно создана и скомпилирована")
-        return model
-        
-    except Exception as e:
-        print(f"Ошибка при создании модели: {str(e)}")
-        print(f"Трассировка: {traceback.format_exc()}")
-        raise
+    print("[DEBUG] Создание модели MobileNetV4...")
+    
+    # Получаем параметры модели из конфигурации
+    model_params = Config.MODEL_PARAMS['v4']
+    
+    # Используем параметры из конфигурации, если не указаны явно
+    dropout_rate = dropout_rate or model_params['dropout_rate']
+    expansion_factor = expansion_factor or model_params['expansion_factor']
+    se_ratio = se_ratio or model_params['se_ratio']
+    
+    # Загружаем веса классов из конфига
+    class_weights = model_params['class_weights']
+    if class_weights['background'] is None:
+        print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
+        class_weights = {
+            'background': 1.0,
+            'action': 50.0,
+            'transition': 25.0
+        }
+    
+    # Преобразуем веса в формат для TensorFlow
+    tf_class_weights = {
+        0: class_weights['background'],
+        1: class_weights['action'],
+        2: class_weights['transition']
+    }
+    
+    print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
+    
+    # Создаем модель
+    model = create_model(
+        input_shape=input_shape,
+        num_classes=num_classes,
+        dropout_rate=dropout_rate,
+        model_type='v4',
+        expansion_factor=expansion_factor,
+        se_ratio=se_ratio
+    )
+    
+    # Компилируем модель с весами
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    
+    # Включаем mixed precision если используется GPU
+    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    
+    model.compile(
+        optimizer=optimizer,
+        loss='categorical_crossentropy',
+        metrics=['accuracy', f1_score_element],
+        weighted_metrics=['accuracy'],
+        class_weights=tf_class_weights
+    )
+    
+    return model, tf_class_weights
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
@@ -736,7 +629,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            positive_class_weight=positive_class_weight,
             rnn_type=rnn_type,
             temporal_block_type=temporal_block_type
         )
@@ -746,8 +638,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             expansion_factor=model_params['expansion_factor'],
-            se_ratio=model_params['se_ratio'],
-            positive_class_weight=positive_class_weight
+            se_ratio=model_params['se_ratio']
         )
     else:
         raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
@@ -803,6 +694,116 @@ def indices_to_seconds(indices, fps):
     Возвращает: список секунд (float)
     """
     return [round(idx / fps, 3) for idx in indices]
+
+class ActionDetectionModel:
+    def __init__(self, input_shape=(224, 224, 3)):
+        self.input_shape = input_shape
+        self.model = self._build_model()
+        
+    def _build_model(self):
+        # Базовая модель (ResNet50)
+        base_model = tf.keras.applications.ResNet50(
+            include_top=False,
+            weights='imagenet',
+            input_shape=self.input_shape
+        )
+        
+        # Замораживаем веса базовой модели
+        base_model.trainable = False
+        
+        # Добавляем слои для классификации
+        x = base_model.output
+        x = layers.GlobalAveragePooling2D()(x)
+        x = layers.Dense(512, activation='relu')(x)
+        x = layers.Dropout(0.5)(x)
+        x = layers.Dense(256, activation='relu')(x)
+        x = layers.Dropout(0.3)(x)
+        outputs = layers.Dense(3, activation='sigmoid')(x)
+        
+        # Создаем модель
+        model = Model(inputs=base_model.input, outputs=outputs)
+        
+        # Компилируем модель с улучшенным focal loss
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=Config.LEARNING_RATE),
+            loss=focal_loss(gamma=2.0, alpha=0.25, beta=0.999),
+            metrics=['accuracy', tf.keras.metrics.F1Score()]
+        )
+        
+        return model
+    
+    def train(self, train_data, val_data, epochs=Config.EPOCHS):
+        # Создаем генераторы данных с балансировкой
+        train_generator = BalancedDataGenerator(
+            train_data[0], train_data[1],
+            batch_size=Config.BATCH_SIZE,
+            augment=True
+        )
+        
+        val_generator = BalancedDataGenerator(
+            val_data[0], val_data[1],
+            batch_size=Config.BATCH_SIZE,
+            augment=False
+        )
+        
+        # Создаем callbacks
+        callbacks = [
+            # Сохранение лучшей модели
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=Config.MODEL_PATH,
+                monitor='val_f1_score',
+                mode='max',
+                save_best_only=True
+            ),
+            
+            # Ранняя остановка
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_f1_score',
+                patience=Config.EARLY_STOPPING_PATIENCE,
+                mode='max'
+            ),
+            
+            # Динамические веса классов
+            DynamicClassWeights(
+                validation_data=val_data,
+                update_frequency=5
+            ),
+            
+            # Адаптивное обучение
+            AdaptiveLearningRate(
+                class_metrics={
+                    'background': {'f1_score': 0.0},
+                    'action': {'f1_score': 0.0},
+                    'transition': {'f1_score': 0.0}
+                },
+                patience=3
+            )
+        ]
+        
+        # Обучаем модель
+        history = self.model.fit(
+            train_generator,
+            validation_data=val_generator,
+            epochs=epochs,
+            callbacks=callbacks
+        )
+        
+        return history
+    
+    def predict(self, image):
+        return self.model.predict(image)
+    
+    def save(self, path):
+        self.model.save(path)
+    
+    @classmethod
+    def load(cls, path):
+        model = cls()
+        model.model = tf.keras.models.load_model(
+            path,
+            custom_objects={'focal_loss_fixed': focal_loss()}
+        )
+        return model
 
 if __name__ == "__main__":
     try:

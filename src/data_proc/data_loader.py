@@ -270,7 +270,10 @@ class VideoDataLoader:
             video_path: путь к видео файлу
             
         Returns:
-            np.ndarray: массив меток для каждого кадра
+            np.ndarray: массив меток для каждого кадра (three-hot encoding)
+            [1,0,0] - фон
+            [0,1,0] - действие
+            [0,0,1] - переход (начало/конец)
             
         Raises:
             InvalidAnnotationError: если формат аннотаций некорректен
@@ -284,7 +287,7 @@ class VideoDataLoader:
             
             if not os.path.exists(annotation_path):
                 logger.warning(f"Аннотации не найдены для {video_path}")
-                return np.zeros(self._get_video_info(video_path).total_frames)
+                return np.zeros((self._get_video_info(video_path).total_frames, 3))
             
             with open(annotation_path, 'r') as f:
                 annotations = json.load(f)
@@ -297,7 +300,7 @@ class VideoDataLoader:
             
             # Создаем массив меток
             total_frames = self._get_video_info(video_path).total_frames
-            labels = np.zeros(total_frames)
+            labels = np.zeros((total_frames, 3))  # 3 класса: фон, действие, переход
             
             # Заполняем метки
             print(f"[DEBUG] Обработка аннотаций:")
@@ -316,20 +319,23 @@ class VideoDataLoader:
                 if start_frame < 0 or end_frame >= total_frames:
                     raise InvalidAnnotationError(f"Индексы кадров вне диапазона в аннотации {i}")
                 
-                # Помечаем все кадры в диапазоне как положительные
-                labels[start_frame:end_frame + 1] = 1.0
-                print(f"[DEBUG] Помечены кадры {start_frame}-{end_frame} как положительные")
+                # Отмечаем действие
+                labels[start_frame:end_frame + 1, 1] = 1  # [0,1,0] - действие
+                
+                # Отмечаем переходы
+                labels[start_frame, 2] = 1  # [0,0,1] - начало
+                labels[end_frame, 2] = 1    # [0,0,1] - конец
             
-            positive_frames = np.sum(labels == 1.0)
+            # Статистика
+            background_frames = np.sum(labels[:, 0] == 1)
+            action_frames = np.sum(labels[:, 1] == 1)
+            transition_frames = np.sum(labels[:, 2] == 1)
+            
             print(f"[DEBUG] Статистика аннотаций:")
             print(f"  - Всего кадров: {total_frames}")
-            print(f"  - Положительных кадров: {positive_frames}")
-            print(f"  - Процент положительных: {positive_frames/total_frames*100:.2f}%")
-            
-            # Выводим индексы положительных кадров
-            positive_indices = np.where(labels == 1.0)[0]
-            if len(positive_indices) > 0:
-                print(f"[DEBUG] Индексы положительных кадров: {positive_indices}")
+            print(f"  - Фоновых кадров: {background_frames}")
+            print(f"  - Кадров действия: {action_frames}")
+            print(f"  - Кадров перехода: {transition_frames}")
             
             return labels
             
@@ -621,18 +627,18 @@ class VideoDataLoader:
             
             X_batch = []
             y_batch = []
-            attempts = 0
-            max_attempts = batch_size * 2  # Увеличиваем количество попыток
             
-            while len(X_batch) < batch_size and attempts < max_attempts:
-                attempts += 1
-                print(f"\n[DEBUG] Попытка {attempts}/{max_attempts}")
-                
+            while len(X_batch) < batch_size:
                 # Получаем последовательность
                 sequence, labels = self._get_sequence(sequence_length, target_size, force_positive)
                 
                 if sequence is None or labels is None:
-                    print("[DEBUG] Не удалось получить последовательность")
+                    print("[DEBUG] Не удалось получить последовательность - переходим к следующему видео")
+                    # Пропускаем текущее видео и переходим к следующему
+                    self.current_video_index = (self.current_video_index + 1) % len(self.video_paths)
+                    self.current_frame_index = 0
+                    # Очищаем кэши при проблемах с памятью
+                    self.clear_cache()
                     continue
                 
                 X_batch.append(sequence)
@@ -687,22 +693,8 @@ class VideoDataLoader:
             self.current_frame_index = 0
             self.current_batch = 0
             
-            # Счетчик попыток найти необработанное видео
-            video_attempts = 0
-            max_video_attempts = len(self.video_paths)
-            
             while True:
-                # Проверяем, все ли видео обработаны
-                if len(self.processed_videos) >= len(self.video_paths):
-                    print("[DEBUG] Все видео обработаны - завершаем генератор")
-                    break
-                
-                # Проверяем количество попыток найти необработанное видео
-                if video_attempts >= max_video_attempts:
-                    print("[DEBUG] Достигнуто максимальное количество попыток найти необработанное видео")
-                    break
-                
-                print(f"[DEBUG] Попытка получить батч (попытка {video_attempts + 1}/{max_video_attempts})")
+                print(f"[DEBUG] Попытка получить батч")
                 batch_data = self.get_batch(
                     batch_size=self.batch_size,
                     sequence_length=self.sequence_length,
@@ -713,16 +705,12 @@ class VideoDataLoader:
                 )
                 
                 if batch_data is None:
-                    print("[DEBUG] Не удалось получить батч - увеличиваем счетчик попыток")
-                    video_attempts += 1
+                    print("[DEBUG] Не удалось получить батч - продолжаем попытки")
                     continue
-                
-                # Сбрасываем счетчик попыток при успешном получении батча
-                video_attempts = 0
                 
                 X, y = batch_data
                 if X is None or y is None or X.shape[0] == 0 or y.shape[0] == 0:
-                    print("[DEBUG] Получен пустой батч")
+                    print("[DEBUG] Получен пустой батч - продолжаем попытки")
                     continue
                 
                 try:
@@ -744,9 +732,6 @@ class VideoDataLoader:
                     print(f"[ERROR] Ошибка при обработке батча: {str(e)}")
                     continue
             
-            print("[DEBUG] Завершение генератора данных")
-            return
-                
         except Exception as e:
             print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
             raise

@@ -8,39 +8,31 @@ from tqdm import tqdm
 
 def calculate_dataset_weights():
     """
-    Расчет весов классов на всем датасете с учетом новой логики формирования батчей
+    Расчет весов классов для датасета
     """
-    print("[DEBUG] Начинаем расчет весов классов...")
+    print("[INFO] Начало расчета весов классов")
     
-    # Инициализируем счетчики
-    total_sequences = 0
-    positive_sequences = 0
+    # Инициализация счетчиков
     total_frames = 0
-    positive_frames = set()  # Используем множество для уникальных кадров
-    video_stats = {}  # Словарь для хранения статистики по каждому видео
+    positive_frames = set()
+    video_stats = {}
     
-    # Получаем список всех видео
-    video_paths = []
-    
-    # Добавляем видео из тренировочного набора
-    train_videos = [f for f in os.listdir(Config.TRAIN_DATA_PATH) if f.endswith('.mp4')]
-    video_paths.extend([os.path.join(Config.TRAIN_DATA_PATH, v) for v in train_videos])
-    
-    # Добавляем видео из валидационного набора
-    val_videos = [f for f in os.listdir(Config.VALID_DATA_PATH) if f.endswith('.mp4')]
-    video_paths.extend([os.path.join(Config.VALID_DATA_PATH, v) for v in val_videos])
-    
-    print(f"[DEBUG] Всего найдено видео: {len(video_paths)}")
+    # Получаем пути к видео
+    train_video_paths = [os.path.join(Config.TRAIN_DATA_PATH, f) for f in os.listdir(Config.TRAIN_DATA_PATH) 
+                        if f.endswith('.mp4')]
+    valid_video_paths = [os.path.join(Config.VALID_DATA_PATH, f) for f in os.listdir(Config.VALID_DATA_PATH) 
+                        if f.endswith('.mp4')]
+    video_paths = train_video_paths + valid_video_paths
     
     # Обрабатываем каждое видео
     for video_path in tqdm(video_paths, desc="Обработка видео"):
         video_name = os.path.basename(video_path)
         video_stats[video_name] = {
             'total_frames': 0,
-            'positive_frames': set(),
-            'total_sequences': 0,
-            'positive_sequences': 0,
-            'annotations_count': 0  # Добавляем счетчик аннотаций
+            'background_frames': 0,
+            'action_frames': 0,
+            'transition_frames': 0,
+            'annotations_count': 0
         }
         
         # Загружаем видео
@@ -68,7 +60,7 @@ def calculate_dataset_weights():
         # Загружаем аннотации
         with open(ann_path, 'r') as f:
             ann_data = json.load(f)
-            frame_labels = np.zeros((video_frames, Config.NUM_CLASSES), dtype=np.float32)
+            frame_labels = np.zeros((video_frames, 3), dtype=np.float32)  # 3 класса: фон, действие, переход
             
             # Считаем количество аннотаций
             video_stats[video_name]['annotations_count'] = len(ann_data['annotations'])
@@ -77,92 +69,58 @@ def calculate_dataset_weights():
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
                 
-                # Добавляем все кадры между start и end как положительные
+                # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        positive_frames.add(frame_idx)
-                        video_stats[video_name]['positive_frames'].add(frame_idx)
-                        frame_labels[frame_idx] = [1, 0]  # Все кадры внутри интервала - положительные
+                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
+                        video_stats[video_name]['action_frames'] += 1
                 
-                # Отмечаем начало и конец специальными метками
+                # Отмечаем переходы
                 if start_frame < len(frame_labels):
-                    frame_labels[start_frame] = [1, 0]  # Начало
+                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
+                    video_stats[video_name]['transition_frames'] += 1
                 if end_frame < len(frame_labels):
-                    frame_labels[end_frame] = [0, 1]  # Конец
+                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+                    video_stats[video_name]['transition_frames'] += 1
+        
+        # Считаем фоновые кадры
+        video_stats[video_name]['background_frames'] = video_frames - (
+            video_stats[video_name]['action_frames'] + video_stats[video_name]['transition_frames']
+        )
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
         print(f"  - Всего кадров: {video_frames}")
         print(f"  - Количество аннотаций: {video_stats[video_name]['annotations_count']}")
-        print(f"  - Позитивных кадров: {len(video_stats[video_name]['positive_frames'])}")
-        
-        # Считаем последовательности с учетом пропуска проблемных участков
-        sequence_length = Config.SEQUENCE_LENGTH
-        current_frame = 0
-        
-        while current_frame < video_frames:
-            # Проверяем, можем ли мы прочитать последовательность
-            if current_frame + sequence_length > video_frames:
-                break
-            
-            # Проверяем наличие положительных примеров в последовательности
-            sequence_labels = frame_labels[current_frame:current_frame + sequence_length]
-            # Используем np.maximum вместо побитового OR для проверки наличия положительных классов
-            has_positive = np.any(np.maximum(sequence_labels[:, 0], sequence_labels[:, 1]) > 0)
-            
-            if has_positive:
-                positive_sequences += 1
-                video_stats[video_name]['positive_sequences'] += 1
-            total_sequences += 1
-            video_stats[video_name]['total_sequences'] += 1
-            
-            # Переходим к следующей последовательности с перекрытием
-            current_frame += sequence_length // 2
+        print(f"  - Фоновых кадров: {video_stats[video_name]['background_frames']}")
+        print(f"  - Кадров действия: {video_stats[video_name]['action_frames']}")
+        print(f"  - Кадров перехода: {video_stats[video_name]['transition_frames']}")
         
         cap.release()
     
-    # Рассчитываем веса на основе последовательностей и кадров
-    negative_sequences = total_sequences - positive_sequences
-    sequence_weight = negative_sequences / positive_sequences if positive_sequences > 0 else 1.0
+    # Рассчитываем веса классов
+    total_background = sum(stats['background_frames'] for stats in video_stats.values())
+    total_action = sum(stats['action_frames'] for stats in video_stats.values())
+    total_transition = sum(stats['transition_frames'] for stats in video_stats.values())
     
-    # Учитываем соотношение положительных и отрицательных кадров
-    positive_frames_count = len(positive_frames)  # Используем количество уникальных кадров
-    negative_frames = total_frames - positive_frames_count
-    frame_weight = negative_frames / positive_frames_count if positive_frames_count > 0 else 1.0
+    # Нормализуем веса
+    max_count = max(total_background, total_action, total_transition)
+    weights = {
+        'background': max_count / total_background if total_background > 0 else 1.0,
+        'action': max_count / total_action if total_action > 0 else 1.0,
+        'transition': max_count / total_transition if total_transition > 0 else 1.0
+    }
     
-    # Используем реальное соотношение кадров без ограничений
-    final_weight = frame_weight
+    # Сохраняем веса в файл
+    with open('config_weights.json', 'w') as f:
+        json.dump(weights, f, indent=4)
     
-    # Выводим детальную статистику по каждому видео
-    print("\n[DEBUG] Детальная статистика по видео:")
-    for video_name, stats in video_stats.items():
-        print(f"\nВидео: {video_name}")
-        print(f"  - Всего кадров: {stats['total_frames']}")
-        print(f"  - Позитивных кадров: {len(stats['positive_frames'])}")
-        print(f"  - Всего последовательностей: {stats['total_sequences']}")
-        print(f"  - Позитивных последовательностей: {stats['positive_sequences']}")
-        if stats['total_sequences'] > 0:
-            pos_ratio = stats['positive_sequences'] / stats['total_sequences']
-            print(f"  - Доля позитивных последовательностей: {pos_ratio:.2%}")
+    print("\n[INFO] Веса классов:")
+    print(f"  - Фон: {weights['background']:.2f}")
+    print(f"  - Действие: {weights['action']:.2f}")
+    print(f"  - Переход: {weights['transition']:.2f}")
     
-    print("\n[DEBUG] Итоговая статистика:")
-    print(f"Всего последовательностей: {total_sequences}")
-    print(f"Позитивных последовательностей: {positive_sequences}")
-    print(f"Негативных последовательностей: {negative_sequences}")
-    print(f"Всего кадров: {total_frames}")
-    print(f"Позитивных кадров: {positive_frames_count}")
-    print(f"Негативных кадров: {negative_frames}")
-    print(f"Вес на основе последовательностей: {sequence_weight:.2f}")
-    print(f"Вес на основе кадров: {frame_weight:.2f}")
-    print(f"Итоговый вес: {final_weight:.2f}")
-    
-    # Проверяем корректность весов
-    if final_weight < 1.0:
-        print("[WARNING] Итоговый вес меньше 1.0, что может указывать на проблемы с данными")
-    elif final_weight > 100.0:
-        print("[WARNING] Итоговый вес больше 100.0, что может привести к нестабильному обучению")
-    
-    return [1.0, final_weight]
+    return weights
 
 def save_weights_to_config(weights):
     """
@@ -181,14 +139,22 @@ def save_weights_to_config(weights):
                 'v3': {
                     'dropout_rate': 0.3,
                     'lstm_units': 128,
-                    'positive_class_weight': None,
+                    'class_weights': {
+                        'background': None,
+                        'action': None,
+                        'transition': None
+                    },
                     'base_input_shape': [224, 224, 3]
                 },
                 'v4': {
                     'dropout_rate': 0.3,
                     'expansion_factor': 4,
                     'se_ratio': 0.25,
-                    'positive_class_weight': None,
+                    'class_weights': {
+                        'background': None,
+                        'action': None,
+                        'transition': None
+                    },
                     'base_input_shape': [224, 224, 3]
                 }
             }
@@ -208,15 +174,16 @@ def save_weights_to_config(weights):
             print(f"[DEBUG] Конфигурационный файл не найден, создаем новый: {Config.CONFIG_PATH}")
             config = default_config
         
-        # Обновляем веса в конфиге
-        config['MODEL_PARAMS']['v3']['positive_class_weight'] = weights[1]
-        config['MODEL_PARAMS']['v4']['positive_class_weight'] = weights[1]
+        # Обновляем веса в конфиге для обеих моделей
+        config['MODEL_PARAMS']['v3']['class_weights'] = weights
+        config['MODEL_PARAMS']['v4']['class_weights'] = weights
         
         # Сохраняем обновленный конфиг
         with open(Config.CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=4)
         
         print(f"[DEBUG] Веса успешно сохранены в {Config.CONFIG_PATH}")
+        print(f"[DEBUG] Сохраненные веса: {weights}")
         
     except Exception as e:
         print(f"[ERROR] Ошибка при сохранении весов в конфиг: {str(e)}")
