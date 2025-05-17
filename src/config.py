@@ -135,7 +135,7 @@ class Config:
     }
     
     # Алиас для весов классов
-    CLASS_WEIGHTS = FOCAL_LOSS['class_weights']
+    CLASS_WEIGHTS = MODEL_PARAMS[MODEL_TYPE]['class_weights']
     
     # Параметры адаптивного порога
     ADAPTIVE_THRESHOLD = {
