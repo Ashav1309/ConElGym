@@ -407,7 +407,7 @@ class VideoDataLoader:
             print(f"[DEBUG] Обработка видео: {video_path}")
             
             # Загружаем видео
-            video_info = self._load_video(video_path)
+            video_info = self._get_video_info(video_path)
             if video_info is None:
                 return None, None
             
@@ -552,7 +552,7 @@ class VideoDataLoader:
                     continue
                 
                 # Проверяем размерности
-                if sequence.shape != (sequence_length, target_size[0], target_length[1], 3):
+                if sequence.shape != (sequence_length, target_size[0], target_size[1], 3):
                     print(f"[ERROR] Некорректные размерности последовательности: {sequence.shape}")
                     print(f"[DEBUG] Ожидаемые размерности: {(sequence_length, target_size[0], target_size[1], 3)}")
                     continue
@@ -744,4 +744,81 @@ class VideoDataLoader:
             
         except Exception as e:
             print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
-            raise 
+            raise
+
+    def _get_random_video(self) -> Optional[str]:
+        """
+        Получение случайного видео из списка
+        
+        Returns:
+            Optional[str]: путь к случайному видео или None, если список пуст
+        """
+        try:
+            if not self.video_paths:
+                print("[DEBUG] Список видео пуст")
+                return None
+            
+            # Выбираем случайное видео
+            video_path = np.random.choice(self.video_paths)
+            print(f"[DEBUG] Выбрано видео: {video_path}")
+            
+            # Проверяем существование файла
+            if not os.path.exists(video_path):
+                print(f"[ERROR] Видео не найдено: {video_path}")
+                return None
+            
+            return video_path
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _load_frame(self, video_path: str, frame_idx: int, target_size: Tuple[int, int]) -> Optional[np.ndarray]:
+        """
+        Загрузка кадра из видео
+        
+        Args:
+            video_path: путь к видео файлу
+            frame_idx: индекс кадра
+            target_size: целевой размер кадра (height, width)
+            
+        Returns:
+            Optional[np.ndarray]: кадр или None в случае ошибки
+        """
+        try:
+            # Проверяем кэш
+            if video_path in self.video_cache:
+                cap = self.video_cache[video_path]
+            else:
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    print(f"[ERROR] Не удалось открыть видео: {video_path}")
+                    return None
+                self.video_cache[video_path] = cap
+            
+            # Устанавливаем позицию
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            
+            # Читаем кадр
+            ret, frame = cap.read()
+            if not ret:
+                print(f"[ERROR] Не удалось прочитать кадр {frame_idx}")
+                return None
+            
+            # Изменяем размер
+            frame = cv2.resize(frame, target_size)
+            
+            # Нормализуем
+            frame = frame.astype(np.float32) / 255.0
+            
+            return frame
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при загрузке кадра: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
+            return None 
