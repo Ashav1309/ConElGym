@@ -666,8 +666,8 @@ class VideoDataLoader:
         X_batch = []
         y_batch = []
         attempts = 0
-        max_attempts = batch_size * 2
-        max_empty_sequences = 5
+        max_attempts = batch_size * 5  # Увеличиваем количество попыток
+        max_empty_sequences = 10  # Увеличиваем допустимое количество пустых последовательностей
         empty_sequence_count = 0
         
         # Ожидаемая форма последовательности
@@ -688,6 +688,10 @@ class VideoDataLoader:
                         logger.warning(f"Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
                         empty_sequence_count += 1
                         attempts += 1
+                        if empty_sequence_count >= max_empty_sequences:
+                            logger.warning(f"Слишком много последовательностей с неправильной формой ({empty_sequence_count})")
+                            if len(X_batch) > 0:
+                                break
                         continue
                         
                     X_batch.append(X_seq)
