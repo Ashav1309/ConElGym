@@ -20,6 +20,7 @@ from src.config import Config
 import numpy as np
 from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
 from src.data.augmentation import BalancedDataGenerator
+from tensorflow.keras.regularizers import l1_l2
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,8 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
             self.expanded_filters,
             kernel_size=1,
             padding='same',
-            use_bias=False
+            use_bias=False,
+            kernel_regularizer=l1_l2(l1=0.01, l2=0.01)
         )
         self.expand_bn = tf.keras.layers.BatchNormalization()
         self.expand_activation = tf.keras.layers.ReLU(max_value=6.0)
@@ -169,20 +171,23 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
         self.se_reduce = tf.keras.layers.Conv2D(
             max(1, int(self.expanded_filters * se_ratio)),
             kernel_size=1,
-            padding='same'
+            padding='same',
+            kernel_regularizer=l1_l2(l1=0.01, l2=0.01)
         )
         self.se_expand = tf.keras.layers.Conv2D(
             self.expanded_filters,
             kernel_size=1,
             padding='same',
-            activation='sigmoid'
+            activation='sigmoid',
+            kernel_regularizer=l1_l2(l1=0.01, l2=0.01)
         )
         
         self.project_conv = tf.keras.layers.Conv2D(
             filters,
             kernel_size=1,
             padding='same',
-            use_bias=False
+            use_bias=False,
+            kernel_regularizer=l1_l2(l1=0.01, l2=0.01)
         )
         self.project_bn = tf.keras.layers.BatchNormalization()
     
@@ -216,6 +221,9 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
         # Добавляем skip connection если размерности совпадают
         if self.strides == 1 and inputs.shape[-1] == self.filters:
             x = tf.keras.layers.Add()([x, inputs])
+        
+        # Увеличиваем dropout
+        x = Dropout(0.5)(x)  # Увеличиваем dropout для предотвращения переобучения
         
         return x
     
