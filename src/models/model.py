@@ -571,15 +571,13 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[SHAPE] After SpatioTemporal3DAttention: {x.shape}")
         x = GlobalAveragePooling3D()(x)
         print(f"[SHAPE] After GlobalAveragePooling3D: {x.shape}")
+        x = Dropout(dropout_rate)(x)
+        print(f"[SHAPE] After final Dropout: {x.shape}")
     elif temporal_block_type == 'transformer':
         x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=128)(x)
         print(f"[SHAPE] After TransformerBlock: {x.shape}")
     else:
         raise ValueError(f"Неизвестный temporal_block_type: {temporal_block_type}")
-    x = GlobalAveragePooling1D()(x)
-    print(f"[SHAPE] After GlobalAveragePooling1D: {x.shape}")
-    x = Dropout(dropout_rate)(x)
-    print(f"[SHAPE] After final Dropout: {x.shape}")
     outputs = Dense(num_classes, activation='softmax')(x)
     print(f"[SHAPE] Output: {outputs.shape}")
     model = Model(inputs=inputs, outputs=outputs)

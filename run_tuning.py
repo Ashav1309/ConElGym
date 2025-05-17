@@ -50,6 +50,32 @@ if gpus:
 else:
     print("\nNo GPU devices found")
 
+def objective(trial):
+    try:
+        print(f"\n[DEBUG] ===== ============================ ======")
+        print(f"\n[DEBUG] ===== Начало триала #{trial.number} =====")
+        print(f"\n[DEBUG] ===== ============================ ======")
+        # Получаем гиперпараметры из trial
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        lstm_units = trial.suggest_int('lstm_units', 32, 256)
+        model_type = Config.MODEL_TYPE
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
+        clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
+        
+        print(f"[DEBUG] Параметры триала #{trial.number}:")
+        print(f"  - learning_rate: {learning_rate}")
+        print(f"  - dropout_rate: {dropout_rate}")
+        print(f"  - lstm_units: {lstm_units}")
+        print(f"  - rnn_type: {rnn_type}")
+        print(f"  - temporal_block_type: {temporal_block_type}")
+        print(f"  - clipnorm: {clipnorm}")
+        # ... existing code ...
+    except Exception as e:
+        print(f"\nError during hyperparameter tuning: {str(e)}")
+        sys.exit(1)
+
 def main():
     try:
         result = tune_hyperparameters()
