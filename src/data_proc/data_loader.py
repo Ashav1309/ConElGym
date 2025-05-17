@@ -61,6 +61,7 @@ class VideoDataLoader:
         self.video_cache: Dict[str, cv2.VideoCapture] = {}
         self.used_frames_cache: Dict[str, Set[int]] = {}
         self.file_info_cache: Dict[str, VideoInfo] = {}
+        self.annotations_cache: Dict[str, np.ndarray] = {}  # Кэш для аннотаций
         self.open_videos: Set[str] = set()  # Множество открытых видео
         self.processed_video_names: Set[str] = set()  # Множество имен обработанных видео
         self.sequence_counter: Dict[str, int] = {}    # Счетчик последовательностей для каждого видео
@@ -299,7 +300,7 @@ class VideoDataLoader:
 
     def _load_annotations(self, video_path: str) -> np.ndarray:
         """
-        Загрузка аннотаций для видео
+        Загрузка аннотаций для видео с кэшированием
         
         Args:
             video_path: путь к видео файлу
@@ -314,6 +315,11 @@ class VideoDataLoader:
             InvalidAnnotationError: если формат аннотаций некорректен
         """
         try:
+            # Проверяем кэш
+            if video_path in self.annotations_cache:
+                print(f"[DEBUG] Используем кэшированные аннотации для {os.path.basename(video_path)}")
+                return self.annotations_cache[video_path]
+
             # Получаем путь к файлу аннотаций
             base_name = os.path.splitext(os.path.basename(video_path))[0]
             annotation_path = os.path.join(os.path.dirname(video_path), 'annotations', f'{base_name}.json')
@@ -322,7 +328,9 @@ class VideoDataLoader:
             
             if not os.path.exists(annotation_path):
                 logger.warning(f"Аннотации не найдены для {video_path}")
-                return np.zeros((self._get_video_info(video_path).total_frames, 3))
+                empty_labels = np.zeros((self._get_video_info(video_path).total_frames, 3))
+                self.annotations_cache[video_path] = empty_labels
+                return empty_labels
             
             with open(annotation_path, 'r') as f:
                 annotations = json.load(f)
@@ -389,6 +397,15 @@ class VideoDataLoader:
             current_video_number = len(self.processed_video_names)
             remaining_videos = self.total_videos - current_video_number
             print(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
+            
+            # Выводим информацию о прогрессе обработки аннотаций
+            total_annotations = len(annotations['annotations'])
+            processed_annotations = len(self.annotations_cache)
+            print(f"[DEBUG] Прогресс обработки аннотаций: {processed_annotations}/{self.total_videos} ({(processed_annotations/self.total_videos)*100:.1f}%)")
+            
+            # Сохраняем в кэш
+            self.annotations_cache[video_path] = labels
+            print(f"[DEBUG] Аннотации для {os.path.basename(video_path)} сохранены в кэш")
             
             return labels
             
