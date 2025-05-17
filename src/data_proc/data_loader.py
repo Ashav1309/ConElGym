@@ -365,15 +365,13 @@ class VideoDataLoader:
             
             # Отмечаем фоновые кадры (там, где ни действие, ни переход)
             background_mask = (labels[:, 1] == 0) & (labels[:, 2] == 0)
+            labels[background_mask, 0] = 1  # [1,0,0] - фон
             
-            # Считаем фоновые кадры
-            # Сначала считаем уникальные кадры действия и перехода
+            # Считаем статистику
             action_frames = np.sum(labels[:, 1] == 1)  # Количество кадров действия
             transition_frames = np.sum(labels[:, 2] == 1)  # Количество кадров перехода
-            # Считаем кадры, которые являются и действием, и переходом
-            overlapping_frames = np.sum((labels[:, 1] == 1) & (labels[:, 2] == 1))
-            # Вычитаем из общего числа кадров действия и переходы, учитывая перекрытие
-            background_frames = total_frames - (action_frames + transition_frames - overlapping_frames)
+            background_frames = np.sum(labels[:, 0] == 1)  # Количество фоновых кадров
+            overlapping_frames = np.sum((labels[:, 1] == 1) & (labels[:, 2] == 1))  # Кадры, которые являются и действием, и переходом
             
             print(f"[DEBUG] Статистика аннотаций:")
             print(f"  - Всего кадров: {total_frames}")
@@ -464,63 +462,72 @@ class VideoDataLoader:
             Optional[str]: путь к видео или None, если все видео обработаны
         """
         try:
-            # Проверяем, все ли видео обработаны
-            if len(self.processed_videos) == len(self.video_paths):
-                logger.info("Все видео обработаны, переходим к следующей порции")
-                self.current_video_index += self.max_videos
-                if self.current_video_index >= self.total_videos:
-                    logger.info("Все видео обработаны, завершаем")
+            max_attempts = len(self.video_paths)  # Максимальное количество попыток = количество видео в текущей группе
+            attempts = 0
+            
+            while attempts < max_attempts:
+                # Проверяем, все ли видео обработаны
+                if len(self.processed_videos) == len(self.video_paths):
+                    logger.info("Все видео обработаны, переходим к следующей порции")
+                    self.current_video_index += self.max_videos
+                    if self.current_video_index >= self.total_videos:
+                        logger.info("Все видео обработаны, завершаем")
+                        return None
+                    self._load_video_chunk()
+                    self.processed_videos.clear()
+                    self.used_frames_cache.clear()
+                    self.used_sequences.clear()
+                    self.sequence_counter.clear()
+                    attempts = 0  # Сбрасываем счетчик для новой группы
+                    continue
+                
+                # Выбираем случайное видео из необработанных
+                available_videos = []
+                for video_path in self.video_paths:
+                    if video_path not in self.processed_videos:
+                        video_name = os.path.basename(video_path)
+                        if video_name not in self.processed_video_names:
+                            available_videos.append(video_path)
+                        else:
+                            logger.debug(f"Видео {video_name} уже было обработано ранее")
+                            self.processed_videos.add(video_path)
+                            self.processed_video_names.add(video_name)
+                
+                if not available_videos:
+                    logger.warning("Нет доступных видео для обработки")
                     return None
-                self._load_video_chunk()
-                self.processed_videos.clear()
-                self.used_frames_cache.clear()
-                self.used_sequences.clear()
-                self.sequence_counter.clear()
-                return self._get_random_video()
-            
-            # Выбираем случайное видео из необработанных
-            available_videos = []
-            for video_path in self.video_paths:
-                if video_path not in self.processed_videos:
-                    video_name = os.path.basename(video_path)
-                    if video_name not in self.processed_video_names:
-                        available_videos.append(video_path)
-                    else:
-                        logger.debug(f"Видео {video_name} уже было обработано ранее")
-                        self.processed_videos.add(video_path)
-                        self.processed_video_names.add(video_name)  # Добавляем видео в общий список
-            
-            if not available_videos:
-                logger.warning("Нет доступных видео для обработки")
-                return None
-            
-            video_path = np.random.choice(available_videos)
-            
-            # Проверяем существование видео
-            if not os.path.exists(video_path):
-                logger.error(f"Видео не найдено: {video_path}")
-                self.processed_videos.add(video_path)
-                self.processed_video_names.add(os.path.basename(video_path))
-                return self._get_random_video()
-            
-            # Проверяем, все ли кадры использованы
-            if video_path in self.used_frames_cache:
-                video_info = self._get_video_info(video_path)
-                if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
-                    logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
-                    logger.debug(f"Обработано видео: {len(self.processed_videos)}/{len(self.video_paths)}")
+                
+                video_path = np.random.choice(available_videos)
+                attempts += 1
+                
+                # Проверяем существование видео
+                if not os.path.exists(video_path):
+                    logger.error(f"Видео не найдено: {video_path}")
                     self.processed_videos.add(video_path)
                     self.processed_video_names.add(os.path.basename(video_path))
-                    return self._get_random_video()
+                    continue
+                
+                # Проверяем, все ли кадры использованы
+                if video_path in self.used_frames_cache:
+                    video_info = self._get_video_info(video_path)
+                    if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
+                        logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
+                        logger.debug(f"Обработано видео: {len(self.processed_videos)}/{len(self.video_paths)}")
+                        self.processed_videos.add(video_path)
+                        self.processed_video_names.add(os.path.basename(video_path))
+                        continue
+                
+                # Проверяем, не превышен ли лимит последовательностей для этого видео
+                if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
+                    logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
+                    self.processed_videos.add(video_path)
+                    self.processed_video_names.add(os.path.basename(video_path))
+                    continue
+                
+                return video_path
             
-            # Проверяем, не превышен ли лимит последовательностей для этого видео
-            if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
-                logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
-                self.processed_videos.add(video_path)
-                self.processed_video_names.add(os.path.basename(video_path))
-                return self._get_random_video()
-            
-            return video_path
+            logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
+            return None
             
         except Exception as e:
             logger.error(f"Ошибка при выборе случайного видео: {str(e)}")
