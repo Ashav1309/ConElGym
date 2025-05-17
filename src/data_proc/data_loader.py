@@ -400,8 +400,9 @@ class VideoDataLoader:
             
             # Выводим информацию о прогрессе обработки аннотаций
             total_annotations = len(annotations['annotations'])
-            processed_annotations = len(self.annotations_cache)
+            processed_annotations = sum(1 for v in self.annotations_cache.values() if np.any(v[:, 1] == 1))  # Считаем только видео с действиями
             print(f"[DEBUG] Прогресс обработки аннотаций: {processed_annotations}/{self.total_videos} ({(processed_annotations/self.total_videos)*100:.1f}%)")
+            print(f"[DEBUG] Количество аннотаций в текущем видео: {total_annotations}")
             
             # Сохраняем в кэш
             self.annotations_cache[video_path] = labels
@@ -434,8 +435,10 @@ class VideoDataLoader:
             # Загружаем видео
             cap, total_frames = self.load_video(video_path)
             
-            # Загружаем аннотации
-            frame_labels = self._load_annotations(video_path)
+            # Используем аннотации из кэша
+            if video_path not in self.annotations_cache:
+                raise InvalidAnnotationError(f"Аннотации для видео {video_path} не найдены в кэше")
+            frame_labels = self.annotations_cache[video_path]
             
             # Проверяем соответствие размеров
             if len(frame_labels) != total_frames:
@@ -547,6 +550,16 @@ class VideoDataLoader:
         if video_path is None:
             return None, None
 
+        # Проверяем, есть ли аннотации в кэше
+        if video_path not in self.annotations_cache:
+            # Если аннотаций нет в кэше, загружаем их
+            try:
+                self._load_annotations(video_path)
+            except Exception as e:
+                logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
+                self.processed_video_names.add(os.path.basename(video_path))
+                return None, None
+
         # Инициализируем счетчик для видео, если его еще нет
         if video_path not in self.sequence_counter:
             self.sequence_counter[video_path] = 0
@@ -575,8 +588,8 @@ class VideoDataLoader:
             if self.sequence_counter[video_path] >= self.max_sequences_per_video:
                 self.processed_video_names.add(os.path.basename(video_path))
                 logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
-            else:
-                # Добавляем видео в processed_video_names после успешной обработки
+            elif os.path.basename(video_path) not in self.processed_video_names:
+                # Добавляем видео в processed_video_names только если его там еще нет
                 self.processed_video_names.add(os.path.basename(video_path))
                 logger.debug(f"Успешно обработано видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
 
