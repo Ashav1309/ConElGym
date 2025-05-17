@@ -419,23 +419,18 @@ class VideoDataLoader:
                 return None, None
             
             # Загружаем аннотации
-            annotations = self._load_annotations(video_path)
-            if annotations is None:
+            frame_labels = self._load_annotations(video_path)
+            if frame_labels is None:
                 return None, None
             
             # Находим положительные кадры
-            positive_frames = set()
-            for annotation in annotations:
-                start_frame = annotation['start_frame']
-                end_frame = annotation['end_frame']
-                positive_frames.update(range(start_frame, end_frame + 1))
-            
+            positive_frames = np.where(frame_labels == 1.0)[0]
             print(f"[DEBUG] Найдено положительных кадров: {len(positive_frames)}")
             
             # Выбираем начальный кадр
-            if force_positive and positive_frames:
+            if force_positive and len(positive_frames) > 0:
                 # Находим ближайший положительный кадр
-                current_frame = min(positive_frames)
+                current_frame = positive_frames[0]
                 print(f"[DEBUG] Выбран начальный кадр с положительным примером: {current_frame}")
             else:
                 # Выбираем случайный кадр
@@ -463,7 +458,7 @@ class VideoDataLoader:
                     return None, None
                 
                 sequence.append(frame)
-                labels.append(1 if frame_idx in positive_frames else 0)
+                labels.append(frame_labels[frame_idx])
             
             # Преобразуем в numpy массивы
             sequence = np.array(sequence)
