@@ -439,7 +439,7 @@ class VideoDataLoader:
 
     def _get_random_video(self) -> Optional[str]:
         """
-        Получение случайного видео для обработки
+        Получение случайного видео для обработки с проверкой на повторное использование
         
         Returns:
             Optional[str]: путь к видео или None, если все видео обработаны
@@ -447,27 +447,29 @@ class VideoDataLoader:
         try:
             # Проверяем, все ли видео обработаны
             if len(self.processed_videos) == len(self.video_paths):
-                print("[DEBUG] Все видео обработаны, переходим к следующей порции")
+                logger.info("Все видео обработаны, переходим к следующей порции")
                 self.current_video_index += self.max_videos
                 if self.current_video_index >= self.total_videos:
-                    print("[DEBUG] Все видео обработаны, завершаем")
+                    logger.info("Все видео обработаны, завершаем")
                     return None
                 self._load_video_chunk()
                 self.processed_videos.clear()
                 self.used_frames_cache.clear()
+                self.used_sequences.clear()
+                self.sequence_counter.clear()
                 return self._get_random_video()
             
             # Выбираем случайное видео из необработанных
             available_videos = [v for v in self.video_paths if v not in self.processed_videos]
             if not available_videos:
-                print("[DEBUG] Нет доступных видео для обработки")
+                logger.warning("Нет доступных видео для обработки")
                 return None
             
             video_path = np.random.choice(available_videos)
             
             # Проверяем существование видео
             if not os.path.exists(video_path):
-                print(f"[ERROR] Видео не найдено: {video_path}")
+                logger.error(f"Видео не найдено: {video_path}")
                 self.processed_videos.add(video_path)
                 return self._get_random_video()
             
@@ -475,181 +477,68 @@ class VideoDataLoader:
             if video_path in self.used_frames_cache:
                 video_info = self._get_video_info(video_path)
                 if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
-                    print(f"[DEBUG] Все кадры видео {video_path} уже использованы")
-                    print(f"[DEBUG] Обработано видео: {len(self.processed_videos)}/{len(self.video_paths)}")
+                    logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
+                    logger.debug(f"Обработано видео: {len(self.processed_videos)}/{len(self.video_paths)}")
                     self.processed_videos.add(video_path)
                     return self._get_random_video()
+            
+            # Проверяем, не превышен ли лимит последовательностей для этого видео
+            if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
+                logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
+                self.processed_videos.add(video_path)
+                return self._get_random_video()
             
             return video_path
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
+            logger.error(f"Ошибка при выборе случайного видео: {str(e)}")
             return None
 
     def _get_sequence(self, sequence_length, target_size, force_positive=False, is_validation=False):
-        try:
-            # Получаем случайное видео
-            video_path = self._get_random_video()
-            if video_path is None:
-                print("[ERROR] Не удалось получить видео")
-                return None, None
-            
-            # Загружаем аннотации
-            frame_labels = self._load_annotations(video_path)
-            if frame_labels is None:
-                print(f"[ERROR] Не удалось загрузить аннотации для {video_path}")
-                return None, None
-            
-            # Получаем информацию о видео
-            info = self._get_video_info(video_path)
-            if not info.exists:
-                print(f"[ERROR] Видео не существует: {video_path}")
-                return None, None
-            
-            # Определяем начальный индекс
-            if force_positive:
-                positive_indices = np.where(frame_labels == 1)[0]
-                if len(positive_indices) == 0:
-                    print(f"[DEBUG] Нет положительных кадров в видео {video_path}")
-                    return None, None
-                start_idx = np.random.choice(positive_indices)
-            else:
-                start_idx = np.random.randint(0, len(frame_labels) - sequence_length + 1)
-            
-            # Проверяем, что последовательность помещается в видео
-            if start_idx + sequence_length > len(frame_labels):
-                if is_validation:
-                    print(f"[ERROR] Неполная последовательность в валидации")
-                    return None, None
-                else:
-                    print(f"[DEBUG] Последовательность не помещается в видео")
-                    return None, None
-                
-            # Открываем видео
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                print(f"[ERROR] Не удалось открыть видео {video_path}")
-                return None, None
-            
-            try:
-                # Устанавливаем позицию
-                cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                
-                # Собираем последовательность
-                sequence = []
-                labels = []
-                has_positive = False
-                has_background = False
-                
-                for i in range(sequence_length):
-                    ret, frame = cap.read()
-                    if not ret:
-                        if is_validation:
-                            # Для валидации требуем полную последовательность
-                            print(f"[ERROR] Неполная последовательность в валидации")
-                            return None, None
-                        else:
-                            # Для обучения проверяем содержимое
-                            if len(sequence) > 0:
-                                if has_positive:
-                                    # Если есть положительные кадры, дополняем
-                                    print(f"[DEBUG] Последовательность неполная, но содержит положительные кадры")
-                                    while len(sequence) < sequence_length:
-                                        sequence.append(sequence[-1])
-                                        labels.append(labels[-1])
-                                    break
-                                elif has_background and len(sequence) >= sequence_length // 2:
-                                    # Если есть достаточно фоновых кадров, дополняем
-                                    print(f"[DEBUG] Последовательность неполная, но содержит достаточно фоновых кадров")
-                                    while len(sequence) < sequence_length:
-                                        sequence.append(sequence[-1])
-                                        labels.append(labels[-1])
-                                    break
-                                else:
-                                    # Если недостаточно кадров, отбрасываем
-                                    print(f"[DEBUG] Последовательность слишком короткая")
-                                    return None, None
-                            else:
-                                return None, None
-                    
-                    # Обработка кадра
-                    frame = cv2.resize(frame, target_size)
-                    frame = frame.astype(np.float32) / 255.0
-                    
-                    sequence.append(frame)
-                    current_label = frame_labels[start_idx + i]
-                    labels.append(current_label)
-                    
-                    # Отслеживаем типы кадров
-                    if np.any(current_label == 1.0):
-                        has_positive = True
-                    if np.all(current_label == 0.0):
-                        has_background = True
-                
-                # Преобразуем в numpy массивы
-                sequence = np.array(sequence)
-                labels = np.array(labels)
-                
-                print(f"[DEBUG] Статистика последовательности:")
-                print(f"  - Содержит положительные кадры: {has_positive}")
-                print(f"  - Содержит фоновые кадры: {has_background}")
-                print(f"  - Длина последовательности: {len(sequence)}")
-                
-                return sequence, labels
-                
-            finally:
-                cap.release()
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
+        """
+        Получение последовательности кадров с предотвращением дублирования
+        """
+        video_path = self._get_random_video()
+        if video_path is None:
             return None, None
 
-    def _save_batch_statistics(self, batch_number: int, positive_count: int, negative_count: int, video_path: str):
-        """
-        Сохранение статистики по батчам в файл
-        
-        Args:
-            batch_number: номер батча
-            positive_count: количество положительных примеров
-            negative_count: количество отрицательных примеров
-            video_path: путь к видео
-        """
-        try:
-            stats_file = "batch_statistics.txt"
-            file_exists = os.path.exists(stats_file)
-            
-            with open(stats_file, 'a', encoding='utf-8') as f:
-                if not file_exists:
-                    f.write("Номер батча | Положительные | Отрицательные | Соотношение | Видео\n")
-                    f.write("-" * 80 + "\n")
-                
-                ratio = positive_count / negative_count if negative_count > 0 else float('inf')
-                f.write(f"{batch_number:10d} | {positive_count:12d} | {negative_count:12d} | {ratio:10.2f} | {os.path.basename(video_path)}\n")
-                
-        except Exception as e:
-            print(f"[ERROR] Ошибка при сохранении статистики: {str(e)}")
+        # Инициализируем счетчик для видео, если его еще нет
+        if video_path not in self.sequence_counter:
+            self.sequence_counter[video_path] = 0
+
+        # Получаем последовательность
+        X_seq, y_seq = self.create_sequences(
+            video_path=video_path,
+            sequence_length=sequence_length,
+            target_size=target_size
+        )
+
+        if X_seq is None or y_seq is None:
+            return None, None
+
+        # Создаем уникальный идентификатор последовательности
+        sequence_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
+
+        # Проверяем, не использовалась ли эта последовательность ранее
+        if sequence_id in self.used_sequences:
+            logger.debug(f"Последовательность {sequence_id} уже использована")
+            return None, None
+
+        # Добавляем последовательность в использованные
+        self.used_sequences.add(sequence_id)
+        self.sequence_counter[video_path] += 1
+
+        return X_seq, y_seq
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
         Получение батча данных с пропуском некорректных кадров
-        
-        Args:
-            batch_size: размер батча
-            sequence_length: длина последовательности
-            target_size: размер кадра (ширина, высота)
-            one_hot: использовать one-hot кодирование для меток
-            max_sequences_per_video: максимальное количество последовательностей из одного видео
-            force_positive: принудительно использовать положительные примеры
-            is_validation: флаг валидации
-        
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: батч данных и меток
         """
         X_batch = []
         y_batch = []
         attempts = 0
-        max_attempts = batch_size * 2  # Увеличиваем количество попыток для сбора полного батча
-        max_empty_sequences = 5  # Максимальное количество пустых последовательностей подряд
+        max_attempts = batch_size * 2
+        max_empty_sequences = 5
         empty_sequence_count = 0
         
         while len(X_batch) < batch_size and attempts < max_attempts:
@@ -664,27 +553,27 @@ class VideoDataLoader:
                 if X_seq is not None and y_seq is not None:
                     X_batch.append(X_seq)
                     y_batch.append(y_seq)
-                    empty_sequence_count = 0  # Сбрасываем счетчик при успешной последовательности
+                    empty_sequence_count = 0
                 else:
                     empty_sequence_count += 1
                     attempts += 1
                     
                     if empty_sequence_count >= max_empty_sequences:
-                        print(f"[WARNING] Слишком много пустых последовательностей подряд ({empty_sequence_count})")
+                        logger.warning(f"Слишком много пустых последовательностей подряд ({empty_sequence_count})")
                         if len(X_batch) > 0:
-                            print("[DEBUG] Возвращаем неполный батч")
+                            logger.debug("Возвращаем неполный батч")
                             break
                         else:
-                            print("[DEBUG] Не удалось собрать батч")
+                            logger.debug("Не удалось собрать батч")
                             return None, None
                     continue
                 
             except Exception as e:
-                print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
+                logger.error(f"Ошибка при получении последовательности: {str(e)}")
                 attempts += 1
                 empty_sequence_count += 1
                 if empty_sequence_count >= max_empty_sequences:
-                    print("[DEBUG] Слишком много ошибок подряд")
+                    logger.warning("Слишком много ошибок подряд")
                     if len(X_batch) > 0:
                         break
                     else:
@@ -699,7 +588,7 @@ class VideoDataLoader:
             batch_number=self.current_batch,
             positive_count=sum(1 for y in y_batch if np.any(y == 1)),
             negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
-            video_path=self.video_paths[self.current_video_index] if self.current_video_index < len(self.video_paths) else "unknown"
+            video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
         )
         
         self.current_batch += 1
