@@ -222,28 +222,37 @@ def calculate_dataset_weights():
                 # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
-                        video_stats[video_name]['action_frames'] += 1
+                        if frame_labels[frame_idx, 1] == 0:  # Если кадр еще не помечен как действие
+                            frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
+                            video_stats[video_name]['action_frames'] += 1
                 
                 # Отмечаем переходы
                 if start_frame < len(frame_labels):
-                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
-                    video_stats[video_name]['transition_frames'] += 1
+                    if frame_labels[start_frame, 2] == 0:  # Если кадр еще не помечен как переход
+                        frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
+                        video_stats[video_name]['transition_frames'] += 1
                 if end_frame < len(frame_labels):
-                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
-                    video_stats[video_name]['transition_frames'] += 1
+                    if frame_labels[end_frame, 2] == 0:  # Если кадр еще не помечен как переход
+                        frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+                        video_stats[video_name]['transition_frames'] += 1
         
-            # Считаем фоновые кадры как кадры, где нет ни действия, ни перехода
-            background_mask = (frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0)
-            video_stats[video_name]['background_frames'] = np.sum(background_mask)
+            # Считаем фоновые кадры
+            # Сначала считаем уникальные кадры действия и перехода
+            action_frames = np.sum(frame_labels[:, 1] == 1)  # Количество кадров действия
+            transition_frames = np.sum(frame_labels[:, 2] == 1)  # Количество кадров перехода
+            # Считаем кадры, которые являются и действием, и переходом
+            overlapping_frames = np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))
+            # Вычитаем из общего числа кадров действия и переходы, учитывая перекрытие
+            video_stats[video_name]['background_frames'] = video_frames - (action_frames + transition_frames - overlapping_frames)
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
         print(f"  - Всего кадров: {video_frames}")
         print(f"  - Количество аннотаций: {video_stats[video_name]['annotations_count']}")
         print(f"  - Фоновых кадров: {video_stats[video_name]['background_frames']}")
-        print(f"  - Кадров действия: {video_stats[video_name]['action_frames']}")
-        print(f"  - Кадров перехода: {video_stats[video_name]['transition_frames']}")
+        print(f"  - Кадров действия: {action_frames}")
+        print(f"  - Кадров перехода: {transition_frames}")
+        print(f"  - Перекрывающихся кадров: {overlapping_frames}")
         
         cap.release()
     
