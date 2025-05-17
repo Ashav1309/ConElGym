@@ -147,62 +147,18 @@ def save_weights_to_config(weights):
         config_dir = os.path.dirname(Config.CONFIG_PATH)
         if config_dir:  # Если путь содержит директории
             os.makedirs(config_dir, exist_ok=True)
-            print(f"[DEBUG] Создана директория для конфигурации: {config_dir}")
         
-        # Базовый конфиг
-        default_config = {
-            'MODEL_PARAMS': {
-                'v3': {
-                    'dropout_rate': 0.3,
-                    'lstm_units': 128,
-                    'class_weights': {
-                        'background': None,
-                        'action': None,
-                        'transition': None
-                    },
-                    'base_input_shape': [224, 224, 3]
-                },
-                'v4': {
-                    'dropout_rate': 0.3,
-                    'expansion_factor': 4,
-                    'se_ratio': 0.25,
-                    'class_weights': {
-                        'background': None,
-                        'action': None,
-                        'transition': None
-                    },
-                    'base_input_shape': [224, 224, 3]
-                }
-            }
-        }
-        
-        # Проверяем существование файла
-        if os.path.exists(Config.CONFIG_PATH):
-            print(f"[DEBUG] Найден существующий конфигурационный файл: {Config.CONFIG_PATH}")
-            try:
-                with open(Config.CONFIG_PATH, 'r') as f:
-                    config = json.load(f)
-                print("[DEBUG] Успешно загружен существующий конфиг")
-            except json.JSONDecodeError:
-                print("[WARNING] Ошибка чтения конфигурационного файла, создаем новый")
-                config = default_config
-        else:
-            print(f"[DEBUG] Конфигурационный файл не найден, создаем новый: {Config.CONFIG_PATH}")
-            config = default_config
-        
-        # Обновляем веса в конфиге для обеих моделей
-        config['MODEL_PARAMS']['v3']['class_weights'] = weights['MODEL_PARAMS']['v3']['class_weights']
-        config['MODEL_PARAMS']['v4']['class_weights'] = weights['MODEL_PARAMS']['v4']['class_weights']
-        
-        # Сохраняем обновленный конфиг
+        # Просто перезаписываем файл новыми весами
         with open(Config.CONFIG_PATH, 'w') as f:
-            json.dump(config, f, indent=4)
+            json.dump(weights, f, indent=4)
         
-        print(f"[DEBUG] Веса успешно сохранены в {Config.CONFIG_PATH}")
-        print(f"[DEBUG] Сохраненные веса: {weights}")
+        print("\n[INFO] Веса успешно сохранены:")
+        print(f"  - Фон: {weights['MODEL_PARAMS']['v3']['class_weights']['background']:.2f}")
+        print(f"  - Действие: {weights['MODEL_PARAMS']['v3']['class_weights']['action']:.2f}")
+        print(f"  - Переход: {weights['MODEL_PARAMS']['v3']['class_weights']['transition']:.2f}")
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при сохранении весов в конфиг: {str(e)}")
+        print(f"\n[ERROR] Ошибка при сохранении весов: {str(e)}")
         raise
 
 if __name__ == "__main__":
