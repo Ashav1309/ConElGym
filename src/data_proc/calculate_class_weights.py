@@ -110,31 +110,26 @@ def calculate_dataset_weights():
             'v3': {
                 'dropout_rate': 0.3,
                 'lstm_units': 128,
-                'class_weights': {
-                    'background': max_count / total_background if total_background > 0 else 1.0,
-                    'action': max_count / total_action if total_action > 0 else 1.0,
-                    'transition': max_count / total_transition if total_transition > 0 else 1.0
-                },
                 'base_input_shape': [224, 224, 3]
             },
             'v4': {
                 'dropout_rate': 0.3,
                 'expansion_factor': 4,
                 'se_ratio': 0.25,
-                'class_weights': {
-                    'background': max_count / total_background if total_background > 0 else 1.0,
-                    'action': max_count / total_action if total_action > 0 else 1.0,
-                    'transition': max_count / total_transition if total_transition > 0 else 1.0
-                },
                 'base_input_shape': [224, 224, 3]
             }
+        },
+        'class_weights': {
+            'background': max_count / total_background if total_background > 0 else 1.0,
+            'action': max_count / total_action if total_action > 0 else 1.0,
+            'transition': max_count / total_transition if total_transition > 0 else 1.0
         }
     }
     
     print("\n[INFO] Веса классов:")
-    print(f"  - Фон: {weights['MODEL_PARAMS']['v3']['class_weights']['background']:.2f}")
-    print(f"  - Действие: {weights['MODEL_PARAMS']['v3']['class_weights']['action']:.2f}")
-    print(f"  - Переход: {weights['MODEL_PARAMS']['v3']['class_weights']['transition']:.2f}")
+    print(f"  - Фон: {weights['class_weights']['background']:.2f}")
+    print(f"  - Действие: {weights['class_weights']['action']:.2f}")
+    print(f"  - Переход: {weights['class_weights']['transition']:.2f}")
     
     return weights
 
@@ -153,9 +148,9 @@ def save_weights_to_config(weights):
             json.dump(weights, f, indent=4)
         
         print("\n[INFO] Веса успешно сохранены:")
-        print(f"  - Фон: {weights['MODEL_PARAMS']['v3']['class_weights']['background']:.2f}")
-        print(f"  - Действие: {weights['MODEL_PARAMS']['v3']['class_weights']['action']:.2f}")
-        print(f"  - Переход: {weights['MODEL_PARAMS']['v3']['class_weights']['transition']:.2f}")
+        print(f"  - Фон: {weights['class_weights']['background']:.2f}")
+        print(f"  - Действие: {weights['class_weights']['action']:.2f}")
+        print(f"  - Переход: {weights['class_weights']['transition']:.2f}")
         
     except Exception as e:
         print(f"\n[ERROR] Ошибка при сохранении весов: {str(e)}")
