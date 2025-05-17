@@ -19,7 +19,7 @@ from tensorflow.keras.callbacks import Callback
 from src.config import Config
 import numpy as np
 from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
-from src.data.augmentation import BalancedDataGenerator
+from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
 
 logger = logging.getLogger(__name__)
