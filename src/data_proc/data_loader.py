@@ -316,9 +316,12 @@ class VideoDataLoader:
         """
         try:
             # Проверяем кэш
+            print(f"[DEBUG] Проверяем кэш")
             if video_path in self.annotations_cache:
                 print(f"[DEBUG] Используем кэшированные аннотации для {os.path.basename(video_path)}")
                 return self.annotations_cache[video_path]
+            else:
+                print(f"[DEBUG] Кэш не найден")
 
             # Получаем путь к файлу аннотаций
             base_name = os.path.splitext(os.path.basename(video_path))[0]
