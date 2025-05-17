@@ -319,6 +319,8 @@ class VideoDataLoader:
             print(f"[DEBUG] Проверяем кэш")
             if video_path in self.annotations_cache:
                 print(f"[DEBUG] Используем кэшированные аннотации для {os.path.basename(video_path)}")
+                print(f"[DEBUG] Размер кэшированных аннотаций: {self.annotations_cache[video_path].shape}")
+                print(f"[DEBUG] Сумма меток в кэше: {np.sum(self.annotations_cache[video_path])}")
                 return self.annotations_cache[video_path]
             else:
                 print(f"[DEBUG] Кэш не найден")
