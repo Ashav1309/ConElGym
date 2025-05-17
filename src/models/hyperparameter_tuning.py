@@ -259,10 +259,12 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Model type: {model_type}")
     print(f"  - Learning rate: {learning_rate}")
     print(f"  - Dropout rate: {dropout_rate}")
-    if model_type == 'v3':
-        print(f"  - LSTM units: {lstm_units}")
+    print(f"  - LSTM units: {lstm_units}")
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
+    print(f"  - RNN type: {rnn_type}")
+    print(f"  - Temporal block type: {temporal_block_type}")
+    print(f"  - Clipnorm: {clipnorm}")
     
     # Если class_weights не указаны, загружаем из конфига
     if class_weights is None:
@@ -346,9 +348,9 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                     y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
                     y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
                 
-                # Берем только нужный класс
-                y_true = y_true[:, self.class_id]
-                y_pred = y_pred[:, self.class_id]
+                # Берем только нужный класс и добавляем размерность
+                y_true = tf.expand_dims(y_true[:, self.class_id], axis=-1)  # [batch, 1]
+                y_pred = tf.expand_dims(y_pred[:, self.class_id], axis=-1)  # [batch, 1]
                 
                 # Преобразуем в бинарные метки
                 y_true = tf.cast(y_true > 0.5, tf.float32)
