@@ -382,6 +382,13 @@ class VideoDataLoader:
             print(f"  - Кадров перехода: {transition_frames}")
             print(f"  - Перекрывающихся кадров: {overlapping_frames}")
             
+            print(f"[DEBUG] Проверка меток кадров:")
+            print(f"  - Форма labels: {labels.shape}")
+            print(f"  - Уникальные значения в labels[:, 0]: {np.unique(labels[:, 0])}")
+            print(f"  - Уникальные значения в labels[:, 1]: {np.unique(labels[:, 1])}")
+            print(f"  - Уникальные значения в labels[:, 2]: {np.unique(labels[:, 2])}")
+            print(f"  - Сумма всех меток: {np.sum(labels)}")
+            
             return labels
             
         except json.JSONDecodeError as e:
@@ -481,6 +488,7 @@ class VideoDataLoader:
                     else:
                         logger.debug(f"Видео {video_name} уже было обработано ранее")
                         self.processed_videos.add(video_path)
+                        self.processed_video_names.add(video_name)  # Добавляем видео в общий список
             
             if not available_videos:
                 logger.warning("Нет доступных видео для обработки")

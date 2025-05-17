@@ -1,7 +1,0 @@
-{
-    "class_weights": {
-        "background": 1.0,
-        "action": 4.300365698562798,
-        "transition": 10.0
-    }
-}
