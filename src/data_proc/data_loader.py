@@ -384,6 +384,11 @@ class VideoDataLoader:
             print(f"  - Уникальные значения в labels[:, 1]: {np.unique(labels[:, 1])}")
             print(f"  - Уникальные значения в labels[:, 2]: {np.unique(labels[:, 2])}")
             print(f"  - Сумма всех меток: {np.sum(labels)}")
+
+            # Выводим информацию о прогрессе обработки видео
+            current_video_number = len(self.processed_video_names)
+            remaining_videos = self.total_videos - current_video_number
+            print(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
             
             return labels
             
