@@ -225,10 +225,10 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         # Оптимизация производительности
         if is_training:
             dataset = dataset.shuffle(64)
-            dataset = dataset.batch(batch_size, drop_remainder=True)
+            # dataset = dataset.batch(batch_size, drop_remainder=True)  # УДАЛЕНО двойное батчирование
         else:
-            dataset = dataset.batch(batch_size)
-            
+            # dataset = dataset.batch(batch_size)  # УДАЛЕНО двойное батчирование
+            pass
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
         return dataset
