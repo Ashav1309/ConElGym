@@ -455,14 +455,18 @@ class VideoDataLoader:
                 
             start_frame = np.random.randint(0, max_start + 1)
             
+            # Инициализируем кэш использованных кадров
+            if video_path not in self.used_frames_cache:
+                self.used_frames_cache[video_path] = set()
+            
             # Создаем последовательность
             sequence = []
             cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
             
-            for _ in range(sequence_length):
+            for frame_idx in range(start_frame, start_frame + sequence_length):
                 ret, frame = cap.read()
                 if not ret:
-                    logger.warning(f"Не удалось прочитать кадр на позиции {start_frame + len(sequence)}")
+                    logger.warning(f"Не удалось прочитать кадр на позиции {frame_idx}")
                     return None, None
                     
                 if target_size:
@@ -471,7 +475,9 @@ class VideoDataLoader:
                     except Exception as e:
                         logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
                         return None, None
-                        
+                
+                # Добавляем кадр в кэш успешно прочитанных
+                self.used_frames_cache[video_path].add(frame_idx)
                 sequence.append(frame)
             
             if len(sequence) != sequence_length:
@@ -577,7 +583,6 @@ class VideoDataLoader:
                     total_frames = self._get_video_info(video_path).total_frames
                     empty_labels = np.zeros((total_frames, 3))
                     self.annotations_cache[video_path] = empty_labels
-                    self.processed_video_names.add(os.path.basename(video_path))
                     return None, None
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
@@ -585,7 +590,6 @@ class VideoDataLoader:
                 total_frames = self._get_video_info(video_path).total_frames
                 empty_labels = np.zeros((total_frames, 3))
                 self.annotations_cache[video_path] = empty_labels
-                self.processed_video_names.add(os.path.basename(video_path))
                 return None, None
 
         # Инициализируем счетчик для видео, если его еще нет
@@ -613,26 +617,19 @@ class VideoDataLoader:
                 self.used_sequences.add(sequence_id)
                 self.sequence_counter[video_path] += 1
 
-                # Если достигнут лимит последовательностей или успешно обработали видео, добавляем в processed_video_names
-                if self.sequence_counter[video_path] >= self.max_sequences_per_video:
-                    self.processed_video_names.add(os.path.basename(video_path))
-                    logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
-                elif os.path.basename(video_path) not in self.processed_video_names:
-                    # Добавляем видео в processed_video_names только если его там еще нет
-                    self.processed_video_names.add(os.path.basename(video_path))
-                    logger.debug(f"Успешно обработано видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
-
-                # Выводим информацию о прогрессе обработки видео
-                current_video_number = len(self.processed_video_names)
-                remaining_videos = self.total_videos - current_video_number
-                logger.debug(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
+                # Проверяем, все ли прочитанные кадры использованы
+                video_info = self._get_video_info(video_path)
+                if video_info:
+                    total_readable_frames = len(self.used_frames_cache.get(video_path, set()))
+                    if total_readable_frames >= video_info.total_frames - sequence_length:
+                        logger.debug(f"Все прочитанные кадры видео {os.path.basename(video_path)} использованы")
+                        self.processed_video_names.add(os.path.basename(video_path))
+                        logger.debug(f"Обработано видео: {len(self.processed_video_names)}/{self.total_videos}")
 
                 return X_seq, y_seq
 
         except Exception as e:
             logger.error(f"Ошибка при создании последовательности: {str(e)}")
-            # При ошибке добавляем видео в processed_video_names
-            self.processed_video_names.add(os.path.basename(video_path))
             return None, None
 
         return None, None
