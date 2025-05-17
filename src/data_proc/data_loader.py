@@ -430,7 +430,7 @@ class VideoDataLoader:
             target_size: размер кадра
             
         Returns:
-            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метка)
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метки для всех кадров)
             
         Raises:
             CorruptedVideoError: если видео повреждено
@@ -492,7 +492,8 @@ class VideoDataLoader:
                 logger.warning(f"Некорректная форма последовательности: {sequence_array.shape}, ожидалось: {expected_shape}")
                 return None, None
             
-            return sequence_array, frame_labels[start_frame]
+            # Возвращаем последовательность и метки для всех кадров
+            return sequence_array, frame_labels[start_frame:start_frame + sequence_length]
             
         except Exception as e:
             logger.error(f"Ошибка при создании последовательности: {str(e)}")
