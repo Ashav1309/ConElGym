@@ -629,7 +629,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     
     return model, tf_class_weights
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25, class_weights=None):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
     """
     Создает модель на основе MobileNetV4 с улучшенной архитектурой
     """
@@ -640,8 +640,6 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
     
     # Используем параметры из конфигурации, если не указаны явно
     dropout_rate = dropout_rate or model_params['dropout_rate']
-    expansion_factor = expansion_factor or model_params['expansion_factor']
-    se_ratio = se_ratio or model_params['se_ratio']
     
     # Загружаем веса классов из конфига
     if class_weights is None:
@@ -662,24 +660,46 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     
     # Создаем модель
-    model = create_model(
-        input_shape=input_shape,
-        num_classes=num_classes,
-        dropout_rate=dropout_rate,
-        model_type='v4',
-        expansion_factor=expansion_factor,
-        se_ratio=se_ratio,
-        class_weights=tf_class_weights
-    )
+    inputs = Input(shape=input_shape[1:])  # Убираем размерность последовательности
+    x = inputs
     
-    # Компилируем модель с весами
+    # Добавляем слои MobileNetV4
+    x = Conv2D(32, (3, 3), strides=(2, 2), padding='same')(x)
+    x = BatchNormalization()(x)
+    x = ReLU(max_value=6.0)(x)
+    
+    # Добавляем инвертированные бутылочные слои
+    x = UniversalInvertedBottleneck(64, kernel_size=3, strides=1)(x)
+    x = UniversalInvertedBottleneck(128, kernel_size=3, strides=2)(x)
+    x = UniversalInvertedBottleneck(128, kernel_size=3, strides=1)(x)
+    x = UniversalInvertedBottleneck(256, kernel_size=3, strides=2)(x)
+    x = UniversalInvertedBottleneck(256, kernel_size=3, strides=1)(x)
+    x = UniversalInvertedBottleneck(512, kernel_size=3, strides=2)(x)
+    x = UniversalInvertedBottleneck(512, kernel_size=3, strides=1)(x)
+    
+    # Добавляем временной блок
+    x = Reshape((input_shape[0], -1))(x)  # Преобразуем в последовательность
+    x = Bidirectional(LSTM(256, return_sequences=True))(x)
+    x = GlobalAveragePooling1D()(x)
+    
+    # Добавляем слои классификации
+    x = Dense(512, activation='relu')(x)
+    x = Dropout(dropout_rate)(x)
+    x = Dense(256, activation='relu')(x)
+    x = Dropout(dropout_rate)(x)
+    outputs = Dense(num_classes, activation='softmax')(x)
+    
+    # Создаем модель
+    model = Model(inputs=inputs, outputs=outputs)
+    
+    # Компилируем модель
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
     # Включаем mixed precision если используется GPU
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
-    # Создаем метрики для трех классов
+    # Создаем метрики
     metrics = [
         'accuracy',
         tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
@@ -758,8 +778,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=dropout_rate,
-            expansion_factor=model_params['expansion_factor'],
-            se_ratio=model_params['se_ratio'],
             class_weights=class_weights
         )
     else:

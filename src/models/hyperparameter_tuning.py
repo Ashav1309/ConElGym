@@ -241,17 +241,6 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
 def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
     """
     Создание и компиляция модели с заданными параметрами
-    Args:
-        input_shape: форма входных данных
-        num_classes: количество классов (3 для three-hot encoding)
-        learning_rate: скорость обучения
-        dropout_rate: коэффициент dropout
-        lstm_units: количество юнитов в LSTM слоях (только для v3)
-        model_type: тип модели ('v3' или 'v4')
-        class_weights: веса классов (если None, будут загружены из конфига)
-        rnn_type: тип RNN ('lstm' или 'bigru')
-        temporal_block_type: тип временного блока ('rnn' или 'hybrid')
-        clipnorm: коэффициент градиентного клиппинга
     """
     clear_memory()  # Очищаем память перед созданием модели
     
@@ -287,16 +276,27 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     
     print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
     
-    model, model_class_weights = create_model(
-        input_shape=full_input_shape,
-        num_classes=3,  # 3 класса: фон, действие, переход
-        dropout_rate=dropout_rate,
-        lstm_units=lstm_units,
-        model_type=model_type,
-        class_weights=class_weights,
-        rnn_type=rnn_type,
-        temporal_block_type=temporal_block_type
-    )
+    # Создаем модель в зависимости от типа
+    if model_type == 'v3':
+        model, model_class_weights = create_model(
+            input_shape=full_input_shape,
+            num_classes=3,  # 3 класса: фон, действие, переход
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units,
+            model_type=model_type,
+            class_weights=class_weights,
+            rnn_type=rnn_type,
+            temporal_block_type=temporal_block_type
+        )
+    elif model_type == 'v4':
+        model, model_class_weights = create_mobilenetv4_model(
+            input_shape=full_input_shape,
+            num_classes=3,
+            dropout_rate=dropout_rate,
+            class_weights=class_weights
+        )
+    else:
+        raise ValueError(f"Неверный тип модели: {model_type}")
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm)
     
@@ -418,7 +418,7 @@ def objective(trial):
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 256)
-        model_type = trial.suggest_categorical('model_type', ['v3', 'v4'])
+        model_type = Config.MODEL_TYPE
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
