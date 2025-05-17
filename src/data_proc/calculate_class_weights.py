@@ -106,19 +106,35 @@ def calculate_dataset_weights():
     # Нормализуем веса
     max_count = max(total_background, total_action, total_transition)
     weights = {
-        'background': max_count / total_background if total_background > 0 else 1.0,
-        'action': max_count / total_action if total_action > 0 else 1.0,
-        'transition': max_count / total_transition if total_transition > 0 else 1.0
+        'MODEL_PARAMS': {
+            'v3': {
+                'dropout_rate': 0.3,
+                'lstm_units': 128,
+                'class_weights': {
+                    'background': max_count / total_background if total_background > 0 else 1.0,
+                    'action': max_count / total_action if total_action > 0 else 1.0,
+                    'transition': max_count / total_transition if total_transition > 0 else 1.0
+                },
+                'base_input_shape': [224, 224, 3]
+            },
+            'v4': {
+                'dropout_rate': 0.3,
+                'expansion_factor': 4,
+                'se_ratio': 0.25,
+                'class_weights': {
+                    'background': max_count / total_background if total_background > 0 else 1.0,
+                    'action': max_count / total_action if total_action > 0 else 1.0,
+                    'transition': max_count / total_transition if total_transition > 0 else 1.0
+                },
+                'base_input_shape': [224, 224, 3]
+            }
+        }
     }
     
-    # Сохраняем веса в файл
-    with open('config_weights.json', 'w') as f:
-        json.dump(weights, f, indent=4)
-    
     print("\n[INFO] Веса классов:")
-    print(f"  - Фон: {weights['background']:.2f}")
-    print(f"  - Действие: {weights['action']:.2f}")
-    print(f"  - Переход: {weights['transition']:.2f}")
+    print(f"  - Фон: {weights['MODEL_PARAMS']['v3']['class_weights']['background']:.2f}")
+    print(f"  - Действие: {weights['MODEL_PARAMS']['v3']['class_weights']['action']:.2f}")
+    print(f"  - Переход: {weights['MODEL_PARAMS']['v3']['class_weights']['transition']:.2f}")
     
     return weights
 
@@ -175,8 +191,8 @@ def save_weights_to_config(weights):
             config = default_config
         
         # Обновляем веса в конфиге для обеих моделей
-        config['MODEL_PARAMS']['v3']['class_weights'] = weights
-        config['MODEL_PARAMS']['v4']['class_weights'] = weights
+        config['MODEL_PARAMS']['v3']['class_weights'] = weights['MODEL_PARAMS']['v3']['class_weights']
+        config['MODEL_PARAMS']['v4']['class_weights'] = weights['MODEL_PARAMS']['v4']['class_weights']
         
         # Сохраняем обновленный конфиг
         with open(Config.CONFIG_PATH, 'w') as f:
