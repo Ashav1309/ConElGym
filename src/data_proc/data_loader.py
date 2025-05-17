@@ -64,6 +64,8 @@ class VideoDataLoader:
         self.processed_videos: Set[str] = set()
         self.open_videos: Set[str] = set()  # Множество открытых видео
         self.processed_video_names: Set[str] = set()  # Множество имен обработанных видео
+        self.sequence_counter: Dict[str, int] = {}    # Счетчик последовательностей для каждого видео
+        self.used_sequences: Set[str] = set()         # Множество использованных последовательностей
         
         self.data_path = Path(data_path)
         self.max_videos = max_videos or Config.MAX_VIDEOS
