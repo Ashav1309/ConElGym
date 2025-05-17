@@ -31,7 +31,7 @@ class Config:
     # Параметры модели
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
-    BATCH_SIZE = 128
+    BATCH_SIZE = 32  # Уменьшаем с 128 до 32 для экономии памяти
     EPOCHS = 100
     LEARNING_RATE = 0.001
     EARLY_STOPPING_PATIENCE = 10
