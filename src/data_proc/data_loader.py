@@ -61,8 +61,8 @@ class VideoDataLoader:
         self.video_cache: Dict[str, cv2.VideoCapture] = {}
         self.used_frames_cache: Dict[str, Set[int]] = {}
         self.file_info_cache: Dict[str, VideoInfo] = {}
-        
         self.processed_videos: Set[str] = set()
+        
         self.data_path = Path(data_path)
         self.max_videos = max_videos or Config.MAX_VIDEOS
         self.video_paths: List[str] = []
@@ -98,14 +98,25 @@ class VideoDataLoader:
     def clear_cache(self):
         """Очистка всех кэшей и освобождение памяти"""
         logger.debug("Очистка кэшей")
-        for cap in self.video_cache.values():
-            if cap is not None:
-                cap.release()
-        self.video_cache.clear()
-        self.used_frames_cache.clear()
-        self.positive_indices_cache.clear()
-        self.file_info_cache.clear()
-        gc.collect()
+        try:
+            # Закрываем все открытые видео
+            for cap in self.video_cache.values():
+                if cap is not None:
+                    cap.release()
+            
+            # Очищаем все кэши
+            self.video_cache.clear()
+            self.used_frames_cache.clear()
+            self.positive_indices_cache.clear()
+            self.file_info_cache.clear()
+            self.processed_videos.clear()
+            
+            # Принудительная очистка памяти
+            gc.collect()
+            
+            print("[DEBUG] Все кэши очищены")
+        except Exception as e:
+            print(f"[ERROR] Ошибка при очистке кэшей: {str(e)}")
 
     def _get_video_info(self, video_path: str) -> VideoInfo:
         """
@@ -401,7 +412,10 @@ class VideoDataLoader:
             unprocessed_videos = [v for v in self.video_paths if v not in self.processed_videos]
             if not unprocessed_videos:
                 print("[DEBUG] Все видео обработаны")
-                return None
+                # Сбрасываем список обработанных видео
+                self.processed_videos.clear()
+                print("[DEBUG] Список обработанных видео очищен")
+                unprocessed_videos = self.video_paths
             
             # Выбираем случайное видео из необработанных
             video_path = np.random.choice(unprocessed_videos)
@@ -412,6 +426,14 @@ class VideoDataLoader:
                 print(f"[ERROR] Видео не найдено: {video_path}")
                 self.processed_videos.add(video_path)
                 return None
+            
+            # Проверяем, не все ли кадры использованы
+            if video_path in self.used_frames_cache:
+                video_info = self._get_video_info(video_path)
+                if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
+                    print(f"[DEBUG] Все кадры видео {video_path} уже использованы")
+                    self.processed_videos.add(video_path)
+                    return None
             
             return video_path
             
@@ -661,9 +683,8 @@ class VideoDataLoader:
         try:
             print(f"[DEBUG] Запуск генератора данных с {len(self.video_paths)} видео")
             
-            # Сбрасываем состояние
+            # Полностью очищаем все кэши и состояние
             self.clear_cache()
-            self.processed_videos.clear()
             self.current_video_index = 0
             self.current_frame_index = 0
             self.current_batch = 0
