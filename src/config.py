@@ -135,7 +135,7 @@ class Config:
     }
     
     # Алиас для весов классов
-    CLASS_WEIGHTS = MODEL_PARAMS[MODEL_TYPE]['class_weights']
+    CLASS_WEIGHTS = None  # Будет загружено из config_weights.json
     
     # Параметры адаптивного порога
     ADAPTIVE_THRESHOLD = {

@@ -4,22 +4,19 @@
             "dropout_rate": 0.3,
             "lstm_units": 128,
             "positive_class_weight": 72.88526119402985,
-            "base_input_shape": [
-                224,
-                224,
-                3
-            ]
+            "base_input_shape": [224, 224, 3]
         },
         "v4": {
             "dropout_rate": 0.3,
             "expansion_factor": 4,
             "se_ratio": 0.25,
             "positive_class_weight": 72.88526119402985,
-            "base_input_shape": [
-                224,
-                224,
-                3
-            ]
+            "base_input_shape": [224, 224, 3]
         }
+    },
+    "class_weights": {
+        "background": 1.0,
+        "action": 19.42,
+        "transition": 1128.88
     }
 }
