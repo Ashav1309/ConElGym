@@ -339,6 +339,9 @@ class VideoDataLoader:
             total_frames = self._get_video_info(video_path).total_frames
             labels = np.zeros((total_frames, 3))  # 3 класса: фон, действие, переход
             
+            # Сначала помечаем все кадры как фоновые
+            labels[:, 0] = 1
+            
             # Заполняем метки
             print(f"[DEBUG] Обработка аннотаций:")
             for i, annotation in enumerate(annotations['annotations']):
@@ -358,14 +361,11 @@ class VideoDataLoader:
                 
                 # Отмечаем действие
                 labels[start_frame:end_frame + 1, 1] = 1  # [0,1,0] - действие
+                labels[start_frame:end_frame + 1, 0] = 0  # Убираем метку фона для кадров действия
                 
                 # Отмечаем переходы
                 labels[start_frame, 2] = 1  # [0,0,1] - начало
                 labels[end_frame, 2] = 1    # [0,0,1] - конец
-            
-            # Отмечаем фоновые кадры (там, где ни действие, ни переход)
-            background_mask = (labels[:, 1] == 0) & (labels[:, 2] == 0)
-            labels[background_mask, 0] = 1  # [1,0,0] - фон
             
             # Считаем статистику
             action_frames = np.sum(labels[:, 1] == 1)  # Количество кадров действия
@@ -491,7 +491,6 @@ class VideoDataLoader:
                         else:
                             logger.debug(f"Видео {video_name} уже было обработано ранее")
                             self.processed_videos.add(video_path)
-                            self.processed_video_names.add(video_name)
                 
                 if not available_videos:
                     logger.warning("Нет доступных видео для обработки")
