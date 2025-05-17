@@ -557,7 +557,13 @@ class VideoDataLoader:
         if video_path not in self.annotations_cache:
             # Если аннотаций нет в кэше, загружаем их
             try:
-                self._load_annotations(video_path)
+                labels = self._load_annotations(video_path)  # Сохраняем результат загрузки
+                if labels is None:  # Если загрузка не удалась
+                    total_frames = self._get_video_info(video_path).total_frames
+                    empty_labels = np.zeros((total_frames, 3))
+                    self.annotations_cache[video_path] = empty_labels
+                    self.processed_video_names.add(os.path.basename(video_path))
+                    return None, None
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
                 # Создаем пустые аннотации и добавляем в кэш
