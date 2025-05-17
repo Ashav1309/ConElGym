@@ -50,6 +50,8 @@ from src.data_proc.data_validation import validate_data_pipeline
 # Объявляем глобальные переменные в начале файла
 train_loader = None
 val_loader = None
+train_data = None
+val_data = None
 
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
@@ -260,7 +262,12 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                 config = json.load(f)
                 class_weights = config['class_weights']
         else:
-            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
+            print("[WARNING] Конфигурационный файл не найден. Используем веса по умолчанию.")
+            class_weights = {
+                'background': 1.0,
+                'action': 4.299630443449974,
+                'transition': 10.0
+            }
     
     print(f"  - Class weights: {class_weights}")
     
@@ -278,7 +285,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     
     # Создаем модель в зависимости от типа
     if model_type == 'v3':
-        model, model_class_weights = create_model(
+        model = create_model(
             input_shape=full_input_shape,
             num_classes=3,  # 3 класса: фон, действие, переход
             dropout_rate=dropout_rate,
@@ -289,7 +296,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
             temporal_block_type=temporal_block_type
         )
     elif model_type == 'v4':
-        model, model_class_weights = create_mobilenetv4_model(
+        model = create_mobilenetv4_model(
             input_shape=full_input_shape,
             num_classes=3,
             dropout_rate=dropout_rate,
@@ -304,7 +311,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
-    # Создаем метрики для трех классов
+    # Создаем метрики
     print("[DEBUG] Создание метрик...")
     metrics = [
         'accuracy',
@@ -360,7 +367,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     print("[DEBUG] Модель успешно создана и скомпилирована")
-    return model, model_class_weights
+    return model
 
 def load_and_prepare_data(batch_size):
     """
@@ -414,6 +421,10 @@ def count_total_sequences(video_paths, sequence_length, step):
 
 def objective(trial):
     try:
+        print(f"\n[DEBUG] ===== ============================ ======")
+        print(f"\n[DEBUG] ===== Начало триала #{trial.number} =====")
+        print(f"\n[DEBUG] ===== ============================ ======")
+        
         # Получаем гиперпараметры из trial
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
@@ -422,6 +433,14 @@ def objective(trial):
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
+        
+        print(f"[DEBUG] Параметры триала #{trial.number}:")
+        print(f"  - learning_rate: {learning_rate}")
+        print(f"  - dropout_rate: {dropout_rate}")
+        print(f"  - lstm_units: {lstm_units}")
+        print(f"  - rnn_type: {rnn_type}")
+        print(f"  - temporal_block_type: {temporal_block_type}")
+        print(f"  - clipnorm: {clipnorm}")
         
         # Создаем и компилируем модель
         model = create_and_compile_model(
@@ -463,11 +482,16 @@ def objective(trial):
         # Очищаем память после каждой попытки
         clear_memory()
         
-        return history.history['val_f1_score_element'][-1]  # Возвращаем лучший F1-score
+        # Возвращаем лучший F1-score или 0.0 если метрика не найдена
+        best_f1 = history.history.get('val_f1_score_element', [0.0])[-1]
+        return float(best_f1)
         
     except Exception as e:
         print(f"[ERROR] Ошибка в objective: {str(e)}")
-        return None
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
+        return 0.0  # Возвращаем 0.0 вместо None
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -583,9 +607,11 @@ def save_tuning_results(study, total_time, n_trials):
 def tune_hyperparameters(n_trials=None):
     try:
         print("\n[DEBUG] Начало подбора гиперпараметров...")
+        start_time = time.time()
         
         # Загружаем данные
         print("[DEBUG] Загрузка данных...")
+        global train_data, val_data
         train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
         if train_data is None or val_data is None:
             raise ValueError("Не удалось загрузить данные для обучения")
@@ -607,8 +633,11 @@ def tune_hyperparameters(n_trials=None):
             timeout=Config.HYPERPARAM_TUNING['timeout']
         )
         
+        # Вычисляем общее время выполнения
+        total_time = time.time() - start_time
+        
         # Сохраняем результаты
-        save_tuning_results(study, None, n_trials)
+        save_tuning_results(study, total_time, n_trials)
         
         return {
             'best_params': study.best_params,
@@ -617,4 +646,7 @@ def tune_hyperparameters(n_trials=None):
         
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
+        import traceback
+        traceback.print_exc()
         return None
