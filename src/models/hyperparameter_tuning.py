@@ -164,7 +164,11 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         
         # Создаем генератор данных
         def data_generator():
-            while True:
+            batch_count = 0
+            max_empty_batches = 10
+            empty_batch_count = 0
+            
+            while batch_count < data_loader.total_batches:
                 try:
                     batch_data = data_loader.get_batch(
                         batch_size=batch_size,
@@ -176,22 +180,34 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
                     )
                     
                     if batch_data is None:
-                        print("[WARNING] Получен пустой батч данных")
+                        empty_batch_count += 1
+                        print(f"[WARNING] Получен пустой батч данных ({empty_batch_count}/{max_empty_batches})")
+                        
+                        if empty_batch_count >= max_empty_batches:
+                            print("[ERROR] Слишком много пустых батчей подряд, завершаем генерацию")
+                            break
                         continue
                         
                     X, y = batch_data
                     
                     if X.shape[0] == 0 or y.shape[0] == 0:
                         print("[WARNING] Получен батч с нулевой размерностью")
+                        empty_batch_count += 1
+                        if empty_batch_count >= max_empty_batches:
+                            break
                         continue
-                        
+                    
+                    empty_batch_count = 0  # Сбрасываем счетчик при успешном батче
+                    batch_count += 1
                     yield X, y
                     
                 except Exception as e:
                     print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+                    empty_batch_count += 1
+                    if empty_batch_count >= max_empty_batches:
+                        print("[ERROR] Слишком много ошибок подряд, завершаем генерацию")
+                        break
                     continue
-                
-                break
         
         # Создаем dataset
         output_signature = (
@@ -397,156 +413,61 @@ def count_total_sequences(video_paths, sequence_length, step):
     return total
 
 def objective(trial):
-    """
-    Функция оптимизации для Optuna
-    """
     try:
-        print("\n[DEBUG] Начало trial...")
+        # Получаем гиперпараметры из trial
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+        dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
+        lstm_units = trial.suggest_int('lstm_units', 32, 256)
+        model_type = trial.suggest_categorical('model_type', ['v3', 'v4'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
+        clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
-        # Загружаем веса классов из конфига
-        if os.path.exists(Config.CONFIG_PATH):
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                class_weights = config['class_weights']  # Изменено с config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
-        else:
-            raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
-        
-        print(f"[DEBUG] Загруженные веса классов: {class_weights}")
-        
-        # Получаем параметры из trial
-        params = {
-            'learning_rate': trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True),
-            'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-            'batch_size': trial.suggest_int('batch_size', 32, 512, step=32),
-            'rnn_type': trial.suggest_categorical('rnn_type', ['lstm', 'bigru']),
-            'temporal_block_type': trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention']),
-            'lstm_units': trial.suggest_int('lstm_units', 16, 512),
-            'gamma': trial.suggest_float('gamma', 0.5, 5.0),
-            'alpha': trial.suggest_float('alpha', 0.1, 0.4),
-            'beta': trial.suggest_float('beta', 0.9, 0.999),  # Добавлен параметр beta
-            'clipnorm': trial.suggest_float('clipnorm', 0.1, 5.0)
-        }
-        
-        print("[DEBUG] Параметры trial:")
-        for key, value in params.items():
-            print(f"  - {key}: {value}")
-        
-        # Создаем и обучаем модель
-        model, model_class_weights = create_model(
+        # Создаем и компилируем модель
+        model = create_and_compile_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-            num_classes=3,  # 3 класса: фон, действие, переход
-            dropout_rate=params['dropout_rate'],
-            rnn_type=params['rnn_type'],
-            temporal_block_type=params['temporal_block_type'],
-            lstm_units=params['lstm_units'],
-            class_weights=class_weights
-        )
-        
-        # Создаем загрузчики данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        
-        # Создаем оптимизированные pipeline данных
-        train_dataset = create_data_pipeline(
-            train_loader,
-            Config.SEQUENCE_LENGTH,
-            params['batch_size'],
-            Config.INPUT_SIZE,
-            is_training=True,
-            force_positive=True
-        )
-        
-        val_dataset = create_data_pipeline(
-            val_loader,
-            Config.SEQUENCE_LENGTH,
-            params['batch_size'],
-            Config.INPUT_SIZE,
-            is_training=False,
-            force_positive=False
-        )
-        
-        # Создаем метрики для трех классов
-        metrics = [
-            'accuracy',
-            tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
-            tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
-        ]
-        
-        # Создаем адаптер для F1Score
-        class F1ScoreAdapter(tf.keras.metrics.F1Score):
-            def __init__(self, name, class_id, threshold=0.5):
-                super().__init__(name=name, threshold=threshold)
-                self.class_id = class_id
-                
-            def update_state(self, y_true, y_pred, sample_weight=None):
-                y_true = tf.argmax(y_true, axis=-1)
-                y_pred = tf.argmax(y_pred, axis=-1)
-                y_true = tf.reshape(y_true, [-1])
-                y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
-                return super().update_state(y_true, y_pred, sample_weight)
-            
-            def result(self):
-                result = super().result()
-                return result[self.class_id]
-        
-        # Добавляем F1Score для каждого класса
-        metrics.extend([
-            F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
-            F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
-            F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
-        ])
-        
-        # Компилируем модель
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=params['learning_rate'], clipnorm=params['clipnorm']),
-            loss=focal_loss(gamma=params['gamma'], alpha=params['alpha'], beta=params['beta']),  # Добавлен параметр beta
-            metrics=metrics
+            num_classes=Config.NUM_CLASSES,
+            learning_rate=learning_rate,
+            dropout_rate=dropout_rate,
+            lstm_units=lstm_units,
+            model_type=model_type,
+            rnn_type=rnn_type,
+            temporal_block_type=temporal_block_type,
+            clipnorm=clipnorm
         )
         
         # Создаем callbacks
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
-                monitor='val_f1_score_action',  # Используем F1-score для класса действия
-                patience=5,
-                restore_best_weights=True,
-                mode='max'
+                monitor='val_loss',
+                patience=3,
+                restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_f1_score_action',
+                monitor='val_loss',
                 factor=0.5,
-                patience=3,
-                min_lr=1e-6,
-                mode='max'
+                patience=2,
+                min_lr=1e-6
             )
         ]
         
         # Обучаем модель
         history = model.fit(
-            train_dataset,
-            validation_data=val_dataset,
-            epochs=Config.EPOCHS,
+            train_data,
+            epochs=Config.HYPERPARAMETER_TUNING['epochs'],
+            validation_data=val_data,
             callbacks=callbacks,
             verbose=1
         )
         
-        # Получаем лучший F1-score для класса действия
-        best_f1_score = max(history.history['val_f1_score_action'])
-        print(f"[DEBUG] Лучший F1-score для класса действия: {best_f1_score}")
+        # Очищаем память после каждой попытки
+        clear_memory()
         
-        return best_f1_score
+        return history.history['val_f1_score_element'][-1]  # Возвращаем лучший F1-score
         
     except Exception as e:
         print(f"[ERROR] Ошибка в objective: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
+        return None
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -660,32 +581,34 @@ def save_tuning_results(study, total_time, n_trials):
         raise
 
 def tune_hyperparameters(n_trials=None):
-    """
-    Запуск гиперпараметрического поиска с помощью Optuna
-    Args:
-        n_trials: количество trials (если None, берется из конфигурации)
-    """
-    import optuna
-    import time
-    print("\n[DEBUG] Начало подбора гиперпараметров...")
-    
-    # Используем значение из конфигурации, если n_trials не указан
-    if n_trials is None:
-        n_trials = Config.HYPERPARAM_TUNING['n_trials']
-    
-    print(f"[DEBUG] Количество trials: {n_trials}")
-    
-    # Валидация данных перед началом
     try:
-        validate_data_pipeline()
+        print("\n[DEBUG] Начало подбора гиперпараметров...")
+        
+        # Ограничиваем количество попыток
+        n_trials = min(n_trials or Config.HYPERPARAMETER_TUNING['n_trials'], 20)
+        print(f"[DEBUG] Количество попыток: {n_trials}")
+        
+        # Создаем study
+        study = optuna.create_study(
+            direction='maximize',
+            study_name='hyperparameter_tuning'
+        )
+        
+        # Запускаем оптимизацию
+        study.optimize(
+            objective,
+            n_trials=n_trials,
+            timeout=Config.HYPERPARAMETER_TUNING['timeout']
+        )
+        
+        # Сохраняем результаты
+        save_tuning_results(study, None, n_trials)
+        
+        return {
+            'best_params': study.best_params,
+            'best_value': study.best_value
+        }
+        
     except Exception as e:
-        print(f"[ERROR] Ошибка валидации данных: {str(e)}")
-        raise
-    
-    start_time = time.time()
-    study = optuna.create_study(direction='maximize', study_name='hyperparameter_tuning')
-    study.optimize(objective, n_trials=n_trials)
-    total_time = time.time() - start_time
-    save_tuning_results(study, total_time, n_trials)
-    print("[DEBUG] Гиперпараметрический поиск завершён!")
-    return study
+        print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
+        return None

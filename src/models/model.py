@@ -6,7 +6,7 @@ from tensorflow.keras.layers import (
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
     GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU,
-    Layer, MultiHeadAttention
+    Layer, MultiHeadAttention, GlobalAveragePooling3D
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
@@ -493,10 +493,31 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         out = tf.reshape(attn_out, [b, t, h, w, c])
         return out
 
+class TransformerBlock(tf.keras.layers.Layer):
+    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
+        super(TransformerBlock, self).__init__()
+        self.att = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.ffn = tf.keras.Sequential([
+            tf.keras.layers.Dense(ff_dim, activation="relu"),
+            tf.keras.layers.Dense(embed_dim),
+        ])
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.dropout2 = tf.keras.layers.Dropout(rate)
+
+    def call(self, inputs, training=None):
+        attn_output = self.att(inputs, inputs)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(inputs + attn_output)
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        return self.layernorm2(out1 + ffn_output)
+
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
     """
     Создание модели MobileNetV3
-    temporal_block_type: 'rnn', 'hybrid', '3d_attention'
+    temporal_block_type: 'rnn', 'hybrid', '3d_attention', 'transformer'
     """
     print("[DEBUG] Создание модели MobileNetV3...")
     
@@ -526,16 +547,33 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     
     # Создаем модель
-    model = create_model(
-        input_shape=input_shape,
-        num_classes=num_classes,
-        dropout_rate=dropout_rate,
-        lstm_units=lstm_units,
-        model_type='v3',
-        rnn_type=rnn_type,
-        temporal_block_type=temporal_block_type,
-        class_weights=tf_class_weights
-    )
+    base_model = MobileNetV3Small(input_shape=input_shape[1:], include_top=False, weights='imagenet')
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(lstm_units, activation='relu')(x)
+    x = Dropout(dropout_rate)(x)
+    x = Reshape((input_shape[0], lstm_units))(x) if len(input_shape) == 4 else x
+
+    # Временной блок
+    if temporal_block_type == 'rnn':
+        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+    elif temporal_block_type == 'hybrid':
+        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+        x = TemporalAttention(lstm_units)(x)
+    elif temporal_block_type == '3d_attention':
+        # Для 3d_attention предполагается, что x имеет форму (batch, seq, h, w, c)
+        x = Reshape((input_shape[0], 1, 1, lstm_units))(x) if len(x.shape) == 3 else x
+        x = SpatioTemporal3DAttention()(x)
+        x = GlobalAveragePooling3D()(x)
+    elif temporal_block_type == 'transformer':
+        x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=128)(x)
+    else:
+        raise ValueError(f"Неизвестный temporal_block_type: {temporal_block_type}")
+
+    x = GlobalAveragePooling1D()(x) if len(x.shape) == 3 else x
+    x = Dropout(dropout_rate)(x)
+    outputs = Dense(num_classes, activation='softmax')(x)
+    model = Model(inputs=base_model.input, outputs=outputs)
     
     # Компилируем модель с весами
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
