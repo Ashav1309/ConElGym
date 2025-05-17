@@ -44,7 +44,7 @@ def focal_loss(gamma=2., alpha=None, beta=0.999):
         elif isinstance(alpha, (list, tuple, np.ndarray)):
             alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
             alpha_factor = tf.reshape(alpha_factor, (1, -1))
-            alpha_factor = tf.ones_like(y_true) * alpha_factor
+            alpha_factor = tf.tile(alpha_factor, [tf.shape(y_true)[0], 1])
         else:
             alpha_factor = tf.ones_like(y_true) * float(alpha)
         
@@ -61,6 +61,7 @@ def focal_loss(gamma=2., alpha=None, beta=0.999):
         
         # Применяем все веса
         weights = tf.reshape(weights, (1, -1))  # [1, classes]
+        weights = tf.tile(weights, [tf.shape(y_true)[0], 1])  # [batch, classes]
         loss = alpha_factor * focal_weight * cross_entropy * weights * beta_weight  # [batch, classes]
         
         # Суммируем по классам и усредняем по батчу
