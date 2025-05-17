@@ -655,6 +655,12 @@ class VideoDataLoader:
         if len(X_batch) < batch_size:
             print(f"[WARNING] Не удалось собрать полный батч после {attempts} попыток")
             print(f"[WARNING] Собрано последовательностей: {len(X_batch)}/{batch_size}")
+            # Переходим к следующей порции видео
+            self.current_video_index += self.max_videos
+            if self.current_video_index >= self.total_videos:
+                self.current_video_index = 0
+            self._load_video_chunk()
+            self.processed_videos.clear()
             return None, None  # Всегда возвращаем None для неполного батча
         
         # Преобразуем в numpy массивы
