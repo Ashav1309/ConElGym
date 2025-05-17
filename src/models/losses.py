@@ -16,7 +16,7 @@ def focal_loss(gamma=2., alpha=0.25, beta=0.999):
         # Загружаем веса классов
         with open(Config.CONFIG_PATH, 'r') as f:
             config = json.load(f)
-            class_weights = config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
+            class_weights = config['class_weights']  # Изменено с config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
         
         # Применяем веса к каждому классу
         weights = tf.constant([

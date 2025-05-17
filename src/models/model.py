@@ -493,7 +493,7 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         out = tf.reshape(attn_out, [b, t, h, w, c])
         return out
 
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn'):
+def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
     """
     Создание модели MobileNetV3
     temporal_block_type: 'rnn', 'hybrid', '3d_attention'
@@ -508,13 +508,12 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     lstm_units = lstm_units or model_params['lstm_units']
     
     # Загружаем веса классов из конфига
-    class_weights = model_params['class_weights']
-    if class_weights['background'] is None:
+    if class_weights is None:
         print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
         class_weights = {
             'background': 1.0,
-            'action': 50.0,
-            'transition': 25.0
+            'action': 4.299630443449974,
+            'transition': 10.0
         }
     
     # Преобразуем веса в формат для TensorFlow
@@ -534,7 +533,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         lstm_units=lstm_units,
         model_type='v3',
         rnn_type=rnn_type,
-        temporal_block_type=temporal_block_type
+        temporal_block_type=temporal_block_type,
+        class_weights=tf_class_weights
     )
     
     # Компилируем модель с весами
@@ -544,17 +544,54 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
+    # Создаем метрики для трех классов
+    metrics = [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
+    ]
+    
+    # Создаем адаптер для F1Score
+    class F1ScoreAdapter(tf.keras.metrics.F1Score):
+        def __init__(self, name, class_id, threshold=0.5):
+            super().__init__(name=name, threshold=threshold)
+            self.class_id = class_id
+            
+        def update_state(self, y_true, y_pred, sample_weight=None):
+            y_true = tf.argmax(y_true, axis=-1)
+            y_pred = tf.argmax(y_pred, axis=-1)
+            y_true = tf.reshape(y_true, [-1])
+            y_pred = tf.reshape(y_pred, [-1])
+            y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
+            y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
+            return super().update_state(y_true, y_pred, sample_weight)
+        
+        def result(self):
+            result = super().result()
+            return result[self.class_id]
+    
+    # Добавляем F1Score для каждого класса
+    metrics.extend([
+        F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
+        F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
+    ])
+    
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=['accuracy', f1_score_element],
+        metrics=metrics,
         weighted_metrics=['accuracy'],
         class_weights=tf_class_weights
     )
     
     return model, tf_class_weights
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25):
+def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansion_factor=4, se_ratio=0.25, class_weights=None):
     """
     Создает модель на основе MobileNetV4 с улучшенной архитектурой
     """
@@ -569,13 +606,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
     se_ratio = se_ratio or model_params['se_ratio']
     
     # Загружаем веса классов из конфига
-    class_weights = model_params['class_weights']
-    if class_weights['background'] is None:
+    if class_weights is None:
         print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
         class_weights = {
             'background': 1.0,
-            'action': 50.0,
-            'transition': 25.0
+            'action': 4.299630443449974,
+            'transition': 10.0
         }
     
     # Преобразуем веса в формат для TensorFlow
@@ -594,7 +630,8 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
         dropout_rate=dropout_rate,
         model_type='v4',
         expansion_factor=expansion_factor,
-        se_ratio=se_ratio
+        se_ratio=se_ratio,
+        class_weights=tf_class_weights
     )
     
     # Компилируем модель с весами
@@ -604,17 +641,54 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, expansi
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
+    # Создаем метрики для трех классов
+    metrics = [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
+    ]
+    
+    # Создаем адаптер для F1Score
+    class F1ScoreAdapter(tf.keras.metrics.F1Score):
+        def __init__(self, name, class_id, threshold=0.5):
+            super().__init__(name=name, threshold=threshold)
+            self.class_id = class_id
+            
+        def update_state(self, y_true, y_pred, sample_weight=None):
+            y_true = tf.argmax(y_true, axis=-1)
+            y_pred = tf.argmax(y_pred, axis=-1)
+            y_true = tf.reshape(y_true, [-1])
+            y_pred = tf.reshape(y_pred, [-1])
+            y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
+            y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
+            return super().update_state(y_true, y_pred, sample_weight)
+        
+        def result(self):
+            result = super().result()
+            return result[self.class_id]
+    
+    # Добавляем F1Score для каждого класса
+    metrics.extend([
+        F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
+        F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
+    ])
+    
     model.compile(
         optimizer=optimizer,
         loss='categorical_crossentropy',
-        metrics=['accuracy', f1_score_element],
+        metrics=metrics,
         weighted_metrics=['accuracy'],
         class_weights=tf_class_weights
     )
     
     return model, tf_class_weights
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn'):
+def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели с заданными параметрами
     temporal_block_type: 'rnn' или 'hybrid'
@@ -624,7 +698,7 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
     print(f"  - model_type: {model_type}")
     print(f"  - dropout_rate: {dropout_rate}")
     print(f"  - lstm_units: {lstm_units}")
-    print(f"  - positive_class_weight: {positive_class_weight}")
+    print(f"  - class_weights: {class_weights}")
     print(f"  - rnn_type: {rnn_type}")
     print(f"  - temporal_block_type: {temporal_block_type}")
     
@@ -638,7 +712,8 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
             rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type
+            temporal_block_type=temporal_block_type,
+            class_weights=class_weights
         )
     elif model_type == 'v4':
         return create_mobilenetv4_model(
@@ -646,7 +721,8 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             expansion_factor=model_params['expansion_factor'],
-            se_ratio=model_params['se_ratio']
+            se_ratio=model_params['se_ratio'],
+            class_weights=class_weights
         )
     else:
         raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")

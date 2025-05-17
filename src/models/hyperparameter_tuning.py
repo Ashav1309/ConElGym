@@ -222,7 +222,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', positive_class_weight=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
+def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
     """
     Создание и компиляция модели с заданными параметрами
     Args:
@@ -232,7 +232,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM слоях (только для v3)
         model_type: тип модели ('v3' или 'v4')
-        positive_class_weight: вес положительного класса (если None, будет загружен из конфига)
+        class_weights: веса классов (если None, будут загружены из конфига)
         rnn_type: тип RNN ('lstm' или 'bigru')
         temporal_block_type: тип временного блока ('rnn' или 'hybrid')
         clipnorm: коэффициент градиентного клиппинга
@@ -248,16 +248,16 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
     
-    # Если positive_class_weight не указан, загружаем из конфига
-    if positive_class_weight is None:
+    # Если class_weights не указаны, загружаем из конфига
+    if class_weights is None:
         if os.path.exists(Config.CONFIG_PATH):
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
-                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
+                class_weights = config['class_weights']
         else:
             raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
     
-    print(f"  - Positive class weight: {positive_class_weight}")
+    print(f"  - Class weights: {class_weights}")
     
     # Проверяем и корректируем input_shape
     if len(input_shape) == 3:  # Если это (height, width, channels)
@@ -271,13 +271,13 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     
     print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
     
-    model, class_weights = create_model(
+    model, model_class_weights = create_model(
         input_shape=full_input_shape,
         num_classes=3,  # 3 класса: фон, действие, переход
         dropout_rate=dropout_rate,
         lstm_units=lstm_units,
         model_type=model_type,
-        positive_class_weight=positive_class_weight,
+        class_weights=class_weights,
         rnn_type=rnn_type,
         temporal_block_type=temporal_block_type
     )
@@ -344,7 +344,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     )
     
     print("[DEBUG] Модель успешно создана и скомпилирована")
-    return model, class_weights
+    return model, model_class_weights
 
 def load_and_prepare_data(batch_size):
     """
@@ -398,34 +398,20 @@ def count_total_sequences(video_paths, sequence_length, step):
 
 def objective(trial):
     """
-    Целевая функция для оптимизации гиперпараметров
-    
-    Args:
-        trial: объект trial от Optuna
-        
-    Returns:
-        float: значение метрики (accuracy)
+    Функция оптимизации для Optuna
     """
     try:
-        print("\n==================================================")
-        print(f"[TRIAL #{trial.number}] Начало нового trial")
-        print("==================================================\n")
+        print("\n[DEBUG] Начало trial...")
         
-        # Очистка памяти перед каждым trial
-        print("[DEBUG] ===== Начало очистки памяти =====")
-        gc.collect()
-        tf.keras.backend.clear_session()
-        print("[DEBUG] ===== Очистка памяти завершена =====\n")
-        
-        # Загружаем positive_class_weight из конфигурационного файла
-        if not os.path.exists(Config.CONFIG_PATH):
+        # Загружаем веса классов из конфига
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                class_weights = config['class_weights']  # Изменено с config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
+        else:
             raise ValueError("Конфигурационный файл не найден. Сначала запустите calculate_weights.py")
-            
-        with open(Config.CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-            positive_class_weight = config['MODEL_PARAMS'][Config.MODEL_TYPE]['positive_class_weight']
-            
-        print(f"[DEBUG] Загружен positive_class_weight: {positive_class_weight}")
+        
+        print(f"[DEBUG] Загруженные веса классов: {class_weights}")
         
         # Получаем параметры из trial
         params = {
@@ -437,6 +423,7 @@ def objective(trial):
             'lstm_units': trial.suggest_int('lstm_units', 16, 512),
             'gamma': trial.suggest_float('gamma', 0.5, 5.0),
             'alpha': trial.suggest_float('alpha', 0.1, 0.4),
+            'beta': trial.suggest_float('beta', 0.9, 0.999),  # Добавлен параметр beta
             'clipnorm': trial.suggest_float('clipnorm', 0.1, 5.0)
         }
         
@@ -445,14 +432,14 @@ def objective(trial):
             print(f"  - {key}: {value}")
         
         # Создаем и обучаем модель
-        model, class_weights = create_model(
+        model, model_class_weights = create_model(
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-            num_classes=2,
+            num_classes=3,  # 3 класса: фон, действие, переход
             dropout_rate=params['dropout_rate'],
             rnn_type=params['rnn_type'],
             temporal_block_type=params['temporal_block_type'],
             lstm_units=params['lstm_units'],
-            positive_class_weight=positive_class_weight
+            class_weights=class_weights
         )
         
         # Создаем загрузчики данных
@@ -478,87 +465,88 @@ def objective(trial):
             force_positive=False
         )
         
-        # Создаем метрики
+        # Создаем метрики для трех классов
         metrics = [
             'accuracy',
-            tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc')
+            tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
+            tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+            tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
         ]
         
         # Создаем адаптер для F1Score
         class F1ScoreAdapter(tf.keras.metrics.F1Score):
+            def __init__(self, name, class_id, threshold=0.5):
+                super().__init__(name=name, threshold=threshold)
+                self.class_id = class_id
+                
             def update_state(self, y_true, y_pred, sample_weight=None):
                 y_true = tf.argmax(y_true, axis=-1)
                 y_pred = tf.argmax(y_pred, axis=-1)
                 y_true = tf.reshape(y_true, [-1])
                 y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=2)
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=2)
+                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
+                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
                 return super().update_state(y_true, y_pred, sample_weight)
+            
             def result(self):
                 result = super().result()
-                return tf.reduce_mean(result)
+                return result[self.class_id]
         
-        # Добавляем F1Score в метрики
-        metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
+        # Добавляем F1Score для каждого класса
+        metrics.extend([
+            F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
+            F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
+            F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
+        ])
         
         # Компилируем модель
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=params['learning_rate'], clipnorm=params['clipnorm']),
-            loss=focal_loss(gamma=params['gamma'], alpha=params['alpha']),
+            loss=focal_loss(gamma=params['gamma'], alpha=params['alpha'], beta=params['beta']),  # Добавлен параметр beta
             metrics=metrics
         )
         
-        # Создаем колбэки
+        # Создаем callbacks
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
-                monitor='val_f1_score_element',
+                monitor='val_f1_score_action',  # Используем F1-score для класса действия
                 patience=5,
                 restore_best_weights=True,
                 mode='max'
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_f1_score_element',
-                factor=0.1,
+                monitor='val_f1_score_action',
+                factor=0.5,
                 patience=3,
-                min_lr=1e-7,
+                min_lr=1e-6,
                 mode='max'
             )
         ]
         
-        # Определяем шаг между последовательностями
-        step = Config.SEQUENCE_LENGTH // 2 if Config.SEQUENCE_LENGTH > 1 else 1
-        train_total_sequences = count_total_sequences(train_loader.video_paths, Config.SEQUENCE_LENGTH, step)
-        val_total_sequences = count_total_sequences(val_loader.video_paths, Config.SEQUENCE_LENGTH, step)
-        steps_per_epoch = max(1, train_total_sequences // params['batch_size'])
-        validation_steps = max(1, val_total_sequences // params['batch_size'])
-
         # Обучаем модель
         history = model.fit(
-            train_dataset.repeat(),
+            train_dataset,
+            validation_data=val_dataset,
             epochs=Config.EPOCHS,
-            steps_per_epoch=steps_per_epoch,
-            validation_data=val_dataset.repeat(),
-            validation_steps=validation_steps,
             callbacks=callbacks,
             verbose=1
         )
         
-        # Получаем лучший F1-score
-        best_f1 = max(history.history['val_f1_score_element'])
+        # Получаем лучший F1-score для класса действия
+        best_f1_score = max(history.history['val_f1_score_action'])
+        print(f"[DEBUG] Лучший F1-score для класса действия: {best_f1_score}")
         
-        # Очищаем память
-        clear_memory()
-        
-        return best_f1
+        return best_f1_score
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в trial: {str(e)}")
+        print(f"[ERROR] Ошибка в objective: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        return float('-inf')
+        raise
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -587,7 +575,7 @@ def save_tuning_results(study, total_time, n_trials):
             f.write(f"  - input_size: {Config.INPUT_SIZE}\n")
             f.write(f"  - batch_size: {Config.BATCH_SIZE}\n")
             f.write(f"  - epochs: {Config.EPOCHS}\n")
-            f.write(f"  - positive_class_weight: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']}\n")
+            f.write(f"  - class_weights: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']}\n")
         
         # Сохраняем результаты в JSON
         results_json = {
@@ -597,23 +585,23 @@ def save_tuning_results(study, total_time, n_trials):
                 'input_size': Config.INPUT_SIZE,
                 'batch_size': Config.BATCH_SIZE,
                 'epochs': Config.EPOCHS,
-                'positive_class_weight': Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']
+                'class_weights': Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']
             },
-            'execution_time': int(total_time),  # Конвертируем в секунды
+            'execution_time': int(total_time),
             'n_trials': n_trials,
-            'best_value': float(study.best_value) if study.best_value is not None else None,  # Конвертируем в float
+            'best_value': float(study.best_value) if study.best_value is not None else None,
             'best_params': study.best_params,
             'all_trials': []
         }
         
         for trial in study.trials:
-            if trial.value is not None:  # Проверяем, что trial завершился успешно
+            if trial.value is not None:
                 trial_data = {
                     'number': trial.number,
-                    'value': float(trial.value),  # Конвертируем в float
+                    'value': float(trial.value),
                     'params': trial.params,
                     'state': trial.state.name,
-                    'duration': float(trial.duration) if trial.duration is not None else None  # Конвертируем в float
+                    'duration': float(trial.duration) if trial.duration is not None else None
                 }
                 results_json['all_trials'].append(trial_data)
         
@@ -635,7 +623,7 @@ def save_tuning_results(study, total_time, n_trials):
             flog.write(f"  - input_size: {Config.INPUT_SIZE}\n")
             flog.write(f"  - batch_size: {Config.BATCH_SIZE}\n")
             flog.write(f"  - epochs: {Config.EPOCHS}\n")
-            flog.write(f"  - positive_class_weight: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['positive_class_weight']}\n\n")
+            flog.write(f"  - class_weights: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']}\n\n")
             
             for trial in study.trials:
                 flog.write(f"Trial {trial.number} | State: {trial.state.name}\n")
@@ -650,58 +638,18 @@ def save_tuning_results(study, total_time, n_trials):
                 flog.write(f"  Duration: {trial.duration}\n")
                 flog.write("-"*40 + "\n")
         
-        # Визуализация результатов
+        # Визуализация результатов с использованием новой функции из config.py
         try:
-            import optuna.visualization as vis
-            fig = plt.figure(figsize=(15, 10))
-            
-            # График значений по trials
-            plt.subplot(2, 2, 1)
-            values = [t.value for t in study.trials if t.value is not None]
-            numbers = [t.number for t in study.trials if t.value is not None]
-            colors = []
-            for t in study.trials:
-                if t.value is not None:
-                    if t.params['temporal_block_type'] == '3d_attention':
-                        colors.append('red')
-                    elif t.params['temporal_block_type'] == 'hybrid':
-                        colors.append('blue')
-                    else:
-                        colors.append('green')
-            plt.scatter(numbers, values, c=colors, label='Trials')
-            plt.xlabel('Trial number')
-            plt.ylabel('Best F1-score')
-            plt.title(f'Optuna Hyperparameter Tuning Results\nModel: {Config.MODEL_TYPE}')
-            
-            # Легенда
-            from matplotlib.lines import Line2D
-            legend_elements = [
-                Line2D([0], [0], marker='o', color='w', label='3D Attention', markerfacecolor='red', markersize=10),
-                Line2D([0], [0], marker='o', color='w', label='Hybrid', markerfacecolor='blue', markersize=10),
-                Line2D([0], [0], marker='o', color='w', label='RNN', markerfacecolor='green', markersize=10)
-            ]
-            plt.legend(handles=legend_elements)
-            plt.grid(True)
-            
-            # График важности параметров
-            plt.subplot(2, 2, 2)
-            importance = optuna.importance.get_param_importances(study)
-            plt.bar(range(len(importance)), list(importance.values()))
-            plt.xticks(range(len(importance)), list(importance.keys()), rotation=45)
-            plt.title('Parameter Importance')
-            plt.tight_layout()
-            
-            # Сохраняем график
-            plt.savefig(os.path.join(tuning_dir, 'plot_optuna_results.png'))
-            plt.close(fig)
-            
+            from src.config import plot_tuning_results
+            plot_tuning_results(study)
+            print("[DEBUG] Визуализация результатов успешно создана")
         except Exception as e:
-            print(f"[WARNING] Не удалось построить график Optuna: {e}")
+            print(f"[WARNING] Не удалось создать визуализацию: {e}")
             print("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
         
-        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены и визуализированы")
+        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
         print(f"[DEBUG] Файлы сохранены в директории: {tuning_dir}")
         
     except Exception as e:

@@ -296,33 +296,128 @@ Config.validate()
 
 def plot_tuning_results(study):
     """
-    Визуализация результатов подбора гиперпараметров и сохранение графиков в PNG
+    Визуализация результатов подбора гиперпараметров с использованием Plotly
     """
     try:
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
         os.makedirs(tuning_dir, exist_ok=True)
 
-        # 1. История оптимизации
+        # 1. История оптимизации (интерактивный)
         fig = optuna.visualization.plot_optimization_history(study)
-        pio.write_image(fig, os.path.join(tuning_dir, 'optimization_history.png'))
+        fig.update_layout(
+            title="История оптимизации",
+            xaxis_title="Номер trial",
+            yaxis_title="F1-score",
+            template="plotly_white"
+        )
+        fig.write_html(os.path.join(tuning_dir, 'optimization_history.html'))
+        fig.write_image(os.path.join(tuning_dir, 'optimization_history.png'))
 
-        # 2. Важность гиперпараметров
+        # 2. Важность параметров (интерактивный)
         fig = optuna.visualization.plot_param_importances(study)
-        pio.write_image(fig, os.path.join(tuning_dir, 'param_importances.png'))
+        fig.update_layout(
+            title="Важность гиперпараметров",
+            template="plotly_white"
+        )
+        fig.write_html(os.path.join(tuning_dir, 'param_importances.html'))
+        fig.write_image(os.path.join(tuning_dir, 'param_importances.png'))
 
-        # 3. Параллельные координаты
+        # 3. Параллельные координаты (интерактивный)
         fig = optuna.visualization.plot_parallel_coordinate(study)
-        pio.write_image(fig, os.path.join(tuning_dir, 'parallel_coordinate.png'))
+        fig.update_layout(
+            title="Параллельные координаты",
+            template="plotly_white"
+        )
+        fig.write_html(os.path.join(tuning_dir, 'parallel_coordinate.html'))
+        fig.write_image(os.path.join(tuning_dir, 'parallel_coordinate.png'))
 
-        # 4. Slice plot
+        # 4. Slice plot (интерактивный)
         fig = optuna.visualization.plot_slice(study)
-        pio.write_image(fig, os.path.join(tuning_dir, 'slice_plot.png'))
+        fig.update_layout(
+            title="Slice plot",
+            template="plotly_white"
+        )
+        fig.write_html(os.path.join(tuning_dir, 'slice_plot.html'))
+        fig.write_image(os.path.join(tuning_dir, 'slice_plot.png'))
 
-        # 5. Contour plot
+        # 5. Contour plot (интерактивный)
         fig = optuna.visualization.plot_contour(study)
-        pio.write_image(fig, os.path.join(tuning_dir, 'contour_plot.png'))
+        fig.update_layout(
+            title="Contour plot",
+            template="plotly_white"
+        )
+        fig.write_html(os.path.join(tuning_dir, 'contour_plot.html'))
+        fig.write_image(os.path.join(tuning_dir, 'contour_plot.png'))
 
-        print("[DEBUG] Визуализации Optuna успешно сохранены в PNG.")
+        # 6. Дополнительный анализ корреляций
+        import pandas as pd
+        import seaborn as sns
+        
+        # Создаем DataFrame из trials
+        trials_df = pd.DataFrame([t.params for t in study.trials if t.value is not None])
+        trials_df['value'] = [t.value for t in study.trials if t.value is not None]
+        
+        # Корреляционная матрица
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(trials_df.corr(), annot=True, cmap='coolwarm', center=0)
+        plt.title('Корреляционная матрица параметров')
+        plt.tight_layout()
+        plt.savefig(os.path.join(tuning_dir, 'correlation_matrix.png'))
+        plt.close()
+
+        # 7. Распределение значений параметров
+        plt.figure(figsize=(15, 10))
+        for i, param in enumerate(trials_df.columns[:-1], 1):
+            plt.subplot(3, 3, i)
+            sns.histplot(data=trials_df, x=param, bins=20)
+            plt.title(f'Распределение {param}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(tuning_dir, 'parameter_distributions.png'))
+        plt.close()
+
+        # 8. Создаем HTML-отчет
+        html_report = f"""
+        <html>
+        <head>
+            <title>Отчет по оптимизации гиперпараметров</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                .container {{ max-width: 1200px; margin: 0 auto; }}
+                .plot-container {{ margin: 20px 0; }}
+                h1, h2 {{ color: #333; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Отчет по оптимизации гиперпараметров</h1>
+                <h2>Лучшие параметры:</h2>
+                <pre>{json.dumps(study.best_params, indent=2)}</pre>
+                <h2>Лучшее значение F1-score: {study.best_value:.4f}</h2>
+                
+                <div class="plot-container">
+                    <h2>Интерактивные графики:</h2>
+                    <iframe src="optimization_history.html" width="100%" height="600px" frameborder="0"></iframe>
+                    <iframe src="param_importances.html" width="100%" height="600px" frameborder="0"></iframe>
+                    <iframe src="parallel_coordinate.html" width="100%" height="600px" frameborder="0"></iframe>
+                    <iframe src="slice_plot.html" width="100%" height="600px" frameborder="0"></iframe>
+                    <iframe src="contour_plot.html" width="100%" height="600px" frameborder="0"></iframe>
+                </div>
+                
+                <div class="plot-container">
+                    <h2>Статические графики:</h2>
+                    <img src="correlation_matrix.png" width="100%">
+                    <img src="parameter_distributions.png" width="100%">
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        with open(os.path.join(tuning_dir, 'tuning_report.html'), 'w') as f:
+            f.write(html_report)
+
+        print("[DEBUG] Визуализации Optuna успешно сохранены.")
+        print(f"[DEBUG] Отчет доступен в: {os.path.join(tuning_dir, 'tuning_report.html')}")
 
     except Exception as e:
         print(f"[ERROR] Не удалось построить или сохранить графики Optuna: {str(e)}")
