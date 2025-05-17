@@ -417,7 +417,7 @@ def objective(trial):
         params = {
             'learning_rate': trial.suggest_float('learning_rate', 1e-7, 1e-2, log=True),
             'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
-            'batch_size': trial.suggest_int('batch_size', 64, 512, step=8),
+            'batch_size': trial.suggest_int('batch_size', 32, 512, step=32),
             'rnn_type': trial.suggest_categorical('rnn_type', ['lstm', 'bigru']),
             'temporal_block_type': trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention']),
             'lstm_units': trial.suggest_int('lstm_units', 16, 512),

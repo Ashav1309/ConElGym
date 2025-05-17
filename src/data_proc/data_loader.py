@@ -256,12 +256,44 @@ class VideoDataLoader:
 
     def _load_video_chunk(self):
         """Загружает очередную порцию видео согласно MAX_VIDEOS"""
-        start_idx = self.current_video_index
-        end_idx = min(start_idx + self.max_videos, self.total_videos)
-        self.video_paths = self.all_video_paths[start_idx:end_idx]
-        self.video_count = len(self.video_paths)
-        self.labels = [None] * self.video_count
-        print(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
+        try:
+            # Очищаем кэш перед загрузкой новой порции
+            self.clear_cache()
+            
+            start_idx = self.current_video_index
+            end_idx = min(start_idx + self.max_videos, self.total_videos)
+            
+            # Проверяем существование файлов
+            valid_videos = []
+            for video_path in self.all_video_paths[start_idx:end_idx]:
+                if os.path.exists(video_path):
+                    # Проверяем, что видео можно открыть
+                    cap = cv2.VideoCapture(video_path)
+                    if cap.isOpened():
+                        valid_videos.append(video_path)
+                        cap.release()
+                    else:
+                        print(f"[WARNING] Видео повреждено или недоступно: {video_path}")
+                else:
+                    print(f"[WARNING] Видео не найдено: {video_path}")
+            
+            self.video_paths = valid_videos
+            self.video_count = len(self.video_paths)
+            self.labels = [None] * self.video_count
+            
+            print(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
+            
+            # Если все видео в текущей порции невалидны, пробуем следующую порцию
+            if not valid_videos and start_idx < self.total_videos:
+                print("[DEBUG] Все видео в текущей порции невалидны, пробуем следующую порцию")
+                self.current_video_index = end_idx
+                self._load_video_chunk()
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
+            self.video_paths = []
+            self.video_count = 0
+            self.labels = []
 
     def _load_annotations(self, video_path: str) -> np.ndarray:
         """
@@ -407,48 +439,51 @@ class VideoDataLoader:
 
     def _get_random_video(self) -> Optional[str]:
         """
-        Получение случайного видео из текущей порции. Если все видео обработаны — загружается новая порция.
+        Получение случайного видео для обработки
+        
+        Returns:
+            Optional[str]: путь к видео или None, если все видео обработаны
         """
         try:
-            if not self.video_paths:
-                print("[DEBUG] Список видео пуст, загружаем новую порцию")
+            # Проверяем, все ли видео обработаны
+            if len(self.processed_videos) == len(self.video_paths):
+                print("[DEBUG] Все видео обработаны, переходим к следующей порции")
                 self.current_video_index += self.max_videos
                 if self.current_video_index >= self.total_videos:
-                    self.current_video_index = 0  # Циклически
-                self._load_video_chunk()
-                if not self.video_paths:
-                    print("[ERROR] Нет доступных видео для загрузки")
+                    print("[DEBUG] Все видео обработаны, завершаем")
                     return None
-            # Получаем список необработанных видео
-            unprocessed_videos = [v for v in self.video_paths if v not in self.processed_videos]
-            if not unprocessed_videos:
-                print("[DEBUG] Все видео из текущей порции обработаны, загружаем новую порцию")
-                self.current_video_index += self.max_videos
-                if self.current_video_index >= self.total_videos:
-                    self.current_video_index = 0
                 self._load_video_chunk()
                 self.processed_videos.clear()
-                unprocessed_videos = self.video_paths
-                if not unprocessed_videos:
-                    print("[ERROR] Нет доступных видео после обновления порции")
-                    return None
-            video_path = np.random.choice(unprocessed_videos)
-            print(f"[DEBUG] Выбрано видео: {video_path}")
+                self.used_frames_cache.clear()
+                return self._get_random_video()
+            
+            # Выбираем случайное видео из необработанных
+            available_videos = [v for v in self.video_paths if v not in self.processed_videos]
+            if not available_videos:
+                print("[DEBUG] Нет доступных видео для обработки")
+                return None
+            
+            video_path = np.random.choice(available_videos)
+            
+            # Проверяем существование видео
             if not os.path.exists(video_path):
                 print(f"[ERROR] Видео не найдено: {video_path}")
                 self.processed_videos.add(video_path)
-                return None
+                return self._get_random_video()
+            
+            # Проверяем, все ли кадры использованы
             if video_path in self.used_frames_cache:
                 video_info = self._get_video_info(video_path)
                 if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
                     print(f"[DEBUG] Все кадры видео {video_path} уже использованы")
+                    print(f"[DEBUG] Обработано видео: {len(self.processed_videos)}/{len(self.video_paths)}")
                     self.processed_videos.add(video_path)
-                    return None
+                    return self._get_random_video()
+            
             return video_path
+            
         except Exception as e:
             print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return None
 
     def _get_sequence(self, sequence_length, target_size, force_positive=False, is_validation=False):
@@ -596,7 +631,7 @@ class VideoDataLoader:
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
-        Получение батча данных
+        Получение батча данных с пропуском некорректных кадров
         
         Args:
             batch_size: размер батча
@@ -606,78 +641,69 @@ class VideoDataLoader:
             max_sequences_per_video: максимальное количество последовательностей из одного видео
             force_positive: принудительно использовать положительные примеры
             is_validation: флаг валидации
-            
+        
         Returns:
             Tuple[np.ndarray, np.ndarray]: батч данных и меток
         """
         X_batch = []
         y_batch = []
         attempts = 0
-        max_attempts = 10
-        
-        positive_count = 0
-        negative_count = 0
+        max_attempts = batch_size * 2  # Увеличиваем количество попыток для сбора полного батча
+        max_empty_sequences = 5  # Максимальное количество пустых последовательностей подряд
+        empty_sequence_count = 0
         
         while len(X_batch) < batch_size and attempts < max_attempts:
             try:
-                sequence, label = self._get_sequence(
+                X_seq, y_seq = self._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
                     force_positive=force_positive,
                     is_validation=is_validation
                 )
                 
-                if sequence is None or label is None:
-                    attempts += 1
-                    continue
-                
-                # Проверяем баланс классов только для тренировочных данных
-                if not is_validation:
-                    current_positive_ratio = (positive_count + 1) / (len(X_batch) + 1)
-                    if current_positive_ratio > 0.7:  # Допускаем до 70% положительных примеров
-                        attempts += 1
-                        continue
-                
-                X_batch.append(sequence)
-                y_batch.append(label)
-                
-                if label == 1:
-                    positive_count += 1
+                if X_seq is not None and y_seq is not None:
+                    X_batch.append(X_seq)
+                    y_batch.append(y_seq)
+                    empty_sequence_count = 0  # Сбрасываем счетчик при успешной последовательности
                 else:
-                    negative_count += 1
+                    empty_sequence_count += 1
+                    attempts += 1
+                    
+                    if empty_sequence_count >= max_empty_sequences:
+                        print(f"[WARNING] Слишком много пустых последовательностей подряд ({empty_sequence_count})")
+                        if len(X_batch) > 0:
+                            print("[DEBUG] Возвращаем неполный батч")
+                            break
+                        else:
+                            print("[DEBUG] Не удалось собрать батч")
+                            return None, None
+                    continue
                 
             except Exception as e:
                 print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
                 attempts += 1
+                empty_sequence_count += 1
+                if empty_sequence_count >= max_empty_sequences:
+                    print("[DEBUG] Слишком много ошибок подряд")
+                    if len(X_batch) > 0:
+                        break
+                    else:
+                        return None, None
                 continue
         
-        # Проверяем, удалось ли собрать полный батч
-        if len(X_batch) < batch_size:
-            print(f"[WARNING] Не удалось собрать полный батч после {attempts} попыток")
-            print(f"[WARNING] Собрано последовательностей: {len(X_batch)}/{batch_size}")
-            # Переходим к следующей порции видео
-            self.current_video_index += self.max_videos
-            if self.current_video_index >= self.total_videos:
-                self.current_video_index = 0
-            self._load_video_chunk()
-            self.processed_videos.clear()
-            return None, None  # Всегда возвращаем None для неполного батча
+        if len(X_batch) == 0:
+            return None, None
         
-        # Преобразуем в numpy массивы
-        X_batch = np.array(X_batch)
-        y_batch = np.array(y_batch)
+        # Сохраняем статистику батча
+        self._save_batch_statistics(
+            batch_number=self.current_batch,
+            positive_count=sum(1 for y in y_batch if np.any(y == 1)),
+            negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
+            video_path=self.video_paths[self.current_video_index] if self.current_video_index < len(self.video_paths) else "unknown"
+        )
         
-        # Применяем one-hot кодирование если нужно
-        if one_hot:
-            y_batch = tf.keras.utils.to_categorical(y_batch, num_classes=2)
-        
-        # Выводим статистику батча
-        print(f"[DEBUG] Размер батча: {len(X_batch)}")
-        print(f"[DEBUG] Положительных примеров: {positive_count}")
-        print(f"[DEBUG] Отрицательных примеров: {negative_count}")
-        print(f"[DEBUG] Попыток собрать батч: {attempts}")
-        
-        return X_batch, y_batch
+        self.current_batch += 1
+        return np.array(X_batch), np.array(y_batch)
 
     def data_generator(self, force_positive: bool = True, is_validation: bool = False) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
         """
@@ -691,7 +717,10 @@ class VideoDataLoader:
             Tuple[tf.Tensor, tf.Tensor]: батч данных и меток
         """
         batch_count = 0
-        while batch_count < self.total_batches:  # Используем известное количество батчей
+        max_empty_batches = 10  # Максимальное количество пустых батчей подряд
+        empty_batch_count = 0
+        
+        while batch_count < self.total_batches:
             try:
                 X_batch, y_batch = self.get_batch(
                     batch_size=self.batch_size,
@@ -704,14 +733,35 @@ class VideoDataLoader:
                 )
                 
                 if X_batch is None or y_batch is None:
-                    print("[WARNING] Пропускаем неполный батч")
-                    continue
+                    empty_batch_count += 1
+                    print(f"[WARNING] Пропускаем неполный батч ({empty_batch_count}/{max_empty_batches})")
                     
+                    if empty_batch_count >= max_empty_batches:
+                        print("[ERROR] Слишком много пустых батчей подряд, завершаем генерацию")
+                        break
+                        
+                    # Проверяем, все ли видео обработаны
+                    if len(self.processed_videos) == len(self.video_paths):
+                        print("[DEBUG] Все видео обработаны, переходим к следующей порции")
+                        self.current_video_index += self.max_videos
+                        if self.current_video_index >= self.total_videos:
+                            print("[DEBUG] Все видео обработаны, завершаем")
+                            break
+                        self._load_video_chunk()
+                        self.processed_videos.clear()
+                        self.used_frames_cache.clear()
+                    continue
+                
+                empty_batch_count = 0  # Сбрасываем счетчик при успешном батче
                 batch_count += 1
                 yield X_batch, y_batch
                 
             except Exception as e:
                 print(f"[ERROR] Ошибка в генераторе данных: {str(e)}")
+                empty_batch_count += 1
+                if empty_batch_count >= max_empty_batches:
+                    print("[ERROR] Слишком много ошибок подряд, завершаем генерацию")
+                    break
                 continue
     
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
@@ -797,7 +847,7 @@ class VideoDataLoader:
 
     def _load_frame(self, video_path: str, frame_idx: int, target_size: Tuple[int, int]) -> Optional[np.ndarray]:
         """
-        Загрузка кадра из видео
+        Загрузка кадра из видео с обработкой ошибок
         
         Args:
             video_path: путь к видео файлу
@@ -808,10 +858,23 @@ class VideoDataLoader:
             Optional[np.ndarray]: кадр или None в случае ошибки
         """
         try:
+            # Проверяем размер кэша
+            if len(self.video_cache) >= self.cache_cleanup_threshold:
+                print("[DEBUG] Очистка кэша видео")
+                self.clear_cache()
+            
             # Проверяем кэш
             if video_path in self.video_cache:
                 cap = self.video_cache[video_path]
+                if not cap.isOpened():
+                    print(f"[WARNING] Видео в кэше повреждено: {video_path}")
+                    del self.video_cache[video_path]
+                    cap = None
             else:
+                cap = None
+            
+            # Открываем видео если нужно
+            if cap is None:
                 cap = cv2.VideoCapture(video_path)
                 if not cap.isOpened():
                     print(f"[ERROR] Не удалось открыть видео: {video_path}")
@@ -824,20 +887,32 @@ class VideoDataLoader:
             # Читаем кадр
             ret, frame = cap.read()
             if not ret:
-                print(f"[ERROR] Не удалось прочитать кадр {frame_idx}")
+                print(f"[WARNING] Не удалось прочитать кадр {frame_idx} из {video_path}")
+                return None
+            
+            # Проверяем размер кадра
+            if frame.size == 0:
+                print(f"[WARNING] Пустой кадр {frame_idx} из {video_path}")
                 return None
             
             # Изменяем размер
-            frame = cv2.resize(frame, target_size)
+            try:
+                frame = cv2.resize(frame, target_size)
+            except Exception as e:
+                print(f"[WARNING] Ошибка при изменении размера кадра {frame_idx}: {str(e)}")
+                return None
             
             # Нормализуем
-            frame = frame.astype(np.float32) / 255.0
+            try:
+                frame = frame.astype(np.float32) / 255.0
+            except Exception as e:
+                print(f"[WARNING] Ошибка при нормализации кадра {frame_idx}: {str(e)}")
+                return None
             
             return frame
             
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке кадра: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
+            if video_path in self.video_cache:
+                del self.video_cache[video_path]
             return None 
