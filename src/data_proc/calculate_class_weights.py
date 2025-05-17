@@ -324,36 +324,12 @@ def save_weights_to_config(weights):
         if config_dir:  # Если путь содержит директории
             os.makedirs(config_dir, exist_ok=True)
         
-        # Загружаем существующий конфиг, если он есть
-        if os.path.exists(Config.CONFIG_PATH):
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-        else:
-            config = {
-                "MODEL_PARAMS": {
-                    "v3": {
-                        "dropout_rate": 0.3,
-                        "lstm_units": 128,
-                        "base_input_shape": [224, 224, 3]
-                    },
-                    "v4": {
-                        "dropout_rate": 0.3,
-                        "expansion_factor": 4,
-                        "se_ratio": 0.25,
-                        "base_input_shape": [224, 224, 3]
-                    }
-                }
-            }
+        # Создаем конфиг только с весами классов
+        config = {
+            "class_weights": weights['class_weights']
+        }
         
-        # Сохраняем нормализованные веса
-        config['class_weights'] = weights['class_weights']
-        
-        # Сохраняем веса для каждой версии модели
-        for model_type in ['v3', 'v4']:
-            if model_type in config['MODEL_PARAMS']:
-                config['MODEL_PARAMS'][model_type]['class_weights'] = weights['class_weights']
-        
-        # Сохраняем обновленный конфиг
+        # Сохраняем конфиг
         with open(Config.CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=4)
         
