@@ -31,7 +31,7 @@ class Config:
     # Параметры модели
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
-    BATCH_SIZE = 32
+    BATCH_SIZE = 256
     EPOCHS = 100
     LEARNING_RATE = 0.001
     EARLY_STOPPING_PATIENCE = 10
@@ -41,7 +41,7 @@ class Config:
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 200
-    MAX_VIDEOS = 3
+    MAX_VIDEOS = 5
     
     # Параметры загрузчика данных
     MAX_STUCK_BATCHES = 10  # Максимальное количество попыток получения батча
