@@ -244,6 +244,19 @@ def calculate_dataset_weights():
             overlapping_frames = np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))
             # Вычитаем из общего числа кадров действия и переходы, учитывая перекрытие
             video_stats[video_name]['background_frames'] = video_frames - (action_frames + transition_frames - overlapping_frames)
+
+            # Добавляем подробную отладочную информацию
+            print(f"\n[DEBUG] Детальная информация о метках кадров для {video_name}:")
+            print(f"  - Форма frame_labels: {frame_labels.shape}")
+            print(f"  - Уникальные значения в frame_labels[:, 0]: {np.unique(frame_labels[:, 0])}")
+            print(f"  - Уникальные значения в frame_labels[:, 1]: {np.unique(frame_labels[:, 1])}")
+            print(f"  - Уникальные значения в frame_labels[:, 2]: {np.unique(frame_labels[:, 2])}")
+            print(f"  - Количество кадров с меткой действия: {np.sum(frame_labels[:, 1] == 1)}")
+            print(f"  - Количество кадров с меткой перехода: {np.sum(frame_labels[:, 2] == 1)}")
+            print(f"  - Количество кадров без меток: {np.sum((frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0))}")
+            print(f"  - Количество кадров с обеими метками: {np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))}")
+            print(f"  - Сумма всех меток: {np.sum(frame_labels)}")
+            print(f"  - Проверка: {video_frames} = {np.sum((frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0))} + {np.sum(frame_labels[:, 1] == 1)} + {np.sum(frame_labels[:, 2] == 1)} - {np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))}")
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
