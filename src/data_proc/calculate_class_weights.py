@@ -255,7 +255,7 @@ def calculate_dataset_weights():
     
     # Нормализуем веса
     max_count = max(total_background, total_action, total_transition)
-    weights = {
+    raw_weights = {
         'class_weights': {
             'background': max_count / total_background if total_background > 0 else 1.0,
             'action': max_count / total_action if total_action > 0 else 1.0,
@@ -271,12 +271,12 @@ def calculate_dataset_weights():
     visualize_data_processing(video_stats, plots_dir)
     
     # Нормализуем веса
-    normalized_weights = normalize_weights(weights, method='log')
+    normalized_weights = normalize_weights(raw_weights, method='log')
     
     print("\n[INFO] Исходные веса классов:")
-    print(f"  - Фон: {weights['class_weights']['background']:.2f}")
-    print(f"  - Действие: {weights['class_weights']['action']:.2f}")
-    print(f"  - Переход: {weights['class_weights']['transition']:.2f}")
+    print(f"  - Фон: {raw_weights['class_weights']['background']:.2f}")
+    print(f"  - Действие: {raw_weights['class_weights']['action']:.2f}")
+    print(f"  - Переход: {raw_weights['class_weights']['transition']:.2f}")
     
     print("\n[INFO] Нормализованные веса классов:")
     print(f"  - Фон: {normalized_weights['class_weights']['background']:.2f}")
@@ -288,7 +288,7 @@ def calculate_dataset_weights():
     
     # Исходные веса
     plt.subplot(1, 2, 1)
-    bars1 = plt.bar(weights['class_weights'].keys(), weights['class_weights'].values())
+    bars1 = plt.bar(raw_weights['class_weights'].keys(), raw_weights['class_weights'].values())
     plt.title('Исходные веса классов', fontsize=12)
     plt.yscale('log')
     for bar in bars1:
@@ -324,11 +324,40 @@ def save_weights_to_config(weights):
         if config_dir:  # Если путь содержит директории
             os.makedirs(config_dir, exist_ok=True)
         
-        # Просто перезаписываем файл новыми весами
-        with open(Config.CONFIG_PATH, 'w') as f:
-            json.dump(weights, f, indent=4)
+        # Загружаем существующий конфиг, если он есть
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+        else:
+            config = {
+                "MODEL_PARAMS": {
+                    "v3": {
+                        "dropout_rate": 0.3,
+                        "lstm_units": 128,
+                        "base_input_shape": [224, 224, 3]
+                    },
+                    "v4": {
+                        "dropout_rate": 0.3,
+                        "expansion_factor": 4,
+                        "se_ratio": 0.25,
+                        "base_input_shape": [224, 224, 3]
+                    }
+                }
+            }
         
-        print("\n[INFO] Веса успешно сохранены:")
+        # Сохраняем нормализованные веса
+        config['class_weights'] = weights['class_weights']
+        
+        # Сохраняем веса для каждой версии модели
+        for model_type in ['v3', 'v4']:
+            if model_type in config['MODEL_PARAMS']:
+                config['MODEL_PARAMS'][model_type]['class_weights'] = weights['class_weights']
+        
+        # Сохраняем обновленный конфиг
+        with open(Config.CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=4)
+        
+        print("\n[INFO] Нормализованные веса успешно сохранены:")
         print(f"  - Фон: {weights['class_weights']['background']:.2f}")
         print(f"  - Действие: {weights['class_weights']['action']:.2f}")
         print(f"  - Переход: {weights['class_weights']['transition']:.2f}")
