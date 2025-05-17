@@ -61,6 +61,7 @@ def focal_loss(gamma=2., alpha=0.25):
         # Проверяем и исправляем размерности
         if len(y_true.shape) == 3:  # [batch, sequence, classes]
             y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
+            y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
         
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
@@ -340,17 +341,24 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
                 self.class_id = class_id
                 
             def update_state(self, y_true, y_pred, sample_weight=None):
-                y_true = tf.argmax(y_true, axis=-1)
-                y_pred = tf.argmax(y_pred, axis=-1)
-                y_true = tf.reshape(y_true, [-1])
-                y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
-                return super().update_state(y_true, y_pred, sample_weight)
+                # Проверяем и исправляем размерности
+                if len(y_true.shape) == 3:  # [batch, sequence, classes]
+                    y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
+                    y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
+                
+                # Берем только нужный класс
+                y_true = y_true[:, self.class_id]
+                y_pred = y_pred[:, self.class_id]
+                
+                # Преобразуем в бинарные метки
+                y_true = tf.cast(y_true > 0.5, tf.float32)
+                y_pred = tf.cast(y_pred > 0.5, tf.float32)
+                
+                super().update_state(y_true, y_pred, sample_weight)
             
             def result(self):
                 result = super().result()
-                return result[self.class_id]
+                return result
         
         # Добавляем F1Score для каждого класса
         metrics.extend([
