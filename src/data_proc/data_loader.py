@@ -690,7 +690,8 @@ class VideoDataLoader:
         Yields:
             Tuple[tf.Tensor, tf.Tensor]: батч данных и меток
         """
-        while True:
+        batch_count = 0
+        while batch_count < self.total_batches:  # Используем известное количество батчей
             try:
                 X_batch, y_batch = self.get_batch(
                     batch_size=self.batch_size,
@@ -704,8 +705,9 @@ class VideoDataLoader:
                 
                 if X_batch is None or y_batch is None:
                     print("[WARNING] Пропускаем неполный батч")
-                    continue  # Пропускаем неполный батч и пробуем собрать новый
+                    continue
                     
+                batch_count += 1
                 yield X_batch, y_batch
                 
             except Exception as e:
@@ -734,15 +736,24 @@ class VideoDataLoader:
         """
         try:
             print("[DEBUG] Начало расчета общего количества батчей")
-            batch_count = 0
-            for batch in self.data_generator():
-                batch_count += 1
-                print(f"[DEBUG] Получен батч {batch_count}")
-                if batch_count >= 10:  # Ограничиваем количество батчей для отладки
-                    print("[DEBUG] Достигнуто максимальное количество батчей для отладки")
-                    break
-            self.total_batches = batch_count
+            
+            # Рассчитываем количество батчей на основе количества видео и кадров
+            total_frames = 0
+            for video_path in self.video_paths:
+                info = self._get_video_info(video_path)
+                if info.exists:
+                    total_frames += info.total_frames
+            
+            # Количество последовательностей = (общее количество кадров - длина последовательности + 1)
+            total_sequences = total_frames - self.sequence_length + 1
+            
+            # Количество батчей = количество последовательностей / размер батча
+            self.total_batches = total_sequences // self.batch_size
+            
             print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
+            print(f"[DEBUG] Общее количество кадров: {total_frames}")
+            print(f"[DEBUG] Количество последовательностей: {total_sequences}")
+            
         except Exception as e:
             print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
             print("[DEBUG] Stack trace:", flush=True)
