@@ -233,10 +233,9 @@ def calculate_dataset_weights():
                     frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
                     video_stats[video_name]['transition_frames'] += 1
         
-        # Считаем фоновые кадры
-        video_stats[video_name]['background_frames'] = video_frames - (
-            video_stats[video_name]['action_frames'] + video_stats[video_name]['transition_frames']
-        )
+            # Считаем фоновые кадры как кадры, где нет ни действия, ни перехода
+            background_mask = (frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0)
+            video_stats[video_name]['background_frames'] = np.sum(background_mask)
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
