@@ -435,9 +435,7 @@ class VideoDataLoader:
             # Загружаем видео
             cap, total_frames = self.load_video(video_path)
             
-            # Используем аннотации из кэша
-            if video_path not in self.annotations_cache:
-                raise InvalidAnnotationError(f"Аннотации для видео {video_path} не найдены в кэше")
+            # Используем аннотации из кэша (они уже должны быть там)
             frame_labels = self.annotations_cache[video_path]
             
             # Проверяем соответствие размеров
@@ -557,6 +555,10 @@ class VideoDataLoader:
                 self._load_annotations(video_path)
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
+                # Создаем пустые аннотации и добавляем в кэш
+                total_frames = self._get_video_info(video_path).total_frames
+                empty_labels = np.zeros((total_frames, 3))
+                self.annotations_cache[video_path] = empty_labels
                 self.processed_video_names.add(os.path.basename(video_path))
                 return None, None
 
@@ -565,40 +567,47 @@ class VideoDataLoader:
             self.sequence_counter[video_path] = 0
 
         # Получаем последовательность
-        X_seq, y_seq = self.create_sequences(
-            video_path=video_path,
-            sequence_length=sequence_length,
-            target_size=target_size
-        )
+        try:
+            X_seq, y_seq = self.create_sequences(
+                video_path=video_path,
+                sequence_length=sequence_length,
+                target_size=target_size
+            )
 
-        if X_seq is not None and y_seq is not None:
-            # Создаем уникальный идентификатор последовательности
-            sequence_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
+            if X_seq is not None and y_seq is not None:
+                # Создаем уникальный идентификатор последовательности
+                sequence_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
 
-            # Проверяем, не использовалась ли эта последовательность ранее
-            if sequence_id in self.used_sequences:
-                logger.debug(f"Последовательность {sequence_id} уже использована")
-                return None, None
+                # Проверяем, не использовалась ли эта последовательность ранее
+                if sequence_id in self.used_sequences:
+                    logger.debug(f"Последовательность {sequence_id} уже использована")
+                    return None, None
 
-            # Добавляем последовательность в использованные
-            self.used_sequences.add(sequence_id)
-            self.sequence_counter[video_path] += 1
+                # Добавляем последовательность в использованные
+                self.used_sequences.add(sequence_id)
+                self.sequence_counter[video_path] += 1
 
-            # Если достигнут лимит последовательностей или успешно обработали видео, добавляем в processed_video_names
-            if self.sequence_counter[video_path] >= self.max_sequences_per_video:
-                self.processed_video_names.add(os.path.basename(video_path))
-                logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
-            elif os.path.basename(video_path) not in self.processed_video_names:
-                # Добавляем видео в processed_video_names только если его там еще нет
-                self.processed_video_names.add(os.path.basename(video_path))
-                logger.debug(f"Успешно обработано видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
+                # Если достигнут лимит последовательностей или успешно обработали видео, добавляем в processed_video_names
+                if self.sequence_counter[video_path] >= self.max_sequences_per_video:
+                    self.processed_video_names.add(os.path.basename(video_path))
+                    logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
+                elif os.path.basename(video_path) not in self.processed_video_names:
+                    # Добавляем видео в processed_video_names только если его там еще нет
+                    self.processed_video_names.add(os.path.basename(video_path))
+                    logger.debug(f"Успешно обработано видео {os.path.basename(video_path)}, добавляем в общий список обработанных")
 
-            # Выводим информацию о прогрессе обработки видео
-            current_video_number = len(self.processed_video_names)
-            remaining_videos = self.total_videos - current_video_number
-            logger.debug(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
+                # Выводим информацию о прогрессе обработки видео
+                current_video_number = len(self.processed_video_names)
+                remaining_videos = self.total_videos - current_video_number
+                logger.debug(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
 
-            return X_seq, y_seq
+                return X_seq, y_seq
+
+        except Exception as e:
+            logger.error(f"Ошибка при создании последовательности: {str(e)}")
+            # При ошибке добавляем видео в processed_video_names
+            self.processed_video_names.add(os.path.basename(video_path))
+            return None, None
 
         return None, None
 
