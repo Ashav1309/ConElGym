@@ -402,7 +402,6 @@ def focal_loss(gamma=2., alpha=0.25):
 def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BATCH_SIZE):
     """
     Обучение модели
-    
     Args:
         model_type: тип модели ('v3' или 'v4')
         epochs: количество эпох
@@ -413,18 +412,26 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         print(f"[DEBUG] Тип модели: {model_type}")
         print(f"[DEBUG] Количество эпох: {epochs}")
         print(f"[DEBUG] Размер батча: {batch_size}")
-        
+
+        # Загрузка весов классов из config_weights.json
+        with open(Config.CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+            class_weights = config['class_weights']
+        tf_class_weights = {
+            0: class_weights['background'],
+            1: class_weights['action'],
+            2: class_weights['transition']
+        }
+
         # Создаем загрузчики данных без ограничения на количество видео
         train_loader = VideoDataLoader(
             Config.TRAIN_DATA_PATH,
             max_videos=None  # Убираем ограничение
         )
-        
         val_loader = VideoDataLoader(
             Config.VALID_DATA_PATH,
             max_videos=None  # Убираем ограничение
         )
-        
         # Создаем пайплайны данных
         train_data = create_data_pipeline(
             train_loader,
@@ -437,7 +444,6 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             is_train=True,
             force_positive=True
         )
-        
         val_data = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
@@ -449,27 +455,24 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             is_train=False,
             force_positive=False
         )
-        
         # Создаем аугментатор
         augmenter = VideoAugmenter(augment_probability=0.5)
-        
         # Создаем и компилируем модель
         if model_type == 'v3':
-            model = create_mobilenetv3_model(
+            model, _ = create_mobilenetv3_model(
                 input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
                 num_classes=Config.NUM_CLASSES,
                 dropout_rate=best_params['dropout_rate'],
-                lstm_units=best_params['lstm_units']
+                lstm_units=best_params['lstm_units'],
+                class_weights=class_weights
             )
         else:
-            model = create_mobilenetv4_model(
+            model, _ = create_mobilenetv4_model(
                 input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
                 num_classes=Config.NUM_CLASSES,
                 dropout_rate=best_params['dropout_rate'],
-                expansion_factor=best_params.get('expansion_factor', 4),
-                se_ratio=best_params.get('se_ratio', 0.25)
+                class_weights=class_weights
             )
-        
         # Создаем метрики
         metrics = [
             'accuracy',
@@ -529,11 +532,10 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             epochs=epochs,
             validation_data=val_data,
             callbacks=callbacks,
+            class_weight=tf_class_weights,
             verbose=1
         )
-        
         return model, history
-        
     except Exception as e:
         print(f"[ERROR] Ошибка при обучении модели: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
