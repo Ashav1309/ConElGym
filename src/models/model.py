@@ -615,12 +615,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     ])
     model.compile(
         optimizer=optimizer,
-        loss='categorical_crossentropy',
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action'], class_weights['transition']]),
         metrics=metrics,
-        weighted_metrics=['accuracy'],
-        class_weights=tf_class_weights
+        weighted_metrics=['accuracy']
     )
-    return model, tf_class_weights
+    return model
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
     """
@@ -731,13 +730,12 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     
     model.compile(
         optimizer=optimizer,
-        loss='categorical_crossentropy',
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action'], class_weights['transition']]),
         metrics=metrics,
-        weighted_metrics=['accuracy'],
-        class_weights=tf_class_weights
+        weighted_metrics=['accuracy']
     )
     
-    return model, tf_class_weights
+    return model
 
 def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
