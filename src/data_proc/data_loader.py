@@ -108,18 +108,18 @@ class VideoDataLoader:
                 if cap is not None:
                     cap.release()
             
-            # Очищаем все кэши
+            # Очищаем все кэши, кроме annotations_cache
             self.video_cache.clear()
             self.used_frames_cache.clear()
             self.positive_indices_cache.clear()
             self.file_info_cache.clear()
             self.open_videos.clear()
-            # Не очищаем processed_video_names, так как это постоянное хранилище
+            # Не очищаем processed_video_names и annotations_cache, так как это постоянные хранилища
             
             # Принудительная очистка памяти
             gc.collect()
             
-            logger.debug("Все кэши очищены")
+            logger.debug("Все кэши очищены (кроме annotations_cache)")
         except Exception as e:
             logger.error(f"Ошибка при очистке кэшей: {str(e)}")
 
