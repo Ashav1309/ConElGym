@@ -437,6 +437,11 @@ class VideoDataLoader:
                 logger.debug(f"Корректируем шаг до {step} для ограничения количества последовательностей")
             
             # Создаем последовательности
+            sequences = []
+            sequence_labels = []
+            positive_count = 0
+            negative_count = 0
+            
             for start_idx in range(0, total_frames - sequence_length + 1, step):
                 # Проверяем, не выходим ли за пределы видео
                 if start_idx + sequence_length > total_frames:
@@ -445,7 +450,10 @@ class VideoDataLoader:
                 
                 # Проверяем, есть ли хотя бы один кадр с действием в последовательности
                 sequence_label = labels[start_idx:start_idx + sequence_length]
-                if force_positive and not np.any(sequence_label[:, 1] == 1):  # Проверяем наличие действия только если force_positive=True
+                has_action = np.any(sequence_label[:, 1] == 1)
+                
+                # Если force_positive=True и нет действия, пропускаем
+                if force_positive and not has_action:
                     continue
                 
                 # Читаем кадры для последовательности
@@ -468,14 +476,31 @@ class VideoDataLoader:
                 if len(frames) == sequence_length:
                     # Преобразуем кадры в numpy массив с правильной формой
                     frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
-                    logger.debug(f"Создана последовательность формы: {frames_array.shape}")
+                    sequences.append(frames_array)
+                    sequence_labels.append(sequence_label)
                     
-                    cap.release()
-                    return frames_array, sequence_label
+                    # Обновляем счетчики
+                    if has_action:
+                        positive_count += 1
+                    else:
+                        negative_count += 1
+                    
+                    # Если набрали достаточно последовательностей, выходим
+                    if len(sequences) >= max_sequences:
+                        break
             
             cap.release()
-            logger.warning("Не удалось создать последовательность")
-            return None, None
+            
+            if not sequences:
+                logger.warning("Не удалось создать последовательности")
+                return None, None
+            
+            # Преобразуем списки в массивы
+            X = np.stack(sequences)
+            y = np.stack(sequence_labels)
+            
+            logger.debug(f"Создано последовательностей: {len(sequences)} (положительных: {positive_count}, отрицательных: {negative_count})")
+            return X, y
             
         except Exception as e:
             logger.error(f"Ошибка при создании последовательности: {str(e)}")
@@ -603,7 +628,7 @@ class VideoDataLoader:
         if video_path not in self.sequence_counter:
             self.sequence_counter[video_path] = 0
 
-        # Получаем последовательность
+        # Получаем последовательности
         try:
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
@@ -614,17 +639,19 @@ class VideoDataLoader:
             )
 
             if X_seq is not None and y_seq is not None:
-                # Создаем уникальный идентификатор последовательности
-                sequence_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
-
-                # Проверяем, не использовалась ли эта последовательность ранее
-                if sequence_id in self.used_sequences:
-                    logger.debug(f"Последовательность {sequence_id} уже использована")
+                # Создаем уникальные идентификаторы для каждой последовательности
+                sequence_ids = [f"{os.path.basename(video_path)}_{self.sequence_counter[video_path] + i}" 
+                              for i in range(len(X_seq))]
+                
+                # Проверяем, не использовались ли эти последовательности ранее
+                used_sequences = [seq_id for seq_id in sequence_ids if seq_id in self.used_sequences]
+                if used_sequences:
+                    logger.debug(f"Последовательности {used_sequences} уже использованы")
                     return None, None
 
-                # Добавляем последовательность в использованные
-                self.used_sequences.add(sequence_id)
-                self.sequence_counter[video_path] += 1
+                # Добавляем последовательности в использованные
+                self.used_sequences.update(sequence_ids)
+                self.sequence_counter[video_path] += len(sequence_ids)
 
                 # Проверяем, все ли прочитанные кадры использованы
                 video_info = self._get_video_info(video_path)
