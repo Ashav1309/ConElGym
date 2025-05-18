@@ -472,7 +472,7 @@ class VideoDataLoader:
                 for _ in range(sequence_length):
                     ret, frame = cap.read()
                     if not ret:
-                        logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
+                        # logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
                         continue
                     
                     try:
