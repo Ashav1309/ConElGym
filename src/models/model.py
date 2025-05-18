@@ -27,6 +27,16 @@ import json
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'create_model_with_params',
+    'create_mobilenetv3_model',
+    'create_mobilenetv4_model',
+    'postprocess_predictions',
+    'indices_to_seconds',
+    'f1_score_element',
+    'merge_classes'
+]
+
 def merge_classes(y):
     """
     Объединяет классы [1, 0] и [0, 1] в один положительный класс (1), фон — 0.

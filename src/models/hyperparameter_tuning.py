@@ -1,4 +1,23 @@
 import os
+import time
+import json
+import traceback
+import numpy as np
+from datetime import timedelta
+import tensorflow as tf
+from tensorflow.keras.optimizers import Adam
+import optuna
+from src.models.model import (
+    create_model_with_params,
+    create_mobilenetv3_model,
+    create_mobilenetv4_model,
+    f1_score_element
+)
+from src.data_proc.data_loader import VideoDataLoader
+from src.config import Config
+from src.models.losses import focal_loss
+from src.models.metrics import get_tuning_metrics
+from src.models.callbacks import get_tuning_callbacks
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
@@ -8,7 +27,6 @@ os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 os.environ['TF_DISABLE_JIT'] = '1'
 os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-import tensorflow as tf
 # Включаем динамический рост памяти для всех GPU
 try:
     gpus = tf.config.list_physical_devices('GPU')
@@ -23,33 +41,16 @@ except Exception as e:
 # Отключаем JIT компиляцию
 tf.config.optimizer.set_jit(False)
 
-import optuna
-from src.models.model import (
-    create_model, create_mobilenetv3_model, create_mobilenetv4_model
-)
-from src.data_proc.data_loader import VideoDataLoader
-from src.config import Config
-import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-from datetime import datetime, timedelta
-import time
 import gc
-import traceback
-from tensorflow.keras.metrics import Precision, Recall, F1Score
 import subprocess
 import sys
-import json
 import cv2
-from tensorflow.keras.optimizers import Adam
-import psutil
-from src.data_proc.data_augmentation import VideoAugmenter
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
-from src.models.losses import focal_loss, F1ScoreAdapter
-from src.models.metrics import f1_score_element
 from src.models.train import create_data_pipeline  # Импортируем общую функцию
 
 # Объявляем глобальные переменные в начале файла
