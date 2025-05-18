@@ -165,14 +165,25 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         # Устанавливаем размер батча в загрузчике
         data_loader.batch_size = batch_size
 
+        def generator():
+            while True:
+                # Получаем следующую последовательность
+                X, y = data_loader._get_sequence(
+                    sequence_length=sequence_length,
+                    target_size=input_size,
+                    force_positive=force_positive
+                )
+                if X is not None and y is not None:
+                    yield X, y
+
         # Создаем dataset напрямую из генератора
         output_signature = (
-            tf.TensorSpec(shape=(sequence_length, *input_size, 3), dtype=tf.float32),  # Убрали None из первой размерности
+            tf.TensorSpec(shape=(sequence_length, *input_size, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(sequence_length, 3), dtype=tf.float32)  # three-hot encoding
         )
 
         dataset = tf.data.Dataset.from_generator(
-            data_loader.data_generator,
+            generator,
             output_signature=output_signature
         )
 
