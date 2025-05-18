@@ -518,6 +518,7 @@ class VideoDataLoader:
                         skipped_sequences += 1
                         continue
                     
+                    # Добавляем последовательность и метки
                     sequences.append(sequence_array)
                     sequence_labels.append(frame_labels[start_idx:start_idx + sequence_length])
                     valid_sequences += 1
@@ -535,8 +536,15 @@ class VideoDataLoader:
             logger.debug(f"  - Пропущено последовательностей: {skipped_sequences}")
             logger.debug(f"  - Процент успешных: {(valid_sequences/(valid_sequences+skipped_sequences))*100:.1f}%")
             
-            # Возвращаем последовательности и метки
-            return np.array(sequences), np.array(sequence_labels)
+            # Преобразуем списки в массивы
+            sequences_array = np.array(sequences)
+            labels_array = np.array(sequence_labels)
+            
+            # Проверяем финальную форму
+            logger.debug(f"Форма последовательностей: {sequences_array.shape}")
+            logger.debug(f"Форма меток: {labels_array.shape}")
+            
+            return sequences_array, labels_array
             
         except Exception as e:
             logger.error(f"Ошибка при создании последовательностей для {video_path}: {str(e)}")
