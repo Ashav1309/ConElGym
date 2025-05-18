@@ -27,17 +27,28 @@ os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 os.environ['TF_DISABLE_JIT'] = '1'
 os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-# Включаем динамический рост памяти для всех GPU
-try:
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
+# Настройка GPU
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        # Сначала включаем динамический рост памяти
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"[DEBUG] Включён динамический рост памяти для {len(gpus)} GPU")
-    else:
-        print("[DEBUG] GPU не обнаружены")
-except Exception as e:
-    print(f"[DEBUG] Ошибка при настройке GPU: {e}")
+        print("[DEBUG] Включён динамический рост памяти для {len(gpus)} GPU")
+        
+        # Затем настраиваем ограничение памяти
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(
+                memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
+            )]
+        )
+    except RuntimeError as e:
+        print(f"[ERROR] Ошибка при настройке GPU: {e}")
+
+# Включение mixed precision
+tf.keras.mixed_precision.set_global_policy('mixed_float16')
+
 # Отключаем JIT компиляцию
 tf.config.optimizer.set_jit(False)
 

@@ -30,20 +30,20 @@ tf.config.run_functions_eagerly(True)
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
-        # Ограничиваем память GPU
+        # Сначала включаем динамический рост памяти
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("Memory growth enabled for GPUs")
+        
+        # Затем настраиваем ограничение памяти
         tf.config.set_logical_device_configuration(
             gpus[0],
             [tf.config.LogicalDeviceConfiguration(
                 memory_limit=Config.DEVICE_CONFIG['gpu_memory_limit']
             )]
         )
-        
-        # Включаем динамический рост памяти
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print("Memory growth enabled for GPUs")
     except RuntimeError as e:
-        print(f"Error setting memory growth: {e}")
+        print(f"Error setting GPU configuration: {e}")
 
 # Включение mixed precision
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
