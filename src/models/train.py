@@ -1,5 +1,5 @@
 import tensorflow as tf
-from src.models.model import create_model
+from src.models.model import create_model_with_params
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
 import os
@@ -20,8 +20,8 @@ import re
 import psutil
 from src.data_proc.data_augmentation import VideoAugmenter
 from src.models.losses import focal_loss, F1ScoreAdapter
-from src.models.metrics import f1_score_element
-from src.models.callbacks import AdaptiveThresholdCallback
+from src.models.metrics import f1_score_element, get_training_metrics
+from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
 
 # Включаем eager execution
 tf.config.run_functions_eagerly(True)
