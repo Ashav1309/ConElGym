@@ -76,12 +76,12 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                     force_positive=force_positive
                 )
                 if X is not None and y is not None:
-                    print(f"[DEBUG] Форма входных данных X: {X.shape}")
-                    print(f"[DEBUG] Форма меток y: {y.shape}")
-                    print(f"[DEBUG] Тип меток y: {type(y)}")
-                    print(f"[DEBUG] Тип первого элемента y: {type(y[0])}")
-                    if isinstance(y[0], np.ndarray):
-                        print(f"[DEBUG] Форма первого элемента y: {y[0].shape}")
+                    # print(f"[DEBUG] Форма входных данных X: {X.shape}")
+                    # print(f"[DEBUG] Форма меток y: {y.shape}")
+                    # print(f"[DEBUG] Тип меток y: {type(y)}")
+                    # print(f"[DEBUG] Тип первого элемента y: {type(y[0])}")
+                    # if isinstance(y[0], np.ndarray):
+                        # print(f"[DEBUG] Форма первого элемента y: {y[0].shape}")
                     
                     # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
@@ -104,7 +104,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                                 label = int(y[i])
                                 y_one_hot[i, label] = 1
                             
-                            print(f"[DEBUG] Обработка метки {i}: исходное значение = {y[i]}, преобразованное = {label}")
+                            # print(f"[DEBUG] Обработка метки {i}: исходное значение = {y[i]}, преобразованное = {label}")
                         except Exception as e:
                             print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
                             print(f"[DEBUG] Значение y[{i}]: {y[i]}")

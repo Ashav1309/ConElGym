@@ -67,6 +67,11 @@ class VideoDataLoader:
         self.sequence_counter: Dict[str, int] = {}    # Счетчик последовательностей для каждого видео
         self.used_sequences: Set[str] = set()         # Множество использованных последовательностей
         
+        # Счетчики для отслеживания прогресса
+        self.total_processed_videos = 0  # Общее количество обработанных видео
+        self.total_processed_frames = 0  # Общее количество обработанных кадров
+        self.total_processed_sequences = 0  # Общее количество обработанных последовательностей
+        
         self.data_path = Path(data_path)
         self.max_videos = max_videos or Config.MAX_VIDEOS
         self.video_paths: List[str] = []
@@ -624,12 +629,25 @@ class VideoDataLoader:
             video_path: путь к видео
         """
         try:
+            # Обновляем счетчики
+            self.total_processed_sequences += len(X_batch)
+            self.total_processed_frames += len(X_batch) * self.sequence_length
+            
+            # Если это новое видео, увеличиваем счетчик
+            if video_path not in self.processed_video_names:
+                self.processed_video_names.add(video_path)
+                self.total_processed_videos += 1
+            
             print(f"[DEBUG] Статистика батча {batch_number}:")
             print(f"  - Размер батча: {X_batch.shape}")
             print(f"  - Положительных примеров: {positive_count}")
             print(f"  - Отрицательных примеров: {negative_count}")
             print(f"  - Видео: {video_path}")
             print(f"  - Уникальные метки: {np.unique(y_batch, axis=0, return_counts=True)}")
+            print(f"[DEBUG] Общая статистика обработки:")
+            print(f"  - Обработано видео: {self.total_processed_videos}/{self.video_count} ({self.total_processed_videos/self.video_count*100:.1f}%)")
+            print(f"  - Обработано кадров: {self.total_processed_frames}")
+            print(f"  - Обработано последовательностей: {self.total_processed_sequences}")
         except Exception as e:
             print(f"[WARNING] Ошибка при сохранении статистики батча: {str(e)}")
 
