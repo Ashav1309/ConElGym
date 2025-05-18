@@ -621,6 +621,25 @@ def focal_loss(gamma=2., alpha=None):
             # Преобразуем alpha в тензор и приводим к нужной форме
             alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
             print(f"  - Alpha factor shape before reshape: {alpha_factor.shape}")
+            
+            # Проверяем количество классов
+            num_classes = y_true.shape[-1]
+            print(f"  - Number of classes in y_true: {num_classes}")
+            print(f"  - Number of alpha weights: {len(alpha_factor)}")
+            
+            # Если количество классов не совпадает с количеством весов
+            if len(alpha_factor) != num_classes:
+                print(f"  - Adjusting alpha weights to match number of classes")
+                # Если у нас больше классов, чем весов, используем только первые num_classes весов
+                if len(alpha_factor) > num_classes:
+                    print(f"  - Truncating alpha weights to {num_classes}")
+                    alpha_factor = alpha_factor[:num_classes]
+                # Если у нас меньше классов, чем весов, используем только первые len(alpha_factor) классов
+                else:
+                    print(f"  - Using only first {len(alpha_factor)} classes")
+                    y_true = y_true[:, :len(alpha_factor)]
+                    y_pred = y_pred[:, :len(alpha_factor)]
+            
             alpha_factor = tf.reshape(alpha_factor, (1, -1))  # [1, num_classes]
             print(f"  - Alpha factor shape after reshape: {alpha_factor.shape}")
             
