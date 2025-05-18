@@ -452,10 +452,6 @@ class VideoDataLoader:
                 sequence_label = labels[start_idx:start_idx + sequence_length]
                 has_action = np.any(sequence_label[:, 1] == 1)
                 
-                # Если force_positive=True и нет действия, пропускаем
-                if force_positive and not has_action:
-                    continue
-                
                 # Читаем кадры для последовательности
                 frames = []
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
@@ -502,6 +498,41 @@ class VideoDataLoader:
                 max_negative = max_sequences - max_positive
                 
                 logger.debug(f"Балансировка последовательностей: найдено {len(action_dominant_sequences)} положительных и {len(background_dominant_sequences)} отрицательных")
+                
+                # Если нет отрицательных примеров, создаем их из фоновых кадров
+                if len(background_dominant_sequences) == 0 and len(action_dominant_sequences) > 0:
+                    logger.debug("Создаем отрицательные примеры из фоновых кадров")
+                    # Находим кадры без действий
+                    background_frames = np.where(labels[:, 1] == 0)[0]
+                    if len(background_frames) >= sequence_length:
+                        # Создаем последовательности из фоновых кадров
+                        for i in range(0, len(background_frames) - sequence_length + 1, step):
+                            start_idx = background_frames[i]
+                            if start_idx + sequence_length > total_frames:
+                                continue
+                            
+                            # Читаем кадры
+                            frames = []
+                            cap = cv2.VideoCapture(video_path)
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                            
+                            for _ in range(sequence_length):
+                                ret, frame = cap.read()
+                                if not ret:
+                                    break
+                                frame = cv2.resize(frame, (self.frame_size, self.frame_size))
+                                frames.append(frame)
+                            
+                            cap.release()
+                            
+                            if len(frames) == sequence_length:
+                                frames_array = np.array(frames)
+                                sequence_label = labels[start_idx:start_idx + sequence_length]
+                                background_dominant_sequences.append(frames_array)
+                                background_dominant_labels.append(sequence_label)
+                                
+                                if len(background_dominant_sequences) >= max_negative:
+                                    break
                 
                 if len(action_dominant_sequences) > max_positive:
                     indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
