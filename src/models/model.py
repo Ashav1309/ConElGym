@@ -572,6 +572,20 @@ class SequenceFBetaScore(tf.keras.metrics.FBetaScore):
             
         super().update_state(y_true, y_pred, sample_weight)
 
+class TemporalBlock(tf.keras.layers.Layer):
+    def __init__(self, num_heads=2, key_dim=64, **kwargs):  # Уменьшаем количество голов и размерность ключа
+        super().__init__(**kwargs)
+        self.num_heads = num_heads
+        self.key_dim = key_dim
+        self.attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=num_heads,
+            key_dim=key_dim,
+            attention_axes=(1,),  # Применяем внимание только по временной оси
+            output_shape=key_dim
+        )
+        self.norm = tf.keras.layers.LayerNormalization()
+        self.add = tf.keras.layers.Add()
+
 def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели на основе MobileNetV3

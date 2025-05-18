@@ -161,7 +161,7 @@ def objective(trial):
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 16 для лучшей стабильности
-        batch_size = trial.suggest_int('batch_size', 16, 64, step=16)
+        batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
         # Загружаем базовые веса из config_weights.json

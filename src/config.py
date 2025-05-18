@@ -31,13 +31,13 @@ class Config:
     # Параметры модели
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
-    BATCH_SIZE = 32  # Уменьшаем с 128 до 32 для экономии памяти
+    BATCH_SIZE = 16
     EPOCHS = 100
     LEARNING_RATE = 0.001
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
-    SEQUENCE_LENGTH = 12  # Уменьшаем с 16 до 12 кадров для экономии памяти
-    INPUT_SIZE = (112, 112)  # Размер входного изображения
+    SEQUENCE_LENGTH = 8  # Уменьшаем длину последовательности
+    INPUT_SIZE = (96, 96)  # Уменьшаем размер входных изображений
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20
     MAX_SEQUENCES_PER_VIDEO = 200
