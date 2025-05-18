@@ -25,8 +25,7 @@ tf.config.optimizer.set_jit(False)
 
 import optuna
 from src.models.model import (
-    create_model, create_mobilenetv3_model, create_mobilenetv4_model,
-    focal_loss, F1ScoreAdapter
+    create_model, create_mobilenetv3_model, create_mobilenetv4_model
 )
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
@@ -50,6 +49,7 @@ from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
 from src.models.losses import focal_loss, F1ScoreAdapter
+from src.models.metrics import f1_score_element
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
