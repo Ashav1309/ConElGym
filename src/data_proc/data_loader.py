@@ -740,7 +740,21 @@ class VideoDataLoader:
                         logger.warning(f"Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
                         # Исправляем форму последовательности
                         try:
-                            X_seq = X_seq.reshape(expected_shape)
+                            # Если у нас лишняя размерность, убираем её
+                            if len(X_seq.shape) == 5 and X_seq.shape[0] == 1:
+                                X_seq = X_seq[0]  # Убираем первую размерность
+                            elif len(X_seq.shape) == 5 and X_seq.shape[1] == sequence_length:
+                                X_seq = X_seq[0]  # Берем первую последовательность
+                            elif len(X_seq.shape) == 5 and X_seq.shape[0] == sequence_length:
+                                X_seq = X_seq.transpose(1, 0, 2, 3)  # Меняем порядок размерностей
+                            
+                            # Проверяем, что форма теперь правильная
+                            if X_seq.shape != expected_shape:
+                                logger.error(f"Не удалось исправить форму последовательности: {X_seq.shape} -> {expected_shape}")
+                                empty_sequence_count += 1
+                                attempts += 1
+                                continue
+                                
                             logger.debug(f"Форма после исправления: {X_seq.shape}")
                         except Exception as e:
                             logger.error(f"Не удалось исправить форму последовательности: {str(e)}")
