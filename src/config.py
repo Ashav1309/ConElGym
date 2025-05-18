@@ -79,26 +79,44 @@ class Config:
         'use_gradient_checkpointing': True,
         'use_xla': True,
         'gradient_accumulation_steps': 2,  # Уменьшаем с 4 до 2
-        'cache_dataset': False  # Отключаем кэширование для экономии памяти
+        'cache_dataset': False,  # Отключаем кэширование для экономии памяти
+        'shuffle_buffer_size': 64,  # Размер буфера для перемешивания
+        'prefetch_buffer_size': tf.data.AUTOTUNE,  # Размер буфера для предзагрузки
+        'num_parallel_calls': tf.data.AUTOTUNE  # Количество параллельных вызовов
     }
     
     # Параметры устройства
     DEVICE_CONFIG = {
         'use_gpu': True,
         'gpu_memory_fraction': 0.8,
-        'gpu_memory_limit': 1024 * 8,  # 8GB
+        'gpu_memory_limit': 1024 * 8,  
         'allow_gpu_memory_growth': True,
         'cpu_threads': 4
     }
     
-    # Аугментация
+    # Параметры балансировки данных
+    DATA_BALANCING = {
+        'enabled': True,
+        'class_ratio': 0.5,  # Соотношение классов в батче (0.5 = равное количество)
+        'oversample_positive': True,  # Увеличение положительных примеров
+        'oversample_factor': 2.0,  # Во сколько раз увеличивать положительные примеры
+        'use_smote': False,  # Использовать SMOTE для генерации синтетических примеров
+        'smote_k_neighbors': 5  # Количество соседей для SMOTE
+    }
+    
+    # Параметры аугментации
     AUGMENTATION = {
         'enabled': True,
         'probability': 0.5,
         'brightness_range': (0.8, 1.2),
         'contrast_range': (0.8, 1.2),
         'rotation_range': (-10, 10),
-        'flip_probability': 0.5
+        'flip_probability': 0.5,
+        'zoom_range': (0.9, 1.1),  # Добавляем масштабирование
+        'shear_range': (-0.1, 0.1),  # Добавляем сдвиг
+        'noise_factor': 0.05,  # Добавляем шум
+        'blur_probability': 0.2,  # Вероятность размытия
+        'blur_kernel_size': (3, 3)  # Размер ядра размытия
     }
     
     # Настройки предотвращения переобучения
@@ -112,10 +130,10 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 50,  # Увеличить количество попыток
-        'timeout': 7200,  # 2 часа
+        'n_trials': 30,  
+        'timeout': 7200,
         'n_jobs': 1,
-        'epochs': 100,  # Увеличить количество эпох
+        'epochs': 100, 
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,

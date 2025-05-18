@@ -18,7 +18,7 @@ from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
 import psutil
-from src.data_proc.data_augmentation import VideoAugmenter
+from src.data_proc.augmentation import VideoAugmenter
 from src.models.losses import focal_loss, F1ScoreAdapter
 from src.models.metrics import f1_score_element, get_training_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
@@ -91,15 +91,19 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                         try:
                             # Проверяем, является ли y[i] массивом
                             if isinstance(y[i], np.ndarray):
-                                if y[i].size == 1:
-                                    label = int(y[i].item())
+                                if y[i].size == 2:  # Если это one-hot encoding
+                                    # Находим индекс максимального значения (класс)
+                                    label = np.argmax(y[i])
+                                    # Создаем one-hot encoding
+                                    y_one_hot[i, label] = 1
                                 else:
-                                    # Если это массив с несколькими элементами, берем первый
-                                    label = int(y[i][0])
+                                    # Если это скалярное значение
+                                    label = int(y[i].item())
+                                    y_one_hot[i, label] = 1
                             else:
                                 label = int(y[i])
+                                y_one_hot[i, label] = 1
                             
-                            y_one_hot[i, label] = 1
                             print(f"[DEBUG] Обработка метки {i}: исходное значение = {y[i]}, преобразованное = {label}")
                         except Exception as e:
                             print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
@@ -128,9 +132,9 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         if cache_dataset and (not hasattr(loader, 'video_count') or loader.video_count <= 50):
             dataset = dataset.cache()
         if is_training:
-            dataset = dataset.shuffle(64)
+            dataset = dataset.shuffle(Config.MEMORY_OPTIMIZATION['shuffle_buffer_size'])
         dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
 
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
