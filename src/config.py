@@ -33,7 +33,7 @@ class Config:
     INPUT_SHAPE = (224, 224, 3)
     BATCH_SIZE = 16
     EPOCHS = 50
-    LEARNING_RATE = 0.001
+    LEARNING_RATE = 0.002
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
     SEQUENCE_LENGTH = 8  # Уменьшаем длину последовательности

@@ -437,10 +437,10 @@ class VideoDataLoader:
                 logger.debug(f"Корректируем шаг до {step} для ограничения количества последовательностей")
             
             # Создаем последовательности
-            positive_sequences = []
-            negative_sequences = []
-            positive_labels = []
-            negative_labels = []
+            action_dominant_sequences = []  # Последовательности с преобладанием действия
+            action_dominant_labels = []
+            background_dominant_sequences = []  # Последовательности с преобладанием фона
+            background_dominant_labels = []
             
             for start_idx in range(0, total_frames - sequence_length + 1, step):
                 # Проверяем, не выходим ли за пределы видео
@@ -477,38 +477,54 @@ class VideoDataLoader:
                     # Преобразуем кадры в numpy массив с правильной формой
                     frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
                     
-                    # Сохраняем последовательность в соответствующий список
-                    if has_action:
-                        positive_sequences.append(frames_array)
-                        positive_labels.append(sequence_label)
-                    else:
-                        negative_sequences.append(frames_array)
-                        negative_labels.append(sequence_label)
+                    # Вычисляем долю кадров с действием
+                    action_ratio = np.mean(sequence_label[:, 1])
+                    
+                    # Распределяем последовательности по группам
+                    if action_ratio > 0.5:  # Больше половины кадров - действие
+                        action_dominant_sequences.append(frames_array)
+                        action_dominant_labels.append(sequence_label)
+                    else:  # Больше половины кадров - фон
+                        background_dominant_sequences.append(frames_array)
+                        background_dominant_labels.append(sequence_label)
                     
                     # Если набрали достаточно последовательностей, выходим
-                    if len(positive_sequences) + len(negative_sequences) >= max_sequences:
+                    if len(action_dominant_sequences) + len(background_dominant_sequences) >= max_sequences:
                         break
             
             cap.release()
             
-            # Выбираем последовательность с учетом force_positive
-            if force_positive and positive_sequences:
-                # Если нужны только положительные и они есть, берем случайную положительную
-                idx = np.random.randint(len(positive_sequences))
-                X = positive_sequences[idx]
-                y = positive_labels[idx]
-            elif not force_positive and (positive_sequences or negative_sequences):
-                # Если нужны любые последовательности, выбираем случайную
-                all_sequences = positive_sequences + negative_sequences
-                all_labels = positive_labels + negative_labels
-                idx = np.random.randint(len(all_sequences))
-                X = all_sequences[idx]
-                y = all_labels[idx]
-            else:
-                logger.warning("Не удалось создать последовательность")
+            # Балансируем количество последовательностей в каждой группе
+            max_per_group = max_sequences // 2
+            if len(action_dominant_sequences) > max_per_group:
+                indices = np.random.choice(len(action_dominant_sequences), max_per_group, replace=False)
+                action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
+                action_dominant_labels = [action_dominant_labels[i] for i in indices]
+            
+            if len(background_dominant_sequences) > max_per_group:
+                indices = np.random.choice(len(background_dominant_sequences), max_per_group, replace=False)
+                background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
+                background_dominant_labels = [background_dominant_labels[i] for i in indices]
+            
+            # Объединяем последовательности
+            all_sequences = action_dominant_sequences + background_dominant_sequences
+            all_labels = action_dominant_labels + background_dominant_labels
+            
+            if not all_sequences:
+                logger.warning("Не удалось создать последовательности")
                 return None, None
             
-            logger.debug(f"Создана последовательность (положительных: {len(positive_sequences)}, отрицательных: {len(negative_sequences)})")
+            # Перемешиваем
+            indices = np.random.permutation(len(all_sequences))
+            all_sequences = [all_sequences[i] for i in indices]
+            all_labels = [all_labels[i] for i in indices]
+            
+            # Выбираем случайную последовательность
+            idx = np.random.randint(len(all_sequences))
+            X = all_sequences[idx]
+            y = all_labels[idx]
+            
+            logger.debug(f"Создана последовательность (действие: {len(action_dominant_sequences)}, фон: {len(background_dominant_sequences)})")
             return X, y
             
         except Exception as e:
@@ -701,9 +717,8 @@ class VideoDataLoader:
             print(f"  - Положительных примеров: {positive_count}")
             print(f"  - Отрицательных примеров: {negative_count}")
             print(f"  - Видео: {video_path}")
-            # print(f"  - Уникальные метки: {np.unique(y_batch, axis=0, return_counts=True)}")
             print(f"[DEBUG] Общая статистика обработки:")
-            print(f"  - Обработано видео: {self.total_processed_videos}/{self.video_count} ({self.total_processed_videos/self.video_count*100:.1f}%)")
+            print(f"  - Обработано видео: {self.total_processed_videos}/{self.total_videos} ({self.total_processed_videos/self.total_videos*100:.1f}%)")
             print(f"  - Обработано кадров: {self.total_processed_frames}")
             print(f"  - Обработано последовательностей: {self.total_processed_sequences}")
         except Exception as e:
