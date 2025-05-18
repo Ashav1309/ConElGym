@@ -78,6 +78,7 @@ class VideoDataLoader:
         self.sequence_length = Config.SEQUENCE_LENGTH
         self.max_sequences_per_video = Config.MAX_SEQUENCES_PER_VIDEO
         self.target_size = Config.INPUT_SIZE
+        self.frame_size = self.target_size[0]  # Используем первый элемент target_size как размер кадра
         
         # Состояние
         self.current_video_index = 0
