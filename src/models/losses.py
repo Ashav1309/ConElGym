@@ -7,7 +7,7 @@ import os
 
 def focal_loss(gamma=2., alpha=None, beta=0.999):
     """
-    Focal loss для two-hot encoded меток с поддержкой весов классов.
+    Focal loss для двухклассовой модели (фон и действие).
     
     Args:
         gamma: фокусный параметр для уменьшения веса хорошо классифицированных примеров
@@ -31,6 +31,8 @@ def focal_loss(gamma=2., alpha=None, beta=0.999):
         
         # Проверяем и исправляем размерности
         if len(y_true.shape) == 3:  # [batch, sequence, classes]
+            # Берем только первые два класса из y_true
+            y_true = y_true[..., :2]
             y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
             y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
         
