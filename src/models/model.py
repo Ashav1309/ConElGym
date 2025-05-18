@@ -477,15 +477,27 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
 class TransformerBlock(tf.keras.layers.Layer):
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
         super(TransformerBlock, self).__init__()
-        self.att = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.ff_dim = ff_dim
+        self.rate = rate
+        
+    def build(self, input_shape):
+        # Создаем слои с правильными размерностями
+        self.att = tf.keras.layers.MultiHeadAttention(
+            num_heads=self.num_heads,
+            key_dim=self.embed_dim // self.num_heads,
+            value_dim=self.embed_dim // self.num_heads
+        )
         self.ffn = tf.keras.Sequential([
-            tf.keras.layers.Dense(ff_dim, activation="relu"),
-            tf.keras.layers.Dense(embed_dim),  # Убеждаемся, что выходная размерность равна embed_dim
+            tf.keras.layers.Dense(self.ff_dim, activation="relu"),
+            tf.keras.layers.Dense(self.embed_dim)
         ])
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
+        self.dropout1 = tf.keras.layers.Dropout(self.rate)
+        self.dropout2 = tf.keras.layers.Dropout(self.rate)
+        super(TransformerBlock, self).build(input_shape)
 
     def call(self, inputs, training=None):
         attn_output = self.att(inputs, inputs)
@@ -494,14 +506,6 @@ class TransformerBlock(tf.keras.layers.Layer):
         ffn_output = self.ffn(out1)
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
-
-    def build(self, input_shape):
-        # Явно строим слои с правильными размерностями
-        self.att.build(input_shape)
-        self.ffn.build(input_shape)
-        self.layernorm1.build(input_shape)
-        self.layernorm2.build(input_shape)
-        super(TransformerBlock, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -669,8 +673,13 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         x = Reshape((sequence_length, -1))(x)
     elif temporal_block_type == 'transformer':
-        # Используем трансформерный блок
-        x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=lstm_units*2, rate=dropout_rate)(x)
+        # Используем трансформерный блок с меньшим количеством голов
+        x = TransformerBlock(
+            embed_dim=lstm_units,
+            num_heads=2,  # Уменьшаем количество голов
+            ff_dim=lstm_units,  # Уменьшаем размер FF слоя
+            rate=dropout_rate
+        )(x)
     else:
         raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
     print(f"[DEBUG] Форма после временного блока: {x.shape}")
