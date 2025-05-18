@@ -505,10 +505,20 @@ class VideoDataLoader:
                 
                 if valid_sequence and len(frames) == sequence_length:
                     # Создаем последовательность с правильной формой
-                    logger.debug(f"Форма кадров перед stack: {[f.shape for f in frames]}")
-                    sequence = np.stack(frames)  # Форма: (sequence_length, height, width, channels)
-                    logger.debug(f"Форма последовательности после stack: {sequence.shape}")
-                    sequences.append(sequence)
+                    logger.debug(f"Форма кадров перед преобразованием: {[f.shape for f in frames]}")
+                    
+                    # Преобразуем кадры в numpy массив с правильной формой
+                    frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
+                    logger.debug(f"Форма последовательности после np.array: {frames_array.shape}")
+                    
+                    # Проверяем и исправляем форму если нужно
+                    if frames_array.shape != (sequence_length, self.frame_size, self.frame_size, 3):
+                        logger.warning(f"Обнаружена неправильная форма последовательности: {frames_array.shape}")
+                        logger.debug(f"Исправляем форму на {(sequence_length, self.frame_size, self.frame_size, 3)}")
+                        frames_array = frames_array.reshape(sequence_length, self.frame_size, self.frame_size, 3)
+                        logger.debug(f"Форма после исправления: {frames_array.shape}")
+                    
+                    sequences.append(frames_array)
                     sequence_labels.append(sequence_label)
                     valid_sequences += 1
                     
