@@ -45,7 +45,7 @@ import psutil
 from src.data_proc.data_augmentation import VideoAugmenter
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
-from src.data_proc.data_validation import validate_data_pipeline
+from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -397,11 +397,9 @@ def count_total_sequences(video_paths, sequence_length, step):
 
 def objective(trial):
     try:
-        print(f"\n[DEBUG] ===== ============================ ======")
-        print(f"\n[DEBUG] ===== Начало триала #{trial.number} =====")
-        print(f"\n[DEBUG] ===== ============================ ======")
+        print(f"\n[DEBUG] Начало триала #{trial.number}")
         
-        # Получаем гиперпараметры из trial
+        # Получаем гиперпараметры
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 256)
@@ -409,14 +407,6 @@ def objective(trial):
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
-        
-        print(f"[DEBUG] Параметры триала #{trial.number}:")
-        print(f"  - learning_rate: {learning_rate}")
-        print(f"  - dropout_rate: {dropout_rate}")
-        print(f"  - lstm_units: {lstm_units}")
-        print(f"  - rnn_type: {rnn_type}")
-        print(f"  - temporal_block_type: {temporal_block_type}")
-        print(f"  - clipnorm: {clipnorm}")
         
         # Создаем и компилируем модель
         model = create_and_compile_model(
@@ -434,16 +424,25 @@ def objective(trial):
         # Создаем callbacks
         callbacks = [
             tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=3,
-                restore_best_weights=True
+                monitor='val_f1_score',
+                patience=5,
+                restore_best_weights=True,
+                mode='max'
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
+                monitor='val_f1_score',
                 factor=0.5,
-                patience=2,
-                min_lr=1e-6
-            )
+                patience=3,
+                min_lr=1e-6,
+                mode='max'
+            ),
+            tf.keras.callbacks.ModelCheckpoint(
+                f'best_model_trial_{trial.number}.h5',
+                monitor='val_f1_score',
+                save_best_only=True,
+                mode='max'
+            ),
+            tf.keras.callbacks.CSVLogger(f'trial_{trial.number}_history.csv')
         ]
         
         # Обучаем модель
@@ -455,19 +454,21 @@ def objective(trial):
             verbose=1
         )
         
-        # Очищаем память после каждой попытки
+        # Очищаем память
         clear_memory()
         
-        # Возвращаем лучший F1-score или 0.0 если метрика не найдена
-        best_f1 = history.history.get('val_f1_score_element', [0.0])[-1]
-        return float(best_f1)
-        
+        # Возвращаем среднее значение F1-score за последние 3 эпохи
+        if 'val_f1_score' in history.history:
+            return np.mean(history.history['val_f1_score'][-3:])
+        else:
+            print("[WARNING] Метрика val_f1_score не найдена в истории")
+            return float('-inf')
+            
     except Exception as e:
         print(f"[ERROR] Ошибка в objective: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
-        return 0.0  # Возвращаем 0.0 вместо None
+        return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -591,22 +592,35 @@ def tune_hyperparameters(n_trials=None):
         train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
         if train_data is None or val_data is None:
             raise ValueError("Не удалось загрузить данные для обучения")
+            
+        # Проверяем данные
+        validate_training_data(train_data, val_data)
         
         # Ограничиваем количество попыток
-        n_trials = min(n_trials or Config.HYPERPARAM_TUNING['n_trials'], 20)
+        n_trials = min(n_trials or Config.HYPERPARAM_TUNING['n_trials'], 50)
         print(f"[DEBUG] Количество попыток: {n_trials}")
         
-        # Создаем study
+        # Создаем study с сохранением состояния
         study = optuna.create_study(
             direction='maximize',
-            study_name='hyperparameter_tuning'
+            study_name='hyperparameter_tuning',
+            storage='sqlite:///tuning.db',
+            load_if_exists=True,
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=5,
+                n_warmup_steps=10,
+                interval_steps=1
+            )
         )
         
         # Запускаем оптимизацию
         study.optimize(
             objective,
             n_trials=n_trials,
-            timeout=Config.HYPERPARAM_TUNING['timeout']
+            timeout=Config.HYPERPARAM_TUNING['timeout'],
+            callbacks=[
+                lambda study, trial: print(f"Trial {trial.number} finished with value {trial.value}")
+            ]
         )
         
         # Вычисляем общее время выполнения
@@ -623,6 +637,38 @@ def tune_hyperparameters(n_trials=None):
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         return None
+
+def validate_training_data(train_data, val_data):
+    """Проверка качества данных перед подбором гиперпараметров"""
+    try:
+        print("[DEBUG] Валидация данных...")
+        
+        # Проверка на NaN и Inf
+        if np.isnan(train_data[0]).any() or np.isinf(train_data[0]).any():
+            raise ValueError("Обнаружены NaN или Inf в обучающих данных")
+        if np.isnan(val_data[0]).any() or np.isinf(val_data[0]).any():
+            raise ValueError("Обнаружены NaN или Inf в валидационных данных")
+            
+        # Проверка размерностей
+        if train_data[0].shape[1:] != val_data[0].shape[1:]:
+            raise ValueError("Несоответствие размерностей обучающих и валидационных данных")
+            
+        # Проверка баланса классов
+        train_dist = np.bincount(train_data[1].argmax(axis=1))
+        val_dist = np.bincount(val_data[1].argmax(axis=1))
+        
+        train_ratio = np.min(train_dist) / np.max(train_dist)
+        val_ratio = np.min(val_dist) / np.max(val_dist)
+        
+        if train_ratio < 0.1:
+            print(f"[WARNING] Сильный дисбаланс классов в обучающих данных: {train_ratio:.2f}")
+        if val_ratio < 0.1:
+            print(f"[WARNING] Сильный дисбаланс классов в валидационных данных: {val_ratio:.2f}")
+            
+        print("[DEBUG] Валидация данных успешно завершена")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка валидации данных: {str(e)}")
+        raise

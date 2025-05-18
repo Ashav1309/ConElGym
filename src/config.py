@@ -116,10 +116,14 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 20,
-        'timeout': 3600,
+        'n_trials': 50,  # Увеличить количество попыток
+        'timeout': 7200,  # 2 часа
         'n_jobs': 1,
-        'epochs': 30  # Количество эпох для каждой попытки подбора гиперпараметров
+        'epochs': 50,  # Увеличить количество эпох
+        'early_stopping_patience': 5,
+        'min_epochs': 20,
+        'validation_split': 0.2,
+        'metric_threshold': 0.5
     }
     
     # Параметры градиентной аккумуляции
