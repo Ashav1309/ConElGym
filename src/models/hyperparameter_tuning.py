@@ -218,20 +218,24 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - RNN type: {rnn_type}")
     print(f"  - Temporal block type: {temporal_block_type}")
     
-    # Если class_weights не указаны, загружаем из конфига
-    if class_weights is None:
-        try:
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                class_weights = config['class_weights']
-        except:
-            print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
-            class_weights = {
-                'background': 1.0,
-                'action': 4.3
-            }
+    # Загружаем базовые веса из конфига
+    try:
+        with open(Config.CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+            base_weights = config['class_weights']
+    except:
+        print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
+        base_weights = {
+            'background': 1.0,
+            'action': 4.3
+        }
     
-    print(f"  - Class weights: {class_weights}")
+    # Если class_weights не указаны, используем базовые
+    if class_weights is None:
+        class_weights = base_weights
+    
+    print(f"  - Base class weights: {base_weights}")
+    print(f"  - Current class weights: {class_weights}")
     
     # Создаем модель
     if model_type == 'v3':
@@ -345,6 +349,32 @@ def objective(trial):
         batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
+        # Загружаем базовые веса из конфига
+        try:
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                base_weights = config['class_weights']
+        except:
+            print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
+            base_weights = {
+                'background': 1.0,
+                'action': 4.3
+            }
+        
+        # Подбираем веса с отклонением ±30% от базовых значений
+        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.3)
+        action_weight = base_weights['action'] * (1 + weight_deviation)
+        
+        class_weights = {
+            'background': 1.0,  # Фон всегда 1.0
+            'action': action_weight
+        }
+        
+        print(f"[DEBUG] Подобранные веса классов:")
+        print(f"  - Базовые веса: {base_weights}")
+        print(f"  - Отклонение: {weight_deviation:.2%}")
+        print(f"  - Итоговые веса: {class_weights}")
+        
         # Загружаем данные для текущего триала
         train_data, val_data = load_and_prepare_data(batch_size)
         
@@ -358,7 +388,8 @@ def objective(trial):
             model_type=model_type,
             rnn_type=rnn_type,
             temporal_block_type=temporal_block_type,
-            clipnorm=clipnorm
+            clipnorm=clipnorm,
+            class_weights=class_weights
         )
         
         # Создаем callbacks
