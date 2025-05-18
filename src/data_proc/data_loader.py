@@ -713,7 +713,7 @@ class VideoDataLoader:
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
-        Получение батча данных с пропуском некорректных кадров
+        Получение батча данных с исправлением некорректных форм
         """
         X_batch = []
         y_batch = []
@@ -738,14 +738,16 @@ class VideoDataLoader:
                     # Проверяем форму последовательности
                     if X_seq.shape != expected_shape:
                         logger.warning(f"Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
-                        empty_sequence_count += 1
-                        attempts += 1
-                        if empty_sequence_count >= max_empty_sequences:
-                            logger.warning(f"Слишком много последовательностей с неправильной формой ({empty_sequence_count})")
-                            if len(X_batch) > 0:
-                                break
-                        continue
-                        
+                        # Исправляем форму последовательности
+                        try:
+                            X_seq = X_seq.reshape(expected_shape)
+                            logger.debug(f"Форма после исправления: {X_seq.shape}")
+                        except Exception as e:
+                            logger.error(f"Не удалось исправить форму последовательности: {str(e)}")
+                            empty_sequence_count += 1
+                            attempts += 1
+                            continue
+                    
                     X_batch.append(X_seq)
                     y_batch.append(y_seq)
                     empty_sequence_count = 0
