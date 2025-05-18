@@ -135,8 +135,7 @@ def calculate_positive_examples() -> Tuple[int, int]:
     # Проверяем тренировочные данные
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
     for video_path in train_loader.video_paths:
-        annotation_path = os.path.join(Config.TRAIN_ANNOTATION_PATH, 
-                                     os.path.splitext(os.path.basename(video_path))[0] + '.json')
+        annotation_path = train_loader._get_annotation_path(video_path)
 
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:
@@ -168,8 +167,7 @@ def calculate_positive_examples() -> Tuple[int, int]:
     # Аналогично для валидационных данных
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
     for video_path in val_loader.video_paths:
-        annotation_path = os.path.join(Config.VALID_ANNOTATION_PATH, 
-                                     os.path.splitext(os.path.basename(video_path))[0] + '.json')
+        annotation_path = val_loader._get_annotation_path(video_path)
 
         if os.path.exists(annotation_path):
             with open(annotation_path, 'r') as f:

@@ -934,3 +934,30 @@ class VideoDataLoader:
             if video_path in self.video_cache:
                 del self.video_cache[video_path]
             return None 
+
+    def _get_annotation_path(self, video_path: str) -> str:
+        """
+        Получает путь к файлу аннотаций для видео
+        
+        Args:
+            video_path: путь к видео файлу
+            
+        Returns:
+            str: путь к файлу аннотаций
+        """
+        try:
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            
+            # Определяем, является ли видео тренировочным или валидационным
+            if 'train' in video_path:
+                annotation_path = os.path.join(Config.TRAIN_ANNOTATION_PATH, f"{video_name}.json")
+            elif 'valid' in video_path:
+                annotation_path = os.path.join(Config.VALID_ANNOTATION_PATH, f"{video_name}.json")
+            else:
+                raise ValueError(f"Неизвестный тип данных в пути: {video_path}")
+            
+            return annotation_path
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении пути к аннотациям: {str(e)}")
+            raise 
