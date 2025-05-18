@@ -9,7 +9,7 @@ from pathlib import Path
 
 class Config:
     # Пути
-    BASE_DIR = Path(__file__).parent.parent
+    BASE_DIR = Path(__file__).parent
     CONFIG_PATH = os.path.join(BASE_DIR, 'config_weights.json')
     MODEL_PATH = os.path.join(BASE_DIR, 'models', 'best_model.h5')
     
