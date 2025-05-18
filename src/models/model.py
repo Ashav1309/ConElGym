@@ -669,7 +669,11 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         x = TemporalConvNet(num_channels=[lstm_units, lstm_units//2], kernel_size=3, dropout=dropout_rate)(x)
     elif temporal_block_type == '3d_attention':
         # Преобразуем в 3D форму для пространственно-временного внимания
-        x = Reshape((sequence_length, int(x.shape[-1]**0.5), int(x.shape[-1]**0.5), 1))(x)
+        import numpy as np
+        spatial_dim = int(np.ceil(np.sqrt(x.shape[-1])))
+        new_features = spatial_dim * spatial_dim
+        x = Dense(new_features)(x)  # Приводим к квадрату
+        x = Reshape((sequence_length, spatial_dim, spatial_dim, 1))(x)
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         x = Reshape((sequence_length, -1))(x)
     elif temporal_block_type == 'transformer':
