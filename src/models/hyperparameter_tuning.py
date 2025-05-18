@@ -582,33 +582,25 @@ def save_tuning_results(study, total_time, n_trials):
         raise
 
 def tune_hyperparameters(n_trials=None):
+    """Подбор гиперпараметров с использованием Optuna"""
     try:
-        print("\n[DEBUG] Начало подбора гиперпараметров...")
-        start_time = time.time()
+        print("[DEBUG] Начало подбора гиперпараметров...")
         
         # Загружаем данные
-        print("[DEBUG] Загрузка данных...")
-        global train_data, val_data
         train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
-        if train_data is None or val_data is None:
-            raise ValueError("Не удалось загрузить данные для обучения")
-            
-        # Проверяем данные
+        
+        # Валидируем данные
         validate_training_data(train_data, val_data)
         
-        # Ограничиваем количество попыток
-        n_trials = min(n_trials or Config.HYPERPARAM_TUNING['n_trials'], 50)
-        print(f"[DEBUG] Количество попыток: {n_trials}")
-        
-        # Создаем study с сохранением состояния
+        # Создаем study
         study = optuna.create_study(
-            direction='maximize',
-            study_name='hyperparameter_tuning',
-            storage='sqlite:///tuning.db',
+            direction="maximize",
+            study_name="hyperparameter_tuning",
+            storage="sqlite:///tuning.db",
             load_if_exists=True,
             pruner=optuna.pruners.MedianPruner(
                 n_startup_trials=5,
-                n_warmup_steps=10,
+                n_warmup_steps=5,
                 interval_steps=1
             )
         )
@@ -616,59 +608,18 @@ def tune_hyperparameters(n_trials=None):
         # Запускаем оптимизацию
         study.optimize(
             objective,
-            n_trials=n_trials,
+            n_trials=n_trials or Config.HYPERPARAM_TUNING['n_trials'],
             timeout=Config.HYPERPARAM_TUNING['timeout'],
-            callbacks=[
-                lambda study, trial: print(f"Trial {trial.number} finished with value {trial.value}")
-            ]
+            callbacks=[lambda study, trial: print(f"Trial {trial.number} finished with value: {trial.value}")]
         )
         
-        # Вычисляем общее время выполнения
-        total_time = time.time() - start_time
-        
         # Сохраняем результаты
-        save_tuning_results(study, total_time, n_trials)
+        save_tuning_results(study, time.time() - start_time, n_trials)
         
-        return {
-            'best_params': study.best_params,
-            'best_value': study.best_value
-        }
+        return study.best_params
         
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
-        return None
-
-def validate_training_data(train_data, val_data):
-    """Проверка качества данных перед подбором гиперпараметров"""
-    try:
-        print("[DEBUG] Валидация данных...")
-        
-        # Проверка на NaN и Inf
-        if np.isnan(train_data[0]).any() or np.isinf(train_data[0]).any():
-            raise ValueError("Обнаружены NaN или Inf в обучающих данных")
-        if np.isnan(val_data[0]).any() or np.isinf(val_data[0]).any():
-            raise ValueError("Обнаружены NaN или Inf в валидационных данных")
-            
-        # Проверка размерностей
-        if train_data[0].shape[1:] != val_data[0].shape[1:]:
-            raise ValueError("Несоответствие размерностей обучающих и валидационных данных")
-            
-        # Проверка баланса классов
-        train_dist = np.bincount(train_data[1].argmax(axis=1))
-        val_dist = np.bincount(val_data[1].argmax(axis=1))
-        
-        train_ratio = np.min(train_dist) / np.max(train_dist)
-        val_ratio = np.min(val_dist) / np.max(val_dist)
-        
-        if train_ratio < 0.1:
-            print(f"[WARNING] Сильный дисбаланс классов в обучающих данных: {train_ratio:.2f}")
-        if val_ratio < 0.1:
-            print(f"[WARNING] Сильный дисбаланс классов в валидационных данных: {val_ratio:.2f}")
-            
-        print("[DEBUG] Валидация данных успешно завершена")
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка валидации данных: {str(e)}")
         raise

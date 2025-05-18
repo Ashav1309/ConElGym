@@ -280,4 +280,37 @@ def validate_data_pipeline() -> None:
     if val_batches < Config.MIN_VAL_BATCHES:
         raise ValueError(f"Недостаточно батчей для валидации: {val_batches} < {Config.MIN_VAL_BATCHES}")
     
-    logger.info("Валидация пайплайна данных успешно завершена") 
+    logger.info("Валидация пайплайна данных успешно завершена")
+
+def validate_training_data(train_data, val_data):
+    """Проверка качества данных перед подбором гиперпараметров"""
+    try:
+        print("[DEBUG] Валидация данных...")
+        
+        # Проверка на NaN и Inf
+        if np.isnan(train_data[0]).any() or np.isinf(train_data[0]).any():
+            raise ValueError("Обнаружены NaN или Inf в обучающих данных")
+        if np.isnan(val_data[0]).any() or np.isinf(val_data[0]).any():
+            raise ValueError("Обнаружены NaN или Inf в валидационных данных")
+            
+        # Проверка размерностей
+        if train_data[0].shape[1:] != val_data[0].shape[1:]:
+            raise ValueError("Несоответствие размерностей обучающих и валидационных данных")
+            
+        # Проверка баланса классов
+        train_dist = np.bincount(train_data[1].argmax(axis=1))
+        val_dist = np.bincount(val_data[1].argmax(axis=1))
+        
+        train_ratio = np.min(train_dist) / np.max(train_dist)
+        val_ratio = np.min(val_dist) / np.max(val_dist)
+        
+        if train_ratio < 0.1:
+            print(f"[WARNING] Сильный дисбаланс классов в обучающих данных: {train_ratio:.2f}")
+        if val_ratio < 0.1:
+            print(f"[WARNING] Сильный дисбаланс классов в валидационных данных: {val_ratio:.2f}")
+            
+        print("[DEBUG] Валидация данных успешно завершена")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка валидации данных: {str(e)}")
+        raise 
