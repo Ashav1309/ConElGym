@@ -643,7 +643,7 @@ class VideoDataLoader:
             print(f"  - Положительных примеров: {positive_count}")
             print(f"  - Отрицательных примеров: {negative_count}")
             print(f"  - Видео: {video_path}")
-            print(f"  - Уникальные метки: {np.unique(y_batch, axis=0, return_counts=True)}")
+            # print(f"  - Уникальные метки: {np.unique(y_batch, axis=0, return_counts=True)}")
             print(f"[DEBUG] Общая статистика обработки:")
             print(f"  - Обработано видео: {self.total_processed_videos}/{self.video_count} ({self.total_processed_videos/self.video_count*100:.1f}%)")
             print(f"  - Обработано кадров: {self.total_processed_frames}")
