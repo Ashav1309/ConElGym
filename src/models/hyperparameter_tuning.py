@@ -165,22 +165,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         # Устанавливаем размер батча в загрузчике
         data_loader.batch_size = batch_size
 
-        # Предварительно собираем все батчи
-        print("[DEBUG] Начинаем предварительный сбор батчей")
-        X_batches, y_batches = data_loader.prepare_batches(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            target_size=input_size
-        )
-
-        # Сохраняем батчи в загрузчике
-        data_loader.prepared_X_batches = X_batches
-        data_loader.prepared_y_batches = y_batches
-
-        print(f"[DEBUG] Собрано {len(X_batches)} батчей")
-        print(f"[DEBUG] RAM после сбора батчей: {psutil.virtual_memory().used / 1024**3:.2f} GB")
-
-        # Создаем dataset из предварительно собранных батчей
+        # Создаем dataset напрямую из генератора
         output_signature = (
             tf.TensorSpec(shape=(None, sequence_length, *input_size, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
@@ -194,6 +179,7 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         # Оптимизация производительности
         if is_training:
             dataset = dataset.shuffle(64)
+        dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
@@ -399,6 +385,9 @@ def objective(trial):
     try:
         print(f"\n[DEBUG] Начало триала #{trial.number}")
         
+        # Очищаем память перед началом триала
+        clear_memory()
+        
         # Получаем гиперпараметры
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
@@ -407,6 +396,13 @@ def objective(trial):
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
+        
+        # Подбираем размер батча с шагом 8
+        batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
+        print(f"[DEBUG] Выбран размер батча: {batch_size}")
+        
+        # Загружаем данные для текущего триала
+        train_data, val_data = load_and_prepare_data(batch_size)
         
         # Создаем и компилируем модель
         model = create_and_compile_model(
@@ -454,7 +450,7 @@ def objective(trial):
             verbose=1
         )
         
-        # Очищаем память
+        # Очищаем память после обучения
         clear_memory()
         
         # Возвращаем среднее значение F1-score за последние 3 эпохи
@@ -468,6 +464,7 @@ def objective(trial):
         print(f"[ERROR] Ошибка в objective: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
+        clear_memory()  # Очищаем память в случае ошибки
         return float('-inf')
 
 def save_tuning_results(study, total_time, n_trials):
@@ -586,18 +583,10 @@ def tune_hyperparameters(n_trials=None):
     try:
         print("[DEBUG] Начало подбора гиперпараметров...")
         
-        # Загружаем данные
-        train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
-        
-        # Валидируем данные
-        validate_training_data(train_data, val_data)
-        
         # Создаем study
         study = optuna.create_study(
             direction="maximize",
-            study_name="hyperparameter_tuning",
-            storage="sqlite:///tuning.db",
-            load_if_exists=True,
+            sampler=optuna.samplers.TPESampler(seed=42),
             pruner=optuna.pruners.MedianPruner(
                 n_startup_trials=5,
                 n_warmup_steps=5,
@@ -606,17 +595,19 @@ def tune_hyperparameters(n_trials=None):
         )
         
         # Запускаем оптимизацию
+        start_time = time.time()
         study.optimize(
             objective,
             n_trials=n_trials or Config.HYPERPARAM_TUNING['n_trials'],
             timeout=Config.HYPERPARAM_TUNING['timeout'],
-            callbacks=[lambda study, trial: print(f"Trial {trial.number} finished with value: {trial.value}")]
+            show_progress_bar=True
         )
+        total_time = time.time() - start_time
         
         # Сохраняем результаты
-        save_tuning_results(study, time.time() - start_time, n_trials)
+        save_tuning_results(study, total_time, n_trials or Config.HYPERPARAM_TUNING['n_trials'])
         
-        return study.best_params
+        return study
         
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
