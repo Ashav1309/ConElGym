@@ -446,16 +446,7 @@ class VideoDataLoader:
             background_dominant_sequences = []  # Последовательности с преобладанием фона
             background_dominant_labels = []
             
-            # Добавляем таймаут для чтения кадров
-            start_time = time.time()
-            timeout = 30  # 30 секунд на чтение кадров
-            
             for start_idx in range(0, total_frames - sequence_length + 1, step):
-                # Проверяем таймаут
-                if time.time() - start_time > timeout:
-                    logger.warning("Превышен таймаут чтения кадров")
-                    break
-                    
                 # Проверяем, не выходим ли за пределы видео
                 if start_idx + sequence_length > total_frames:
                     logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
@@ -828,10 +819,6 @@ class VideoDataLoader:
         # Ожидаемая форма последовательности
         expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
         
-        # Добавляем таймаут для сбора батча
-        start_time = time.time()
-        timeout = 60  # 60 секунд на сбор батча
-        
         logger.debug(f"[DEBUG] Начало сбора батча {self.current_batch + 1}/{self.total_batches}")
         logger.debug(f"[DEBUG] Всего батчей: {self.total_batches}")
         logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
@@ -839,8 +826,7 @@ class VideoDataLoader:
         
         while (len(X_batch) < batch_size and 
                (positive_count < max_positive or negative_count < max_negative) and 
-               attempts < max_attempts and
-               time.time() - start_time < timeout):
+               attempts < max_attempts):
             try:
                 X_seq, y_seq = self._get_sequence(
                     sequence_length=sequence_length,
@@ -923,15 +909,6 @@ class VideoDataLoader:
                     else:
                         return None, None
                 continue
-        
-        # Проверяем таймаут
-        if time.time() - start_time >= timeout:
-            logger.warning(f"Превышен таймаут сбора батча ({timeout} секунд)")
-            if len(X_batch) > 0:
-                logger.debug("Возвращаем неполный батч")
-            else:
-                logger.debug("Не удалось собрать батч")
-                return None, None
         
         if len(X_batch) == 0:
             return None, None
