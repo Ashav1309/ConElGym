@@ -318,8 +318,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             class_weights = config['class_weights']
         tf_class_weights = {
             0: class_weights['background'],
-            1: class_weights['action'],
-            2: class_weights['transition']
+            1: class_weights['action']
         }
 
         # Создаем загрузчики данных без ограничения на количество видео
