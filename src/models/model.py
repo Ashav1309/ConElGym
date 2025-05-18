@@ -125,6 +125,7 @@ class TemporalAttention(tf.keras.layers.Layer):
         
         # Убеждаемся, что выходная форма совпадает с входной
         context_vector = tf.reshape(context_vector, [batch_size, seq_len, features])
+        context_vector = tf.keras.layers.ReLU()(context_vector)
         
         return context_vector
 
@@ -472,6 +473,7 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         attn_out = self.attn(x_flat, x_flat)
         attn_out = self.norm(x_flat + attn_out)
         out = tf.reshape(attn_out, [b, t, h, w, c])
+        out = tf.keras.layers.ReLU()(out)
         return out
 
 class TransformerBlock(tf.keras.layers.Layer):
