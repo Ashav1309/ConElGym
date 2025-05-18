@@ -533,6 +533,24 @@ class TemporalConvNet(tf.keras.layers.Layer):
         })
         return config
 
+class SequenceFBetaScore(tf.keras.metrics.FBetaScore):
+    """
+    Адаптированная версия FBetaScore для работы с последовательностями
+    """
+    def __init__(self, name='sequence_fbeta', beta=1.0, threshold=0.5, **kwargs):
+        super().__init__(name=name, beta=beta, threshold=threshold, **kwargs)
+        
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # Преобразуем входные данные в 2D
+        batch_size = tf.shape(y_true)[0]
+        y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+        y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+        
+        if sample_weight is not None:
+            sample_weight = tf.reshape(sample_weight, [-1])
+            
+        super().update_state(y_true, y_pred, sample_weight)
+
 def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None):
     """
     Создание модели на основе MobileNetV3
@@ -609,7 +627,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         'accuracy',
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
+        SequenceFBetaScore(name='f1_score_action', beta=1.0, threshold=0.5)               # F1-score для класса "действие"
     ]
     
     model.compile(
