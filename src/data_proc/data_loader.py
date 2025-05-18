@@ -420,156 +420,122 @@ class VideoDataLoader:
         except Exception as e:
             raise InvalidAnnotationError(f"Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
 
-    def create_sequences(self, video_path: str, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def create_sequences(self, video_path: str, labels: np.ndarray, sequence_length: int = 12, 
+                        max_sequences: int = 200, step: int = 1) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Создание последовательностей кадров из видео
+        Создает последовательности кадров из видео.
         
         Args:
-            video_path: путь к видео файлу
-            sequence_length: длина последовательности
-            target_size: размер кадра
+            video_path: Путь к видео файлу
+            labels: Массив меток для каждого кадра
+            sequence_length: Длина последовательности
+            max_sequences: Максимальное количество последовательностей
+            step: Шаг между последовательностями
             
         Returns:
-            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: кортеж (последовательность, метки для всех кадров)
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: Последовательности и их метки
         """
         try:
-            logger.debug(f"Начало создания последовательностей для {video_path}")
-            
-            # Загружаем видео
+            # Загружаем видео и получаем количество кадров
             cap, total_frames = self.load_video(video_path)
+            logger.debug(f"Видео содержит {total_frames} кадров")
             
-            # Используем аннотации из кэша
-            frame_labels = self.annotations_cache[video_path]
-            
-            # Проверяем соответствие размеров
-            if len(frame_labels) != total_frames:
-                logger.error(f"Количество меток ({len(frame_labels)}) не соответствует количеству кадров ({total_frames})")
+            if cap is None:
+                return None, None
+                
+            # Проверяем, что у нас достаточно кадров
+            if total_frames < sequence_length:
+                logger.warning(f"Видео слишком короткое: {total_frames} кадров < {sequence_length} (требуемая длина последовательности)")
                 return None, None
             
-            # Вычисляем шаг для равномерного распределения последовательностей
-            max_sequences = min(self.max_sequences_per_video, 
-                              (total_frames - sequence_length + 1))
-            step = max(1, (total_frames - sequence_length) // max_sequences)
+            # Вычисляем оптимальный шаг для равномерного распределения
+            n_possible_sequences = (total_frames - sequence_length) // step + 1
+            if n_possible_sequences > max_sequences:
+                step = (total_frames - sequence_length) // (max_sequences - 1)
+                step = max(1, step)  # Убеждаемся, что шаг не меньше 1
+                logger.debug(f"Корректируем шаг до {step} для ограничения количества последовательностей")
             
-            logger.debug(f"Параметры создания последовательностей:")
-            logger.debug(f"  - Всего кадров: {total_frames}")
-            logger.debug(f"  - Длина последовательности: {sequence_length}")
-            logger.debug(f"  - Максимум последовательностей: {max_sequences}")
-            logger.debug(f"  - Шаг между последовательностями: {step}")
-            
-            # Инициализируем кэш использованных кадров
-            if video_path not in self.used_frames_cache:
-                self.used_frames_cache[video_path] = set()
-            
+            sequences = []
+            sequence_labels = []
             valid_sequences = 0
             skipped_sequences = 0
             
             # Создаем последовательности
-            sequences = []
-            sequence_labels = []
-            
-            # Проверяем все возможные начальные позиции
             for start_idx in range(0, total_frames - sequence_length + 1, step):
                 # Проверяем, не выходим ли за пределы видео
                 if start_idx + sequence_length > total_frames:
-                    logger.debug(f"Пропуск последовательности: выход за пределы видео (кадр {start_idx + sequence_length} > {total_frames})")
+                    logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
                     skipped_sequences += 1
                     continue
                 
-                # Проверяем, все ли кадры в последовательности доступны
-                if any(frame_idx >= total_frames for frame_idx in range(start_idx, start_idx + sequence_length)):
-                    logger.debug(f"Пропуск последовательности: некоторые кадры недоступны (кадры {start_idx}-{start_idx + sequence_length - 1})")
+                # Проверяем, есть ли хотя бы один кадр с действием в последовательности
+                sequence_label = labels[start_idx:start_idx + sequence_length]
+                if not np.any(sequence_label[:, 1] == 1):  # Проверяем наличие действия
                     skipped_sequences += 1
                     continue
                 
-                # Создаем последовательность
-                sequence = []
-                cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                # Читаем кадры для последовательности
+                frames = []
                 valid_sequence = True
                 
                 for frame_idx in range(start_idx, start_idx + sequence_length):
-                    ret, frame = cap.read()
-                    if not ret:
-                        logger.warning(f"Не удалось прочитать кадр на позиции {frame_idx}")
+                    # Проверяем, не выходим ли за пределы видео
+                    if frame_idx >= total_frames:
+                        logger.warning(f"Попытка чтения кадра {frame_idx} за пределами видео (всего кадров: {total_frames})")
                         valid_sequence = False
                         skipped_sequences += 1
                         break
                     
-                    if target_size:
-                        try:
-                            frame = cv2.resize(frame, target_size)
-                        except Exception as e:
-                            logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
-                            valid_sequence = False
-                            skipped_sequences += 1
-                            break
-                    
-                    # Добавляем кадр в кэш успешно прочитанных
-                    self.used_frames_cache[video_path].add(frame_idx)
-                    sequence.append(frame)
-                
-                if valid_sequence:
-                    # Проверяем форму последовательности
-                    sequence_array = np.stack(sequence)
-                    expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
-                    
-                    logger.debug(f"Форма текущей последовательности: {sequence_array.shape}")
-                    logger.debug(f"Ожидаемая форма: {expected_shape}")
-                    
-                    if sequence_array.shape != expected_shape:
-                        logger.warning(f"Некорректная форма последовательности: {sequence_array.shape}, ожидалось: {expected_shape}")
+                    ret, frame = cap.read()
+                    if not ret:
+                        logger.warning(f"Не удалось прочитать кадр на позиции {frame_idx} (всего кадров: {total_frames})")
+                        valid_sequence = False
                         skipped_sequences += 1
-                        continue
+                        break
                     
-                    # Добавляем последовательность и метки
-                    sequences.append(sequence_array)
-                    sequence_labels.append(frame_labels[start_idx:start_idx + sequence_length])
+                    try:
+                        frame = cv2.resize(frame, (self.frame_size, self.frame_size))
+                        frames.append(frame)
+                    except Exception as e:
+                        logger.error(f"Ошибка при изменении размера кадра {frame_idx}: {str(e)}")
+                        valid_sequence = False
+                        skipped_sequences += 1
+                        break
+                
+                if valid_sequence and len(frames) == sequence_length:
+                    sequence = np.stack(frames)
+                    sequences.append(sequence)
+                    sequence_labels.append(sequence_label)
                     valid_sequences += 1
                     
-                    logger.debug(f"Успешно создана последовательность {valid_sequences}:")
-                    logger.debug(f"  - Форма последовательности: {sequence_array.shape}")
-                    logger.debug(f"  - Форма меток: {sequence_labels[-1].shape}")
-                
-                # Ограничиваем количество последовательностей
-                if len(sequences) >= max_sequences:
-                    break
+                    if valid_sequences >= max_sequences:
+                        logger.debug(f"Достигнуто максимальное количество последовательностей ({max_sequences})")
+                        break
+            
+            cap.release()
             
             if not sequences:
-                logger.warning(f"Не удалось создать ни одной последовательности для {video_path}")
+                logger.warning("Не удалось создать ни одной последовательности")
                 return None, None
             
-            logger.debug(f"Статистика создания последовательностей:")
-            logger.debug(f"  - Создано последовательностей: {valid_sequences}")
-            logger.debug(f"  - Пропущено последовательностей: {skipped_sequences}")
-            logger.debug(f"  - Процент успешных: {(valid_sequences/(valid_sequences+skipped_sequences))*100:.1f}%")
+            # Преобразуем списки в numpy массивы
+            sequences = np.stack(sequences)
+            sequence_labels = np.stack(sequence_labels)
             
-            # Преобразуем списки в массивы
-            sequences_array = np.stack(sequences)  # Форма: (n_sequences, sequence_length, height, width, channels)
-            labels_array = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
+            # Проверяем форму последовательностей
+            expected_shape = (len(sequences), sequence_length, self.frame_size, self.frame_size, 3)
+            if sequences.shape != expected_shape:
+                logger.warning(f"Неправильная форма последовательностей: ожидалось {expected_shape}, получено {sequences.shape}")
             
-            # Проверяем финальную форму
-            logger.debug(f"Финальная форма последовательностей: {sequences_array.shape}")
-            logger.debug(f"Финальная форма меток: {labels_array.shape}")
+            logger.debug(f"Создано последовательностей: {valid_sequences}, пропущено: {skipped_sequences}")
+            logger.debug(f"Форма последовательностей: {sequences.shape}")
+            logger.debug(f"Форма меток: {sequence_labels.shape}")
             
-            # Проверяем, что форма соответствует ожидаемой
-            expected_sequences_shape = (len(sequences), sequence_length, *target_size, 3) if target_size else (len(sequences), sequence_length)
-            if sequences_array.shape != expected_sequences_shape:
-                logger.error(f"Некорректная финальная форма последовательностей: {sequences_array.shape}, ожидалось: {expected_sequences_shape}")
-                return None, None
-            
-            # Возвращаем только одну последовательность
-            if len(sequences) > 0:
-                logger.debug(f"Возвращаем последовательность с формой: {sequences[0].shape}")
-                logger.debug(f"Возвращаем метки с формой: {sequence_labels[0].shape}")
-                return sequences[0], sequence_labels[0]
-            return None, None
+            return sequences, sequence_labels
             
         except Exception as e:
-            logger.error(f"Ошибка при создании последовательностей для {video_path}: {str(e)}")
+            logger.error(f"Ошибка при создании последовательностей: {str(e)}")
             return None, None
-        finally:
-            if cap is not None:
-                cap.release()
 
     def _get_random_video(self) -> Optional[str]:
         """
@@ -670,8 +636,9 @@ class VideoDataLoader:
         try:
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
+                labels=self.annotations_cache[video_path],
                 sequence_length=sequence_length,
-                target_size=target_size
+                max_sequences=self.max_sequences_per_video
             )
 
             if X_seq is not None and y_seq is not None:
