@@ -495,16 +495,33 @@ class VideoDataLoader:
             cap.release()
             
             # Балансируем количество последовательностей в каждой группе
-            max_per_group = max_sequences // 2
-            if len(action_dominant_sequences) > max_per_group:
-                indices = np.random.choice(len(action_dominant_sequences), max_per_group, replace=False)
-                action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
-                action_dominant_labels = [action_dominant_labels[i] for i in indices]
-            
-            if len(background_dominant_sequences) > max_per_group:
-                indices = np.random.choice(len(background_dominant_sequences), max_per_group, replace=False)
-                background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
-                background_dominant_labels = [background_dominant_labels[i] for i in indices]
+            if force_positive:
+                # Для тренировочного датасета: 75% положительных, 25% отрицательных
+                positive_ratio = 0.75
+                max_positive = int(max_sequences * positive_ratio)
+                max_negative = max_sequences - max_positive
+                
+                if len(action_dominant_sequences) > max_positive:
+                    indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
+                    action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
+                    action_dominant_labels = [action_dominant_labels[i] for i in indices]
+                
+                if len(background_dominant_sequences) > max_negative:
+                    indices = np.random.choice(len(background_dominant_sequences), max_negative, replace=False)
+                    background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
+                    background_dominant_labels = [background_dominant_labels[i] for i in indices]
+            else:
+                # Для валидационного датасета: равное количество
+                max_per_group = max_sequences // 2
+                if len(action_dominant_sequences) > max_per_group:
+                    indices = np.random.choice(len(action_dominant_sequences), max_per_group, replace=False)
+                    action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
+                    action_dominant_labels = [action_dominant_labels[i] for i in indices]
+                
+                if len(background_dominant_sequences) > max_per_group:
+                    indices = np.random.choice(len(background_dominant_sequences), max_per_group, replace=False)
+                    background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
+                    background_dominant_labels = [background_dominant_labels[i] for i in indices]
             
             # Объединяем последовательности
             all_sequences = action_dominant_sequences + background_dominant_sequences
