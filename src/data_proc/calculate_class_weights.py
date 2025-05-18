@@ -226,16 +226,23 @@ def calculate_dataset_weights():
                             frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
                             video_stats[video_name]['action_frames'] += 1
                 
-                # Отмечаем переходы
-                if start_frame < len(frame_labels):
-                    if frame_labels[start_frame, 2] == 0:  # Если кадр еще не помечен как переход
-                        frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
-                        video_stats[video_name]['transition_frames'] += 1
-                if end_frame < len(frame_labels):
-                    if frame_labels[end_frame, 2] == 0:  # Если кадр еще не помечен как переход
-                        frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
-                        video_stats[video_name]['transition_frames'] += 1
-        
+                # Отмечаем переходы (25 кадров до и после)
+                transition_window = 25
+                
+                # Переходы до действия
+                for i in range(max(0, start_frame - transition_window), start_frame):
+                    if frame_labels[i, 1] == 0:  # Пропускаем кадры действия
+                        if frame_labels[i, 2] == 0:  # Если кадр еще не помечен как переход
+                            frame_labels[i, 2] = 1  # [0,0,1] - переход
+                            video_stats[video_name]['transition_frames'] += 1
+                
+                # Переходы после действия
+                for i in range(end_frame + 1, min(len(frame_labels), end_frame + transition_window + 1)):
+                    if frame_labels[i, 1] == 0:  # Пропускаем кадры действия
+                        if frame_labels[i, 2] == 0:  # Если кадр еще не помечен как переход
+                            frame_labels[i, 2] = 1  # [0,0,1] - переход
+                            video_stats[video_name]['transition_frames'] += 1
+            
             # Считаем фоновые кадры
             # Сначала считаем уникальные кадры действия и перехода
             action_frames = np.sum(frame_labels[:, 1] == 1)  # Количество кадров действия

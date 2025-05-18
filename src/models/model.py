@@ -597,17 +597,33 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         def __init__(self, name, class_id, threshold=0.5):
             super().__init__(name=name, threshold=threshold)
             self.class_id = class_id
+            
         def update_state(self, y_true, y_pred, sample_weight=None):
-            y_true = tf.argmax(y_true, axis=-1)
-            y_pred = tf.argmax(y_pred, axis=-1)
-            y_true = tf.reshape(y_true, [-1])
-            y_pred = tf.reshape(y_pred, [-1])
-            y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
-            y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
+            # Преобразуем входные данные в правильный формат
+            y_true = tf.cast(y_true, tf.float32)
+            y_pred = tf.cast(y_pred, tf.float32)
+            
+            # Убеждаемся, что размерности соответствуют ожидаемым
+            if len(y_true.shape) == 3:  # (batch, sequence, classes)
+                y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+                y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+            
+            # Берем только нужный класс
+            y_true = y_true[:, self.class_id]
+            y_pred = y_pred[:, self.class_id]
+            
+            # Применяем порог для получения бинарных предсказаний
+            y_pred = tf.cast(y_pred > 0.5, tf.float32)
+            
+            # Добавляем размерность для совместимости с F1Score
+            y_true = tf.expand_dims(y_true, axis=-1)
+            y_pred = tf.expand_dims(y_pred, axis=-1)
+            
             return super().update_state(y_true, y_pred, sample_weight)
+        
         def result(self):
             result = super().result()
-            return result[self.class_id]
+            return result
     metrics.extend([
         F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
         F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
@@ -709,17 +725,31 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
             self.class_id = class_id
             
         def update_state(self, y_true, y_pred, sample_weight=None):
-            y_true = tf.argmax(y_true, axis=-1)
-            y_pred = tf.argmax(y_pred, axis=-1)
-            y_true = tf.reshape(y_true, [-1])
-            y_pred = tf.reshape(y_pred, [-1])
-            y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)
-            y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)
+            # Преобразуем входные данные в правильный формат
+            y_true = tf.cast(y_true, tf.float32)
+            y_pred = tf.cast(y_pred, tf.float32)
+            
+            # Убеждаемся, что размерности соответствуют ожидаемым
+            if len(y_true.shape) == 3:  # (batch, sequence, classes)
+                y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+                y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+            
+            # Берем только нужный класс
+            y_true = y_true[:, self.class_id]
+            y_pred = y_pred[:, self.class_id]
+            
+            # Применяем порог для получения бинарных предсказаний
+            y_pred = tf.cast(y_pred > 0.5, tf.float32)
+            
+            # Добавляем размерность для совместимости с F1Score
+            y_true = tf.expand_dims(y_true, axis=-1)
+            y_pred = tf.expand_dims(y_pred, axis=-1)
+            
             return super().update_state(y_true, y_pred, sample_weight)
         
         def result(self):
             result = super().result()
-            return result[self.class_id]
+            return result
     
     # Добавляем F1Score для каждого класса
     metrics.extend([
