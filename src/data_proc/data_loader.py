@@ -444,7 +444,7 @@ class VideoDataLoader:
                 
                 # Проверяем, есть ли хотя бы один кадр с действием в последовательности
                 sequence_label = labels[start_idx:start_idx + sequence_length]
-                if not np.any(sequence_label[:, 1] == 1):  # Проверяем наличие действия
+                if force_positive and not np.any(sequence_label[:, 1] == 1):  # Проверяем наличие действия только если force_positive=True
                     continue
                 
                 # Читаем кадры для последовательности
@@ -744,8 +744,8 @@ class VideoDataLoader:
                 X_batch=X_batch_array,
                 y_batch=y_batch_array,
                 batch_number=self.current_batch,
-                positive_count=sum(1 for y in y_batch if np.any(y == 1)),
-                negative_count=sum(1 for y in y_batch if not np.any(y == 1)),
+                positive_count=sum(1 for y in y_batch if np.any(y[:, 1] == 1)),  # Считаем последовательности с действиями
+                negative_count=sum(1 for y in y_batch if not np.any(y[:, 1] == 1)),  # Считаем последовательности без действий
                 video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
             )
             

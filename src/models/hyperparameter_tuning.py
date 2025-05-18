@@ -96,26 +96,30 @@ def load_and_prepare_data(batch_size):
         print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
         print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
         
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=Config.MAX_VIDEOS)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=Config.MAX_VIDEOS)
+        # Уменьшаем max_videos для более частой смены видео
+        max_videos = min(Config.MAX_VIDEOS, 3)  # Ограничиваем количество видео для лучшего баланса
+        print(f"[DEBUG] Используем max_videos={max_videos} для лучшего баланса классов")
+        
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=max_videos)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=max_videos)
         print("[DEBUG] VideoDataLoader создан успешно")
         
         target_size = Config.INPUT_SIZE
         
-        # Создание оптимизированных pipeline данных
+        # Создание оптимизированных pipeline данных с балансировкой классов
         train_dataset = create_tuning_data_pipeline(
             train_loader, 
             Config.SEQUENCE_LENGTH, 
             batch_size, 
             Config.INPUT_SIZE, 
-            force_positive=True
+            force_positive=False  # Отключаем принудительное использование положительных примеров
         )
         val_dataset = create_tuning_data_pipeline(
             val_loader, 
             Config.SEQUENCE_LENGTH, 
             batch_size, 
             Config.INPUT_SIZE, 
-            force_positive=False
+            force_positive=False  # Отключаем принудительное использование положительных примеров
         )
         
         return train_dataset, val_dataset
@@ -148,7 +152,7 @@ def objective(trial):
         clear_memory()
         
         # Получаем гиперпараметры
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)  # Уменьшаем диапазон learning rate
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 256)
         model_type = Config.MODEL_TYPE
@@ -156,8 +160,8 @@ def objective(trial):
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
-        # Подбираем размер батча с шагом 8
-        batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
+        # Подбираем размер батча с шагом 16 для лучшей стабильности
+        batch_size = trial.suggest_int('batch_size', 16, 64, step=16)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
         # Загружаем базовые веса из config_weights.json
@@ -174,8 +178,8 @@ def objective(trial):
                 'action': 10 
             }
         
-        # Подбираем веса с отклонением только в сторону уменьшения на 30% от базовых значений
-        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.0)
+        # Подбираем веса с меньшим отклонением для более стабильного обучения
+        weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.0)
         action_weight = base_weights['action'] * (1 + weight_deviation)
         
         class_weights = {
