@@ -336,114 +336,65 @@ class VideoDataLoader:
 
     def _load_annotations(self, video_path: str) -> np.ndarray:
         """
-        Загрузка аннотаций для видео с кэшированием
-        
-        Args:
-            video_path: путь к видео файлу
-            
-        Returns:
-            np.ndarray: массив меток для каждого кадра (three-hot encoding)
-            [1,0,0] - фон
-            [0,1,0] - действие
-            [0,0,1] - переход (начало/конец)
-            
-        Raises:
-            InvalidAnnotationError: если формат аннотаций некорректен
+        Загружает аннотации для видео и создает метки кадров
         """
         try:
-            # Проверяем кэш
-            print(f"[DEBUG] Проверяем кэш")
-            if video_path in self.annotations_cache:
-                print(f"[DEBUG] Используем кэшированные аннотации для {os.path.basename(video_path)}")
-                print(f"[DEBUG] Размер кэшированных аннотаций: {self.annotations_cache[video_path].shape}")
-                print(f"[DEBUG] Сумма меток в кэше: {np.sum(self.annotations_cache[video_path])}")
-                return self.annotations_cache[video_path]
-            else:
-                print(f"[DEBUG] Кэш не найден")
-
+            # Получаем информацию о видео
+            video_info = self._get_video_info(video_path)
+            total_frames = video_info.total_frames
+            
+            # Создаем пустые метки (все кадры - фон)
+            labels = np.zeros((total_frames, 2))  # 2 класса: фон, действие
+            labels[:, 0] = 1  # По умолчанию все кадры - фон
+            
             # Получаем путь к файлу аннотаций
-            base_name = os.path.splitext(os.path.basename(video_path))[0]
-            annotation_path = os.path.join(os.path.dirname(video_path), 'annotations', f'{base_name}.json')
+            annotation_path = self._get_annotation_path(video_path)
             
-            print(f"[DEBUG] Загрузка аннотаций из: {annotation_path}")
+            # Проверяем наличие аннотаций в кэше
+            if video_path in self.annotations_cache:
+                print(f"[DEBUG] Аннотации для {os.path.basename(video_path)} найдены в кэше")
+                return self.annotations_cache[video_path]
             
+            # Если файл аннотаций не существует, возвращаем пустые метки
             if not os.path.exists(annotation_path):
-                logger.warning(f"Аннотации не найдены для {video_path}")
-                empty_labels = np.zeros((self._get_video_info(video_path).total_frames, 3))
-                self.annotations_cache[video_path] = empty_labels
+                print(f"[DEBUG] Файл аннотаций не найден: {annotation_path}")
+                empty_labels = np.zeros((total_frames, 2))
+                empty_labels[:, 0] = 1  # Все кадры - фон
                 return empty_labels
             
+            # Загружаем аннотации
             with open(annotation_path, 'r') as f:
                 annotations = json.load(f)
             
-            print(f"[DEBUG] Содержимое файла аннотаций: {json.dumps(annotations, indent=2)}")
-            
-            # Проверяем формат аннотаций
-            if not isinstance(annotations, dict) or 'annotations' not in annotations:
-                raise InvalidAnnotationError(f"Некорректный формат аннотаций в {annotation_path}")
-            
-            # Создаем массив меток
-            total_frames = self._get_video_info(video_path).total_frames
-            labels = np.zeros((total_frames, 3))  # 3 класса: фон, действие, переход
-            
-            # Сначала помечаем все кадры как фоновые
-            labels[:, 0] = 1
-            
-            # Заполняем метки
-            print(f"[DEBUG] Обработка аннотаций:")
-            for i, annotation in enumerate(annotations['annotations']):
-                if not isinstance(annotation, dict) or 'start_frame' not in annotation or 'end_frame' not in annotation:
-                    raise InvalidAnnotationError(f"Некорректный формат аннотации {i} в {annotation_path}")
+            # Обрабатываем каждую аннотацию
+            for i, ann in enumerate(annotations['annotations'], 1):
+                start_frame = ann['start_frame']
+                end_frame = ann['end_frame']
                 
-                start_frame = annotation['start_frame']
-                end_frame = annotation['end_frame']
+                # Проверяем валидность кадров
+                if start_frame >= total_frames or end_frame >= total_frames:
+                    print(f"[WARNING] Пропуск аннотации {i}: кадры {start_frame}-{end_frame} выходят за пределы видео ({total_frames} кадров)")
+                    continue
                 
-                print(f"[DEBUG] Аннотация {i+1}: кадры {start_frame}-{end_frame}")
-                
-                if not isinstance(start_frame, int) or not isinstance(end_frame, int):
-                    raise InvalidAnnotationError(f"Некорректные индексы кадров в аннотации {i}")
-                
-                if start_frame < 0 or end_frame >= total_frames:
-                    raise InvalidAnnotationError(f"Индексы кадров вне диапазона в аннотации {i}")
-                
-                # Отмечаем действие
-                labels[start_frame:end_frame + 1, 1] = 1  # [0,1,0] - действие
+                # Помечаем кадры действия
+                labels[start_frame:end_frame + 1, 1] = 1  # [0,1] - действие
                 labels[start_frame:end_frame + 1, 0] = 0  # Убираем метку фона для кадров действия
-                
-                # Отмечаем переходы
-                labels[start_frame, 2] = 1  # [0,0,1] - начало
-                labels[end_frame, 2] = 1    # [0,0,1] - конец
             
-            # Считаем статистику
+            # Подсчитываем статистику
             action_frames = np.sum(labels[:, 1] == 1)  # Количество кадров действия
-            transition_frames = np.sum(labels[:, 2] == 1)  # Количество кадров перехода
             background_frames = np.sum(labels[:, 0] == 1)  # Количество фоновых кадров
-            overlapping_frames = np.sum((labels[:, 1] == 1) & (labels[:, 2] == 1))  # Кадры, которые являются и действием, и переходом
             
             print(f"[DEBUG] Статистика аннотаций:")
             print(f"  - Всего кадров: {total_frames}")
             print(f"  - Фоновых кадров: {background_frames}")
             print(f"  - Кадров действия: {action_frames}")
-            print(f"  - Кадров перехода: {transition_frames}")
-            print(f"  - Перекрывающихся кадров: {overlapping_frames}")
             
+            # Проверяем метки
             print(f"[DEBUG] Проверка меток кадров:")
             print(f"  - Форма labels: {labels.shape}")
             print(f"  - Уникальные значения в labels[:, 0]: {np.unique(labels[:, 0])}")
             print(f"  - Уникальные значения в labels[:, 1]: {np.unique(labels[:, 1])}")
-            print(f"  - Уникальные значения в labels[:, 2]: {np.unique(labels[:, 2])}")
             print(f"  - Сумма всех меток: {np.sum(labels)}")
-
-            # Выводим информацию о прогрессе обработки видео
-            current_video_number = len(self.processed_video_names)
-            remaining_videos = self.total_videos - current_video_number
-            print(f"[DEBUG] Прогресс обработки видео: {current_video_number}/{self.total_videos} ({(current_video_number/self.total_videos)*100:.1f}%), осталось: {remaining_videos}")
-            
-            # Выводим информацию о прогрессе обработки аннотаций
-            total_annotations = len(annotations['annotations'])
-            processed_annotations = sum(1 for v in self.annotations_cache.values() if np.any(v[:, 1] == 1))  # Считаем только видео с действиями
-            print(f"[DEBUG] Прогресс обработки аннотаций: {processed_annotations}/{self.total_videos} ({(processed_annotations/self.total_videos)*100:.1f}%)")
-            print(f"[DEBUG] Количество аннотаций в текущем видео: {total_annotations}")
             
             # Сохраняем в кэш
             self.annotations_cache[video_path] = labels
@@ -451,10 +402,12 @@ class VideoDataLoader:
             
             return labels
             
-        except json.JSONDecodeError as e:
-            raise InvalidAnnotationError(f"Ошибка при чтении JSON файла {annotation_path}: {str(e)}")
         except Exception as e:
-            raise InvalidAnnotationError(f"Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
+            print(f"[ERROR] Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
+            # В случае ошибки возвращаем пустые метки
+            empty_labels = np.zeros((total_frames, 2))
+            empty_labels[:, 0] = 1  # Все кадры - фон
+            return empty_labels
 
     def create_sequences(self, video_path: str, labels: np.ndarray, sequence_length: int = 12, 
                         max_sequences: int = 200, step: int = 1) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
@@ -618,14 +571,14 @@ class VideoDataLoader:
                 labels = self._load_annotations(video_path)  # Сохраняем результат загрузки
                 if labels is None:  # Если загрузка не удалась
                     total_frames = self._get_video_info(video_path).total_frames
-                    empty_labels = np.zeros((total_frames, 3))
+                    empty_labels = np.zeros((total_frames, 2))
                     self.annotations_cache[video_path] = empty_labels
                     return None, None
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
                 # Создаем пустые аннотации и добавляем в кэш
                 total_frames = self._get_video_info(video_path).total_frames
-                empty_labels = np.zeros((total_frames, 3))
+                empty_labels = np.zeros((total_frames, 2))
                 self.annotations_cache[video_path] = empty_labels
                 return None, None
 

@@ -20,163 +20,175 @@ class AnnotationValidator:
     def __init__(self, video_path: str, annotation_path: str):
         self.video_path = video_path
         self.annotation_path = annotation_path
-        self.video_name = os.path.basename(video_path)
-        self.cap = None
-        self.total_frames = 0
-        self.annotations = None
-        self.frame_labels = None
+        self.video_name = os.path.splitext(os.path.basename(video_path))[0]
+        self.logger = logging.getLogger(__name__)
 
     def validate(self) -> ValidationResult:
-        """
-        Выполняет полную валидацию аннотаций видео
-        """
-        errors = []
-        warnings = []
-        stats = {
-            'total_frames': 0,
-            'action_frames': 0,
-            'transition_frames': 0,
-            'background_frames': 0,
-            'overlaps': 0,
-            'class_distribution': {}
-        }
-
+        """Выполняет все проверки аннотаций"""
         try:
-            # Проверка существования файлов
-            if not os.path.exists(self.video_path):
-                errors.append(f"Видео не найдено: {self.video_path}")
-                return ValidationResult(False, errors, warnings, stats)
-            
-            if not os.path.exists(self.annotation_path):
-                errors.append(f"Файл аннотаций не найден: {self.annotation_path}")
-                return ValidationResult(False, errors, warnings, stats)
+            # Проверяем существование файлов
+            if not self._check_files_exist():
+                return ValidationResult(False, "Файлы не найдены")
 
-            # Загрузка видео
-            self.cap = cv2.VideoCapture(self.video_path)
-            if not self.cap.isOpened():
-                errors.append(f"Не удалось открыть видео: {self.video_path}")
-                return ValidationResult(False, errors, warnings, stats)
-            
-            self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            stats['total_frames'] = self.total_frames
+            # Загружаем данные
+            video_data = self._load_video()
+            annotation_data = self._load_annotations()
+            if video_data is None or annotation_data is None:
+                return ValidationResult(False, "Ошибка загрузки данных")
 
-            # Загрузка и валидация JSON
-            try:
-                with open(self.annotation_path, 'r', encoding='utf-8') as f:
-                    self.annotations = json.load(f)
-            except json.JSONDecodeError as e:
-                errors.append(f"Ошибка в формате JSON: {str(e)}")
-                return ValidationResult(False, errors, warnings, stats)
+            # Проверяем структуру аннотаций
+            if not self._validate_annotation_structure(annotation_data):
+                return ValidationResult(False, "Неверная структура аннотаций")
 
-            # Проверка структуры аннотаций
-            if not isinstance(self.annotations, dict):
-                errors.append("Аннотации должны быть объектом")
-                return ValidationResult(False, errors, warnings, stats)
+            # Проверяем временные метки
+            if not self._validate_timestamps(annotation_data, video_data):
+                return ValidationResult(False, "Ошибка в временных метках")
 
-            if 'annotations' not in self.annotations:
-                errors.append("Отсутствует поле 'annotations'")
-                return ValidationResult(False, errors, warnings, stats)
+            # Проверяем перекрытия
+            if not self._check_overlaps(annotation_data):
+                return ValidationResult(False, "Обнаружены перекрытия в аннотациях")
 
-            if not isinstance(self.annotations['annotations'], list):
-                errors.append("Поле 'annotations' должно быть массивом")
-                return ValidationResult(False, errors, warnings, stats)
+            # Проверяем статистику
+            stats = self._calculate_statistics(annotation_data, video_data)
+            if not self._validate_statistics(stats):
+                return ValidationResult(False, "Статистика не соответствует требованиям")
 
-            # Инициализация массива меток
-            self.frame_labels = np.zeros((self.total_frames, 3), dtype=np.float32)
-
-            # Проверка каждой аннотации
-            for i, ann in enumerate(self.annotations['annotations']):
-                # Проверка обязательных полей
-                required_fields = ['start_frame', 'end_frame', 'element_type']
-                for field in required_fields:
-                    if field not in ann:
-                        errors.append(f"Аннотация #{i+1}: отсутствует обязательное поле '{field}'")
-                        continue
-
-                # Проверка типов данных
-                if not isinstance(ann['start_frame'], int) or not isinstance(ann['end_frame'], int):
-                    errors.append(f"Аннотация #{i+1}: start_frame и end_frame должны быть целыми числами")
-                    continue
-
-                if not isinstance(ann['element_type'], str):
-                    errors.append(f"Аннотация #{i+1}: element_type должен быть строкой")
-                    continue
-
-                # Проверка диапазона кадров
-                if ann['start_frame'] < 0 or ann['end_frame'] >= self.total_frames:
-                    errors.append(f"Аннотация #{i+1}: кадры вне диапазона [0, {self.total_frames-1}]")
-                    continue
-
-                if ann['start_frame'] > ann['end_frame']:
-                    errors.append(f"Аннотация #{i+1}: start_frame > end_frame")
-                    continue
-
-                # Отмечаем метки
-                start, end = ann['start_frame'], ann['end_frame']
-                self.frame_labels[start:end+1, 1] = 1  # Действие
-                self.frame_labels[start, 2] = 1  # Начало
-                self.frame_labels[end, 2] = 1  # Конец
-
-            # Подсчет статистики
-            stats['action_frames'] = np.sum(self.frame_labels[:, 1] == 1)
-            stats['transition_frames'] = np.sum(self.frame_labels[:, 2] == 1)
-            stats['background_frames'] = self.total_frames - stats['action_frames']
-
-            # Проверка перекрытий
-            overlaps = self._check_overlaps()
-            if overlaps:
-                warnings.append(f"Обнаружены перекрытия в {len(overlaps)} местах")
-                stats['overlaps'] = len(overlaps)
-
-            # Проверка дисбаланса классов
-            action_ratio = stats['action_frames'] / self.total_frames
-            if action_ratio < 0.1:
-                warnings.append(f"Низкая доля кадров действия: {action_ratio:.1%}")
-            elif action_ratio > 0.9:
-                warnings.append(f"Высокая доля кадров действия: {action_ratio:.1%}")
-
-            # Проверка распределения по типам элементов
-            element_types = {}
-            for ann in self.annotations['annotations']:
-                element_type = ann['element_type']
-                element_types[element_type] = element_types.get(element_type, 0) + 1
-            
-            stats['class_distribution'] = element_types
-
-            # Проверка дисбаланса типов элементов
-            if len(element_types) > 1:
-                max_count = max(element_types.values())
-                min_count = min(element_types.values())
-                if max_count / min_count > 5:
-                    warnings.append("Значительный дисбаланс в распределении типов элементов")
-
-            return ValidationResult(len(errors) == 0, errors, warnings, stats)
+            return ValidationResult(True, "Аннотации валидны", stats)
 
         except Exception as e:
-            errors.append(f"Непредвиденная ошибка: {str(e)}")
-            return ValidationResult(False, errors, warnings, stats)
-        finally:
-            if self.cap is not None:
-                self.cap.release()
+            self.logger.error(f"Ошибка при валидации {self.video_name}: {str(e)}")
+            return ValidationResult(False, f"Ошибка валидации: {str(e)}")
 
-    def _check_overlaps(self) -> List[Tuple[int, int]]:
-        """
-        Проверяет перекрытия в аннотациях
-        Returns:
-            List[Tuple[int, int]]: Список пар перекрывающихся аннотаций
-        """
-        overlaps = []
-        for i in range(len(self.annotations['annotations'])):
-            for j in range(i + 1, len(self.annotations['annotations'])):
-                ann1 = self.annotations['annotations'][i]
-                ann2 = self.annotations['annotations'][j]
-                
-                # Проверяем перекрытие
-                if (ann1['start_frame'] <= ann2['end_frame'] and 
-                    ann2['start_frame'] <= ann1['end_frame']):
-                    overlaps.append((i, j))
-        
-        return overlaps
+    def _check_files_exist(self) -> bool:
+        """Проверяет существование файлов"""
+        if not os.path.exists(self.video_path):
+            self.logger.error(f"Видео не найдено: {self.video_path}")
+            return False
+        if not os.path.exists(self.annotation_path):
+            self.logger.error(f"Аннотации не найдены: {self.annotation_path}")
+            return False
+        return True
+
+    def _load_video(self) -> Optional[Dict]:
+        """Загружает информацию о видео"""
+        try:
+            cap = cv2.VideoCapture(self.video_path)
+            if not cap.isOpened():
+                self.logger.error(f"Не удалось открыть видео: {self.video_path}")
+                return None
+
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            duration = frame_count / fps
+
+            cap.release()
+
+            return {
+                'fps': fps,
+                'frame_count': frame_count,
+                'width': width,
+                'height': height,
+                'duration': duration
+            }
+        except Exception as e:
+            self.logger.error(f"Ошибка при загрузке видео: {str(e)}")
+            return None
+
+    def _load_annotations(self) -> Optional[Dict]:
+        """Загружает аннотации"""
+        try:
+            with open(self.annotation_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            self.logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
+            return None
+
+    def _validate_annotation_structure(self, data: Dict) -> bool:
+        """Проверяет структуру аннотаций"""
+        required_fields = ['video_name', 'annotations']
+        if not all(field in data for field in required_fields):
+            self.logger.error(f"Отсутствуют обязательные поля: {required_fields}")
+            return False
+
+        if data['video_name'] != self.video_name:
+            self.logger.error(f"Несоответствие имени видео: {data['video_name']} != {self.video_name}")
+            return False
+
+        if not isinstance(data['annotations'], list):
+            self.logger.error("Аннотации должны быть списком")
+            return False
+
+        for ann in data['annotations']:
+            if not all(field in ann for field in ['start_frame', 'end_frame']):
+                self.logger.error(f"Отсутствуют обязательные поля в аннотации: {ann}")
+                return False
+
+        return True
+
+    def _validate_timestamps(self, data: Dict, video_data: Dict) -> bool:
+        """Проверяет временные метки"""
+        frame_count = video_data['frame_count']
+        for ann in data['annotations']:
+            if not (0 <= ann['start_frame'] < frame_count and 
+                   0 <= ann['end_frame'] < frame_count):
+                self.logger.error(f"Кадры вне диапазона: {ann}")
+                return False
+            if ann['start_frame'] > ann['end_frame']:
+                self.logger.error(f"Неверный порядок кадров: {ann}")
+                return False
+        return True
+
+    def _check_overlaps(self, data: Dict) -> bool:
+        """Проверяет перекрытия в аннотациях"""
+        frames = set()
+        for ann in data['annotations']:
+            for frame in range(ann['start_frame'], ann['end_frame'] + 1):
+                if frame in frames:
+                    self.logger.error(f"Обнаружено перекрытие на кадре {frame}")
+                    return False
+                frames.add(frame)
+        return True
+
+    def _calculate_statistics(self, data: Dict, video_data: Dict) -> Dict:
+        """Рассчитывает статистику аннотаций"""
+        total_frames = video_data['frame_count']
+        frame_labels = np.zeros((total_frames, 2), dtype=np.float32)  # 2 класса: фон, действие
+        frame_labels[:, 0] = 1  # По умолчанию все кадры - фон
+
+        for ann in data['annotations']:
+            for frame_idx in range(ann['start_frame'], ann['end_frame'] + 1):
+                if frame_idx < len(frame_labels):
+                    frame_labels[frame_idx, 1] = 1  # [0,1] - действие
+                    frame_labels[frame_idx, 0] = 0  # Убираем метку фона
+
+        background_frames = np.sum(frame_labels[:, 0] == 1)
+        action_frames = np.sum(frame_labels[:, 1] == 1)
+
+        return {
+            'total_frames': total_frames,
+            'background_frames': background_frames,
+            'action_frames': action_frames,
+            'background_ratio': background_frames / total_frames,
+            'action_ratio': action_frames / total_frames
+        }
+
+    def _validate_statistics(self, stats: Dict) -> bool:
+        """Проверяет статистику на соответствие требованиям"""
+        if stats['action_frames'] == 0:
+            self.logger.error("Отсутствуют кадры действия")
+            return False
+
+        if stats['action_ratio'] < 0.01:  # Минимум 1% действия
+            self.logger.error(f"Слишком мало кадров действия: {stats['action_ratio']:.2%}")
+            return False
+
+        if stats['action_ratio'] > 0.5:  # Максимум 50% действия
+            self.logger.error(f"Слишком много кадров действия: {stats['action_ratio']:.2%}")
+            return False
+
+        return True
 
 def validate_dataset() -> Tuple[Dict[str, ValidationResult], Dict[str, int]]:
     """

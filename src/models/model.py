@@ -743,19 +743,21 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
 
 def postprocess_predictions(preds, threshold=0.5):
     """
-    Извлекает индексы кадров (или времени) начала и конца упражнения из предсказаний модели.
+    Извлекает индексы кадров с действием из предсказаний модели.
     preds: np.ndarray или tf.Tensor формы (frames, 2) или (batch, frames, 2)
-    threshold: float, порог вероятности
-    Возвращает: start_indices, end_indices (списки индексов кадров)
+    threshold: float, порог вероятности для класса действия
+    Возвращает: список индексов кадров с действием
     """
     if isinstance(preds, tf.Tensor):
         preds = preds.numpy()
     if preds.ndim == 3:
         # Если батч, берём первый элемент
         preds = preds[0]
-    start_indices = np.where(preds[:, 0] > threshold)[0]
-    end_indices = np.where(preds[:, 1] > threshold)[0]
-    return start_indices.tolist(), end_indices.tolist()
+    # Берем вероятности для класса действия (индекс 1)
+    action_probs = preds[:, 1]
+    # Находим кадры, где вероятность действия выше порога
+    action_indices = np.where(action_probs > threshold)[0]
+    return action_indices.tolist()
 
 def indices_to_seconds(indices, fps):
     """

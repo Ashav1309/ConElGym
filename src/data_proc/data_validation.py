@@ -131,7 +131,6 @@ def calculate_positive_examples() -> Tuple[int, int]:
     total_count = 0
     background_count = 0
     action_count = 0
-    transition_count = 0
 
     # Проверяем тренировочные данные
     train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
@@ -149,7 +148,9 @@ def calculate_positive_examples() -> Tuple[int, int]:
             total_count += num_frames
 
             # Создаем массив меток для каждого кадра
-            frame_labels = np.zeros((num_frames, 3), dtype=np.float32)  # 3 класса: фон, действие, переход
+            frame_labels = np.zeros((num_frames, 2), dtype=np.float32)  # 2 класса: фон, действие
+            frame_labels[:, 0] = 1  # По умолчанию все кадры - фон
+            
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
@@ -157,18 +158,12 @@ def calculate_positive_examples() -> Tuple[int, int]:
                 # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
-                
-                # Отмечаем переходы
-                if start_frame < len(frame_labels):
-                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
-                if end_frame < len(frame_labels):
-                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+                        frame_labels[frame_idx, 1] = 1  # [0,1] - действие
+                        frame_labels[frame_idx, 0] = 0  # Убираем метку фона
             
             # Считаем кадры каждого класса
             background_count += np.sum(frame_labels[:, 0] == 1)
             action_count += np.sum(frame_labels[:, 1] == 1)
-            transition_count += np.sum(frame_labels[:, 2] == 1)
 
     # Аналогично для валидационных данных
     val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
@@ -184,7 +179,9 @@ def calculate_positive_examples() -> Tuple[int, int]:
             cap.release()
             total_count += num_frames
 
-            frame_labels = np.zeros((num_frames, 3), dtype=np.float32)
+            frame_labels = np.zeros((num_frames, 2), dtype=np.float32)
+            frame_labels[:, 0] = 1  # По умолчанию все кадры - фон
+            
             for annotation in ann_data['annotations']:
                 start_frame = annotation['start_frame']
                 end_frame = annotation['end_frame']
@@ -192,23 +189,18 @@ def calculate_positive_examples() -> Tuple[int, int]:
                 # Отмечаем действие
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
-                        frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
-                
-                # Отмечаем переходы
-                if start_frame < len(frame_labels):
-                    frame_labels[start_frame, 2] = 1  # [0,0,1] - начало
-                if end_frame < len(frame_labels):
-                    frame_labels[end_frame, 2] = 1  # [0,0,1] - конец
+                        frame_labels[frame_idx, 1] = 1  # [0,1] - действие
+                        frame_labels[frame_idx, 0] = 0  # Убираем метку фона
             
             # Считаем кадры каждого класса
             background_count += np.sum(frame_labels[:, 0] == 1)
             action_count += np.sum(frame_labels[:, 1] == 1)
-            transition_count += np.sum(frame_labels[:, 2] == 1)
 
-    logger.info(f"Всего кадров: {total_count}")
-    logger.info(f"Фоновых кадров: {background_count}")
-    logger.info(f"Кадров действия: {action_count}")
-    logger.info(f"Кадров перехода: {transition_count}")
+    logger.info(f"Статистика датасета:")
+    logger.info(f"  - Всего кадров: {total_count}")
+    logger.info(f"  - Фоновых кадров: {background_count}")
+    logger.info(f"  - Кадров действия: {action_count}")
+    logger.info(f"  - Соотношение фона к действию: {background_count/action_count:.2f}:1")
 
     return action_count, total_count
 
