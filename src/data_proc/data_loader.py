@@ -537,8 +537,8 @@ class VideoDataLoader:
             logger.debug(f"  - Процент успешных: {(valid_sequences/(valid_sequences+skipped_sequences))*100:.1f}%")
             
             # Преобразуем списки в массивы
-            sequences_array = np.array(sequences)
-            labels_array = np.array(sequence_labels)
+            sequences_array = np.stack(sequences)  # Форма: (n_sequences, sequence_length, height, width, channels)
+            labels_array = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
             
             # Проверяем финальную форму
             logger.debug(f"Форма последовательностей: {sequences_array.shape}")
@@ -550,7 +550,10 @@ class VideoDataLoader:
                 logger.error(f"Некорректная финальная форма последовательностей: {sequences_array.shape}, ожидалось: {expected_sequences_shape}")
                 return None, None
             
-            return sequences_array, labels_array
+            # Возвращаем только одну последовательность
+            if len(sequences) > 0:
+                return sequences[0], sequence_labels[0]
+            return None, None
             
         except Exception as e:
             logger.error(f"Ошибка при создании последовательностей для {video_path}: {str(e)}")
