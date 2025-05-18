@@ -687,6 +687,8 @@ class VideoDataLoader:
                     attempts = 0
                     continue
                 
+                logger.debug(f"[DEBUG] Поиск доступного видео (попытка {attempts + 1}/{max_attempts})")
+                logger.debug(f"[DEBUG] Доступно видео: {len(available_videos)}")
                 return video_path
             
             logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
