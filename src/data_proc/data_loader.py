@@ -544,6 +544,12 @@ class VideoDataLoader:
             logger.debug(f"Форма последовательностей: {sequences_array.shape}")
             logger.debug(f"Форма меток: {labels_array.shape}")
             
+            # Проверяем, что форма соответствует ожидаемой
+            expected_sequences_shape = (len(sequences), sequence_length, *target_size, 3) if target_size else (len(sequences), sequence_length)
+            if sequences_array.shape != expected_sequences_shape:
+                logger.error(f"Некорректная финальная форма последовательностей: {sequences_array.shape}, ожидалось: {expected_sequences_shape}")
+                return None, None
+            
             return sequences_array, labels_array
             
         except Exception as e:
