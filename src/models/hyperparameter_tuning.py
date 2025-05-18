@@ -24,7 +24,10 @@ except Exception as e:
 tf.config.optimizer.set_jit(False)
 
 import optuna
-from src.models.model import create_mobilenetv3_model, create_mobilenetv4_model, create_model, focal_loss
+from src.models.model import (
+    create_model, create_mobilenetv3_model, create_mobilenetv4_model,
+    focal_loss, F1ScoreAdapter
+)
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
 import numpy as np
@@ -204,73 +207,45 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
+def create_and_compile_model(params, input_shape, num_classes=2, class_weights=None):
     """
     Создает и компилирует модель с заданными параметрами
     """
     print("\n[DEBUG] Создание модели со следующими параметрами:")
-    print(f"  - Model type: {model_type}")
-    print(f"  - Learning rate: {learning_rate}")
-    print(f"  - Dropout rate: {dropout_rate}")
-    print(f"  - LSTM units: {lstm_units}")
+    print(f"  - Model type: {params['model_type']}")
+    print(f"  - Learning rate: {params['learning_rate']}")
+    print(f"  - Dropout rate: {params['dropout_rate']}")
+    print(f"  - LSTM units: {params['lstm_units']}")
     print(f"  - Input shape: {input_shape}")
     print(f"  - Number of classes: {num_classes}")
-    print(f"  - RNN type: {rnn_type}")
-    print(f"  - Temporal block type: {temporal_block_type}")
-    
-    # Загружаем базовые веса из конфига
-    try:
-        with open(Config.CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-            base_weights = config['class_weights']
-    except:
-        print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
-        base_weights = {
-            'background': 1.0,
-            'action': 4.3
-        }
-    
-    # Если class_weights не указаны, используем базовые
-    if class_weights is None:
-        class_weights = base_weights
-    
-    print(f"  - Base class weights: {base_weights}")
-    print(f"  - Current class weights: {class_weights}")
-    
-    # Извлекаем размерность изображения из input_shape
-    image_shape = input_shape[1:]  # Берем только размерности изображения (112, 112, 3)
+    print(f"  - RNN type: {params['rnn_type']}")
+    print(f"  - Temporal block type: {params['temporal_block_type']}")
+    print(f"  - Base class weights: {class_weights}")
     
     # Создаем модель
-    if model_type == 'v3':
-        model = create_mobilenetv3_model(
-            input_shape=image_shape,  # Передаем только размерность изображения
-            num_classes=2,  # 2 класса: фон, действие
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units,
-            rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type,
-            class_weights=class_weights
-        )
-    else:
-        model = create_mobilenetv4_model(
-            input_shape=image_shape,  # Передаем только размерность изображения
-            num_classes=2,
-            dropout_rate=dropout_rate,
-            class_weights=class_weights
-        )
+    model = create_model(
+        input_shape=input_shape,
+        num_classes=num_classes,
+        dropout_rate=params['dropout_rate'],
+        lstm_units=params['lstm_units'],
+        model_type=params['model_type'],
+        class_weights=class_weights,
+        rnn_type=params['rnn_type'],
+        temporal_block_type=params['temporal_block_type']
+    )
     
     # Оптимизатор
     optimizer = tf.keras.optimizers.Adam(
-        learning_rate=learning_rate,
-        clipnorm=clipnorm
+        learning_rate=params['learning_rate'],
+        clipnorm=1.0
     )
     
-    # Метрики
+    # Метрики для двухклассовой модели
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
     ]
     
     # Компилируем модель
@@ -386,15 +361,16 @@ def objective(trial):
         
         # Создаем и компилируем модель
         model = create_and_compile_model(
+            params={
+                'learning_rate': learning_rate,
+                'dropout_rate': dropout_rate,
+                'lstm_units': lstm_units,
+                'model_type': model_type,
+                'rnn_type': rnn_type,
+                'temporal_block_type': temporal_block_type
+            },
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units,
-            model_type=model_type,
-            rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type,
-            clipnorm=clipnorm,
             class_weights=class_weights
         )
         
