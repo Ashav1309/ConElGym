@@ -158,8 +158,8 @@ def objective(trial):
         model_type = Config.MODEL_TYPE
         # rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         # temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
-        rnn_type = trial.suggest_categorical('rnn_type', ['bigru'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', 'transformer'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['hybrid', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 16 для лучшей стабильности
