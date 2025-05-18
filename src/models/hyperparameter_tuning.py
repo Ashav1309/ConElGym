@@ -18,31 +18,10 @@ from src.config import Config
 from src.models.losses import focal_loss
 from src.models.metrics import get_tuning_metrics
 from src.models.callbacks import get_tuning_callbacks
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Фильтрация логов TensorFlow
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Используем первую GPU
-os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async" 
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.2'
-os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
-os.environ['TF_DISABLE_JIT'] = '1'
-os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+from src.utils.gpu_config import setup_gpu
+
 # Настройка GPU
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
-    try:
-        # Включаем динамический рост памяти для всех GPU
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"[DEBUG] Включён динамический рост памяти для {len(gpus)} GPU")
-    except RuntimeError as e:
-        print(f"[ERROR] Ошибка при настройке GPU: {e}")
-
-# Включение mixed precision
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
-# Отключаем JIT компиляцию
-tf.config.optimizer.set_jit(False)
+setup_gpu()
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -98,44 +77,6 @@ def clear_memory():
         traceback.print_exc()
     
     print("[DEBUG] ===== Очистка памяти завершена =====\n")
-
-def setup_device():
-    """Настройка устройства (CPU/GPU)"""
-    try:
-        if Config.DEVICE_CONFIG['use_gpu']:
-            # Настройка GPU
-            gpus = tf.config.list_physical_devices('GPU')
-            if not gpus:
-                print("No GPU devices found")
-                return False
-            
-            # Настройка памяти GPU
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, Config.DEVICE_CONFIG['allow_gpu_memory_growth'])
-            
-            # Включаем mixed precision если нужно
-            if Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-                from tensorflow.keras.mixed_precision import Policy
-                policy = Policy('mixed_float16')
-                tf.keras.mixed_precision.set_global_policy(policy)
-                print("Mixed precision policy set:", policy.name)
-            
-            print("GPU optimization enabled")
-            return True
-        else:
-            # Настройка CPU
-            tf.config.set_visible_devices([], 'GPU')
-            tf.config.threading.set_intra_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-            tf.config.threading.set_inter_op_parallelism_threads(Config.DEVICE_CONFIG['cpu_threads'])
-            print("CPU optimization enabled")
-            return True
-            
-    except RuntimeError as e:
-        print(f"Error setting up device: {e}")
-        return False
-
-# Инициализация устройства
-device_available = setup_device()
 
 def load_and_prepare_data(batch_size):
     """

@@ -22,26 +22,10 @@ from src.data_proc.data_augmentation import VideoAugmenter
 from src.models.losses import focal_loss, F1ScoreAdapter
 from src.models.metrics import f1_score_element, get_training_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
-
-# Включаем eager execution
-tf.config.run_functions_eagerly(True)
+from src.utils.gpu_config import setup_gpu
 
 # Настройка GPU
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
-    try:
-        # Включаем динамический рост памяти для всех GPU
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"[DEBUG] Включён динамический рост памяти для {len(gpus)} GPU")
-    except RuntimeError as e:
-        print(f"[ERROR] Ошибка при настройке GPU: {e}")
-
-# Включение mixed precision
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
-print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-print("GPU Device: ", tf.test.gpu_device_name())
+setup_gpu()
 
 def clear_memory():
     """Очистка памяти"""
