@@ -401,7 +401,7 @@ class VideoDataLoader:
             return empty_labels
 
     def create_sequences(self, video_path: str, labels: np.ndarray, sequence_length: int = 12, 
-                        max_sequences: int = 200, step: int = 1) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+                        max_sequences: int = 200, step: int = 1, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Создает последовательности кадров из видео.
         
@@ -411,6 +411,7 @@ class VideoDataLoader:
             sequence_length: Длина последовательности
             max_sequences: Максимальное количество последовательностей
             step: Шаг между последовательностями
+            force_positive: Принудительно использовать только последовательности с действиями
             
         Returns:
             Tuple[Optional[np.ndarray], Optional[np.ndarray]]: Последовательность и её метки
@@ -583,7 +584,8 @@ class VideoDataLoader:
                 video_path=video_path,
                 labels=self.annotations_cache[video_path],
                 sequence_length=sequence_length,
-                max_sequences=self.max_sequences_per_video
+                max_sequences=self.max_sequences_per_video,
+                force_positive=force_positive
             )
 
             if X_seq is not None and y_seq is not None:
