@@ -32,7 +32,7 @@ class Config:
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
     BATCH_SIZE = 16
-    EPOCHS = 50
+    EPOCHS = 30
     LEARNING_RATE = 0.002
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
@@ -57,7 +57,7 @@ class Config:
             'dropout_rate': 0.3,
             'lstm_units': 256,
             'rnn_type': 'lstm',  # Может быть 'lstm' или 'bigru'
-            'temporal_block_type': 'rnn',  # Может быть 'rnn', 'hybrid', '3d_attention', 'transformer'
+            'temporal_block_type': 'rnn',  # Может быть 'rnn', 'tcn', '3d_attention', 'transformer'
             'class_weights': {
                 'background': None,  # Будет рассчитано автоматически
                 'action': None      # Будет рассчитано автоматически
@@ -135,10 +135,10 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 30,  
+        'n_trials': 20,  
         'timeout': 7200,
         'n_jobs': 1,
-        'epochs': 50, 
+        'epochs': 30, 
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,

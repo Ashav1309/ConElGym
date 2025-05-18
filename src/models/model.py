@@ -601,7 +601,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         lstm_units: количество юнитов в LSTM
         class_weights: веса классов
         rnn_type: тип RNN ('lstm', 'bigru')
-        temporal_block_type: тип временного блока ('rnn', 'hybrid', '3d_attention', 'transformer')
+        temporal_block_type: тип временного блока ('rnn', 'tcn', '3d_attention', 'transformer')
     """
     if class_weights is None:
         class_weights = {
@@ -664,7 +664,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     if temporal_block_type == 'rnn':
         # Используем уже добавленный RNN слой
         pass
-    elif temporal_block_type == 'hybrid':
+    elif temporal_block_type == 'tcn':
         # Комбинируем RNN с TCN
         x = TemporalConvNet(num_channels=[lstm_units, lstm_units//2], kernel_size=3, dropout=dropout_rate)(x)
     elif temporal_block_type == '3d_attention':
