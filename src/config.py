@@ -35,7 +35,7 @@ class Config:
     EPOCHS = 100
     LEARNING_RATE = 0.001
     EARLY_STOPPING_PATIENCE = 10
-    NUM_CLASSES = 3  # Фон, действие и переход
+    NUM_CLASSES = 2  # Фон и действие
     SEQUENCE_LENGTH = 12  # Уменьшаем с 16 до 12 кадров для экономии памяти
     INPUT_SIZE = (112, 112)  # Размер входного изображения
     STEPS_PER_EPOCH = 100
@@ -56,23 +56,19 @@ class Config:
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 256,
+            'rnn_type': 'lstm',
+            'temporal_block_type': 'rnn',
             'class_weights': {
                 'background': None,  # Будет рассчитано автоматически
-                'action': None,      # Будет рассчитано автоматически
-                'transition': None   # Будет рассчитано автоматически
-            },
-            'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
+                'action': None      # Будет рассчитано автоматически
+            }
         },
         'v4': {
-            'dropout_rate': 0.3,
-            'expansion_factor': 4,
-            'se_ratio': 0.25,
+            'dropout_rate': 0.5,
             'class_weights': {
                 'background': None,  # Будет рассчитано автоматически
-                'action': None,      # Будет рассчитано автоматически
-                'transition': None   # Будет рассчитано автоматически
-            },
-            'base_input_shape': INPUT_SIZE + (3,)  # Форма для базовой модели (height, width, channels)
+                'action': None      # Будет рассчитано автоматически
+            }
         }
     }
     
@@ -149,7 +145,7 @@ class Config:
         'threshold_step': 0.05,
         'use_validation': True,
         'update_frequency': 1,
-        'num_classes': 3  # 3 класса: фон, действие, переход
+        'num_classes': 2  # 2 класса: фон, действие
     }
     
     # Параметры метрик
@@ -158,7 +154,7 @@ class Config:
         'use_f1': True,
         'use_precision_recall': True,
         'threshold': 0.5,
-        'num_classes': 3  # 3 класса: фон, действие, переход
+        'num_classes': 2  # 2 класса: фон, действие
     }
     
     # Константы для валидации данных

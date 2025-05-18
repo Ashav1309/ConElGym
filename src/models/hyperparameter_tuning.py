@@ -206,11 +206,9 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
 
 def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_rate, lstm_units=None, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn', clipnorm=1.0):
     """
-    Создание и компиляция модели с заданными параметрами
+    Создает и компилирует модель с заданными параметрами
     """
-    clear_memory()  # Очищаем память перед созданием модели
-    
-    print(f"[DEBUG] Creating model with parameters:")
+    print("\n[DEBUG] Создание модели со следующими параметрами:")
     print(f"  - Model type: {model_type}")
     print(f"  - Learning rate: {learning_rate}")
     print(f"  - Dropout rate: {dropout_rate}")
@@ -219,127 +217,62 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Number of classes: {num_classes}")
     print(f"  - RNN type: {rnn_type}")
     print(f"  - Temporal block type: {temporal_block_type}")
-    print(f"  - Clipnorm: {clipnorm}")
     
     # Если class_weights не указаны, загружаем из конфига
     if class_weights is None:
-        if os.path.exists(Config.CONFIG_PATH):
+        try:
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
                 class_weights = config['class_weights']
-        else:
-            print("[WARNING] Конфигурационный файл не найден. Используем веса по умолчанию.")
+        except:
+            print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
             class_weights = {
                 'background': 1.0,
-                'action': 4.299630443449974,
-                'transition': 10.0
+                'action': 4.3
             }
     
     print(f"  - Class weights: {class_weights}")
     
-    # Проверяем и корректируем input_shape
-    if len(input_shape) == 3:  # Если это (height, width, channels)
-        full_input_shape = (Config.SEQUENCE_LENGTH,) + input_shape
-    elif len(input_shape) == 4:  # Если это (sequence_length, height, width, channels)
-        full_input_shape = input_shape
-    elif len(input_shape) == 5:  # Если есть лишняя размерность
-        full_input_shape = tuple(s for i, s in enumerate(input_shape) if i != 1 or s != 1)
-    else:
-        raise ValueError(f"Неверная форма входных данных: {input_shape}")
-    
-    print(f"[DEBUG] Исправленный input_shape: {full_input_shape}")
-    
-    # Создаем модель в зависимости от типа
+    # Создаем модель
     if model_type == 'v3':
-        model = create_model(
-            input_shape=full_input_shape,
-            num_classes=3,  # 3 класса: фон, действие, переход
+        model = create_mobilenetv3_model(
+            input_shape=input_shape,
+            num_classes=2,  # 2 класса: фон, действие
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            model_type=model_type,
-            class_weights=class_weights,
             rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type
-        )
-    elif model_type == 'v4':
-        model = create_mobilenetv4_model(
-            input_shape=full_input_shape,
-            num_classes=3,
-            dropout_rate=dropout_rate,
+            temporal_block_type=temporal_block_type,
             class_weights=class_weights
         )
     else:
-        raise ValueError(f"Неверный тип модели: {model_type}")
+        model = create_mobilenetv4_model(
+            input_shape=input_shape,
+            num_classes=2,
+            dropout_rate=dropout_rate,
+            class_weights=class_weights
+        )
     
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=clipnorm)
+    # Оптимизатор
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=learning_rate,
+        clipnorm=clipnorm
+    )
     
-    # Включаем mixed precision если используется GPU
-    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-    
-    # Создаем метрики
-    print("[DEBUG] Создание метрик...")
+    # Метрики
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
     ]
-
-    print("[DEBUG] Добавление F1Score...")
-    try:
-        # Создаем адаптер для F1Score для каждого класса
-        class F1ScoreAdapter(tf.keras.metrics.F1Score):
-            def __init__(self, name, class_id, threshold=0.5):
-                super().__init__(name=name, threshold=threshold)
-                self.class_id = class_id
-                
-            def update_state(self, y_true, y_pred, sample_weight=None):
-                # Проверяем и исправляем размерности
-                if len(y_true.shape) == 3:  # [batch, sequence, classes]
-                    y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
-                    y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
-                
-                # Берем только нужный класс и добавляем размерность
-                y_true = tf.expand_dims(y_true[:, self.class_id], axis=-1)  # [batch, 1]
-                y_pred = tf.expand_dims(y_pred[:, self.class_id], axis=-1)  # [batch, 1]
-                
-                # Преобразуем в бинарные метки
-                y_true = tf.cast(y_true > 0.5, tf.float32)
-                y_pred = tf.cast(y_pred > 0.5, tf.float32)
-                
-                super().update_state(y_true, y_pred, sample_weight)
-            
-            def result(self):
-                result = super().result()
-                return result
-        
-        # Добавляем F1Score для каждого класса
-        metrics.extend([
-            F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
-            F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
-            F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
-        ])
-        print(f"[DEBUG] F1Score создан успешно")
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании F1Score: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-
-    print(f"[DEBUG] Итоговый список метрик: {metrics}")
-
-    # Компилируем модель с focal loss для трех классов
+    
+    # Компилируем модель
     model.compile(
         optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=0.25),
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
         metrics=metrics
     )
     
-    print("[DEBUG] Модель успешно создана и скомпилирована")
     return model
 
 def load_and_prepare_data(batch_size):

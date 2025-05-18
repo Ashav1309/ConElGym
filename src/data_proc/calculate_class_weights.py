@@ -73,14 +73,10 @@ def visualize_data_processing(video_stats, save_dir):
     video_names = list(video_stats.keys())
     background_frames = [stats['background_frames'] for stats in video_stats.values()]
     action_frames = [stats['action_frames'] for stats in video_stats.values()]
-    transition_frames = [stats['transition_frames'] for stats in video_stats.values()]
     
     # Создаем stacked bar plot
     plt.bar(video_names, background_frames, label='Фон', alpha=0.7)
     plt.bar(video_names, action_frames, bottom=background_frames, label='Действие', alpha=0.7)
-    plt.bar(video_names, transition_frames, 
-            bottom=[b + a for b, a in zip(background_frames, action_frames)], 
-            label='Переход', alpha=0.7)
     
     plt.title('Распределение кадров по классам в каждом видео', fontsize=14, pad=20)
     plt.xlabel('Видео', fontsize=12)
@@ -93,13 +89,12 @@ def visualize_data_processing(video_stats, save_dir):
     
     # 2. Соотношение классов
     plt.figure(figsize=(10, 6))
-    total_frames = sum(background_frames) + sum(action_frames) + sum(transition_frames)
+    total_frames = sum(background_frames) + sum(action_frames)
     class_ratios = [
         sum(background_frames) / total_frames * 100,
-        sum(action_frames) / total_frames * 100,
-        sum(transition_frames) / total_frames * 100
+        sum(action_frames) / total_frames * 100
     ]
-    plt.pie(class_ratios, labels=['Фон', 'Действие', 'Переход'], 
+    plt.pie(class_ratios, labels=['Фон', 'Действие'], 
             autopct='%1.1f%%', startangle=90)
     plt.title('Соотношение классов в датасете', fontsize=14, pad=20)
     plt.savefig(os.path.join(save_dir, 'class_ratios.png'))
@@ -110,7 +105,6 @@ def visualize_data_processing(video_stats, save_dir):
     stats_matrix = np.array([
         background_frames,
         action_frames,
-        transition_frames,
         [stats['annotations_count'] for stats in video_stats.values()]
     ])
     sns.heatmap(stats_matrix, 
@@ -118,7 +112,7 @@ def visualize_data_processing(video_stats, save_dir):
                 fmt='d',
                 cmap='YlOrRd',
                 xticklabels=video_names,
-                yticklabels=['Фон', 'Действие', 'Переход', 'Аннотации'])
+                yticklabels=['Фон', 'Действие', 'Аннотации'])
     plt.title('Тепловая карта статистики по видео', fontsize=14, pad=20)
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
@@ -181,7 +175,6 @@ def calculate_dataset_weights():
             'total_frames': 0,
             'background_frames': 0,
             'action_frames': 0,
-            'transition_frames': 0,
             'annotations_count': 0
         }
         
@@ -210,7 +203,7 @@ def calculate_dataset_weights():
         # Загружаем аннотации
         with open(ann_path, 'r') as f:
             ann_data = json.load(f)
-            frame_labels = np.zeros((video_frames, 3), dtype=np.float32)  # 3 класса: фон, действие, переход
+            frame_labels = np.zeros((video_frames, 2), dtype=np.float32)  # 2 класса: фон, действие
             
             # Считаем количество аннотаций
             video_stats[video_name]['annotations_count'] = len(ann_data['annotations'])
@@ -223,71 +216,41 @@ def calculate_dataset_weights():
                 for frame_idx in range(start_frame, end_frame + 1):
                     if frame_idx < len(frame_labels):
                         if frame_labels[frame_idx, 1] == 0:  # Если кадр еще не помечен как действие
-                            frame_labels[frame_idx, 1] = 1  # [0,1,0] - действие
+                            frame_labels[frame_idx, 1] = 1  # [0,1] - действие
                             video_stats[video_name]['action_frames'] += 1
-                
-                # Отмечаем переходы (25 кадров до и после)
-                transition_window = 25
-                
-                # Переходы до действия
-                for i in range(max(0, start_frame - transition_window), start_frame):
-                    if frame_labels[i, 1] == 0:  # Пропускаем кадры действия
-                        if frame_labels[i, 2] == 0:  # Если кадр еще не помечен как переход
-                            frame_labels[i, 2] = 1  # [0,0,1] - переход
-                            video_stats[video_name]['transition_frames'] += 1
-                
-                # Переходы после действия
-                for i in range(end_frame + 1, min(len(frame_labels), end_frame + transition_window + 1)):
-                    if frame_labels[i, 1] == 0:  # Пропускаем кадры действия
-                        if frame_labels[i, 2] == 0:  # Если кадр еще не помечен как переход
-                            frame_labels[i, 2] = 1  # [0,0,1] - переход
-                            video_stats[video_name]['transition_frames'] += 1
             
             # Считаем фоновые кадры
-            # Сначала считаем уникальные кадры действия и перехода
-            action_frames = np.sum(frame_labels[:, 1] == 1)  # Количество кадров действия
-            transition_frames = np.sum(frame_labels[:, 2] == 1)  # Количество кадров перехода
-            # Считаем кадры, которые являются и действием, и переходом
-            overlapping_frames = np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))
-            # Вычитаем из общего числа кадров действия и переходы, учитывая перекрытие
-            video_stats[video_name]['background_frames'] = video_frames - (action_frames + transition_frames - overlapping_frames)
-
+            video_stats[video_name]['background_frames'] = video_frames - video_stats[video_name]['action_frames']
+            
             # Добавляем подробную отладочную информацию
             print(f"\n[DEBUG] Детальная информация о метках кадров для {video_name}:")
             print(f"  - Форма frame_labels: {frame_labels.shape}")
             print(f"  - Уникальные значения в frame_labels[:, 0]: {np.unique(frame_labels[:, 0])}")
             print(f"  - Уникальные значения в frame_labels[:, 1]: {np.unique(frame_labels[:, 1])}")
-            print(f"  - Уникальные значения в frame_labels[:, 2]: {np.unique(frame_labels[:, 2])}")
             print(f"  - Количество кадров с меткой действия: {np.sum(frame_labels[:, 1] == 1)}")
-            print(f"  - Количество кадров с меткой перехода: {np.sum(frame_labels[:, 2] == 1)}")
-            print(f"  - Количество кадров без меток: {np.sum((frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0))}")
-            print(f"  - Количество кадров с обеими метками: {np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))}")
+            print(f"  - Количество кадров без меток: {np.sum((frame_labels[:, 1] == 0))}")
             print(f"  - Сумма всех меток: {np.sum(frame_labels)}")
-            print(f"  - Проверка: {video_frames} = {np.sum((frame_labels[:, 1] == 0) & (frame_labels[:, 2] == 0))} + {np.sum(frame_labels[:, 1] == 1)} + {np.sum(frame_labels[:, 2] == 1)} - {np.sum((frame_labels[:, 1] == 1) & (frame_labels[:, 2] == 1))}")
+            print(f"  - Проверка: {video_frames} = {np.sum((frame_labels[:, 1] == 0))} + {np.sum(frame_labels[:, 1] == 1)}")
         
         # Выводим отладочную информацию для каждого видео
         print(f"\n[DEBUG] Обработка видео {video_name}:")
         print(f"  - Всего кадров: {video_frames}")
         print(f"  - Количество аннотаций: {video_stats[video_name]['annotations_count']}")
         print(f"  - Фоновых кадров: {video_stats[video_name]['background_frames']}")
-        print(f"  - Кадров действия: {action_frames}")
-        print(f"  - Кадров перехода: {transition_frames}")
-        print(f"  - Перекрывающихся кадров: {overlapping_frames}")
+        print(f"  - Кадров действия: {video_stats[video_name]['action_frames']}")
         
         cap.release()
     
     # Рассчитываем веса классов
     total_background = sum(stats['background_frames'] for stats in video_stats.values())
     total_action = sum(stats['action_frames'] for stats in video_stats.values())
-    total_transition = sum(stats['transition_frames'] for stats in video_stats.values())
     
     # Нормализуем веса
-    max_count = max(total_background, total_action, total_transition)
+    max_count = max(total_background, total_action)
     raw_weights = {
         'class_weights': {
             'background': max_count / total_background if total_background > 0 else 1.0,
-            'action': max_count / total_action if total_action > 0 else 1.0,
-            'transition': max_count / total_transition if total_transition > 0 else 1.0
+            'action': max_count / total_action if total_action > 0 else 1.0
         }
     }
     
@@ -304,12 +267,10 @@ def calculate_dataset_weights():
     print("\n[INFO] Исходные веса классов:")
     print(f"  - Фон: {raw_weights['class_weights']['background']:.2f}")
     print(f"  - Действие: {raw_weights['class_weights']['action']:.2f}")
-    print(f"  - Переход: {raw_weights['class_weights']['transition']:.2f}")
     
     print("\n[INFO] Нормализованные веса классов:")
     print(f"  - Фон: {normalized_weights['class_weights']['background']:.2f}")
     print(f"  - Действие: {normalized_weights['class_weights']['action']:.2f}")
-    print(f"  - Переход: {normalized_weights['class_weights']['transition']:.2f}")
     
     # Визуализируем веса до и после нормализации
     plt.figure(figsize=(15, 6))
@@ -364,7 +325,6 @@ def save_weights_to_config(weights):
         print("\n[INFO] Нормализованные веса успешно сохранены:")
         print(f"  - Фон: {weights['class_weights']['background']:.2f}")
         print(f"  - Действие: {weights['class_weights']['action']:.2f}")
-        print(f"  - Переход: {weights['class_weights']['transition']:.2f}")
         
     except Exception as e:
         print(f"\n[ERROR] Ошибка при сохранении весов: {str(e)}")

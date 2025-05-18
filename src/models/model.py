@@ -516,125 +516,88 @@ class TransformerBlock(tf.keras.layers.Layer):
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
     """
-    Создание модели MobileNetV3
-    temporal_block_type: 'rnn', 'hybrid', '3d_attention', 'transformer'
+    Создает модель на основе MobileNetV3 с временными блоками
     """
-    print("[DEBUG] Создание модели MobileNetV3...")
-    
-    model_params = Config.MODEL_PARAMS['v3']
-    dropout_rate = dropout_rate or model_params['dropout_rate']
-    lstm_units = lstm_units or model_params['lstm_units']
     if class_weights is None:
-        print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
+        # Значения по умолчанию
         class_weights = {
             'background': 1.0,
-            'action': 4.299630443449974,
-            'transition': 10.0
+            'action': 4.3
         }
+    
     tf_class_weights = {
         0: class_weights['background'],
-        1: class_weights['action'],
-        2: class_weights['transition']
+        1: class_weights['action']
     }
+    
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     
-    inputs = Input(shape=input_shape)  # (seq, h, w, c)
-    print(f"[SHAPE] Input: {inputs.shape}")
-    base_model = MobileNetV3Small(input_shape=input_shape[1:], include_top=False, weights='imagenet')
-    base_model.trainable = True
-    feature_extractor = Model(base_model.input, GlobalAveragePooling2D()(base_model.output))
-    print(f"[SHAPE] Feature extractor output: {feature_extractor.output_shape}")
-    x = TimeDistributed(feature_extractor)(inputs)
-    print(f"[SHAPE] After TimeDistributed: {x.shape}")
-    x = Dense(lstm_units, activation='relu')(x)
-    print(f"[SHAPE] After Dense: {x.shape}")
-    x = Dropout(dropout_rate)(x)
-    print(f"[SHAPE] After Dropout: {x.shape}")
+    # Создаем базовую модель MobileNetV3
+    base_model = MobileNetV3Small(
+        input_shape=input_shape,
+        include_top=False,
+        weights='imagenet'
+    )
+    
+    # Замораживаем веса базовой модели
+    base_model.trainable = False
+    
+    # Создаем входной слой
+    inputs = Input(shape=input_shape)
+    
+    # Применяем базовую модель
+    x = base_model(inputs)
+    
+    # Добавляем временные блоки
     if temporal_block_type == 'rnn':
         if rnn_type == 'lstm':
-            x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+            x = LSTM(lstm_units, return_sequences=True)(x)
+        elif rnn_type == 'gru':
+            x = GRU(lstm_units, return_sequences=True)(x)
         else:
-            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
-        print(f"[SHAPE] After RNN: {x.shape}")
-    elif temporal_block_type == 'hybrid':
-        if rnn_type == 'lstm':
-            x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
-        else:
-            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
-        print(f"[SHAPE] After RNN: {x.shape}")
-        x = TemporalAttention(lstm_units)(x)
-        print(f"[SHAPE] After TemporalAttention: {x.shape}")
-    elif temporal_block_type == '3d_attention':
-        x = Reshape((input_shape[0], 1, 1, lstm_units))(x)
-        print(f"[SHAPE] After Reshape: {x.shape}")
-        x = SpatioTemporal3DAttention()(x)
-        print(f"[SHAPE] After SpatioTemporal3DAttention: {x.shape}")
-        x = GlobalAveragePooling3D()(x)
-        print(f"[SHAPE] After GlobalAveragePooling3D: {x.shape}")
-        x = Dropout(dropout_rate)(x)
-        print(f"[SHAPE] After final Dropout: {x.shape}")
-    elif temporal_block_type == 'transformer':
-        x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=128)(x)
-        print(f"[SHAPE] After TransformerBlock: {x.shape}")
+            raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
+    elif temporal_block_type == 'tcn':
+        x = TemporalConvNet(
+            num_channels=[lstm_units, lstm_units],
+            kernel_size=3,
+            dropout=dropout_rate
+        )(x)
     else:
-        raise ValueError(f"Неизвестный temporal_block_type: {temporal_block_type}")
+        raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
+    
+    # Добавляем слой нормализации
+    x = BatchNormalization()(x)
+    
+    # Добавляем слой dropout
+    x = Dropout(dropout_rate)(x)
+    
+    # Добавляем выходной слой
     outputs = Dense(num_classes, activation='softmax')(x)
-    print(f"[SHAPE] Output: {outputs.shape}")
+    
+    # Создаем модель
     model = Model(inputs=inputs, outputs=outputs)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+    
+    # Оптимизатор
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=Config.LEARNING_RATE,
+        clipnorm=1.0
+    )
+    
+    # Метрики
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
     ]
-    class F1ScoreAdapter(tf.keras.metrics.F1Score):
-        def __init__(self, name, class_id, threshold=0.5):
-            super().__init__(name=name, threshold=threshold)
-            self.class_id = class_id
-            
-        def update_state(self, y_true, y_pred, sample_weight=None):
-            # Преобразуем входные данные в правильный формат
-            y_true = tf.cast(y_true, tf.float32)
-            y_pred = tf.cast(y_pred, tf.float32)
-            
-            # Убеждаемся, что размерности соответствуют ожидаемым
-            if len(y_true.shape) == 3:  # (batch, sequence, classes)
-                y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-                y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-            
-            # Берем только нужный класс
-            y_true = y_true[:, self.class_id]
-            y_pred = y_pred[:, self.class_id]
-            
-            # Применяем порог для получения бинарных предсказаний
-            y_pred = tf.cast(y_pred > 0.5, tf.float32)
-            
-            # Добавляем размерность для совместимости с F1Score
-            y_true = tf.expand_dims(y_true, axis=-1)
-            y_pred = tf.expand_dims(y_pred, axis=-1)
-            
-            return super().update_state(y_true, y_pred, sample_weight)
-        
-        def result(self):
-            result = super().result()
-            return result
-    metrics.extend([
-        F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
-        F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
-    ])
+    
+    # Компилируем модель
     model.compile(
         optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action'], class_weights['transition']]),
-        metrics=metrics,
-        weighted_metrics=['accuracy']
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
+        metrics=metrics
     )
+    
     return model
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
@@ -654,15 +617,13 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
         print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
         class_weights = {
             'background': 1.0,
-            'action': 4.299630443449974,
-            'transition': 10.0
+            'action': 4.3
         }
     
     # Преобразуем веса в формат для TensorFlow
     tf_class_weights = {
         0: class_weights['background'],
-        1: class_weights['action'],
-        2: class_weights['transition']
+        1: class_weights['action']
     }
     
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
@@ -710,57 +671,14 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     # Создаем метрики
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Precision(name='precision_transition', class_id=2, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_background', class_id=0, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_transition', class_id=2, thresholds=0.5)
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
     ]
-    
-    # Создаем адаптер для F1Score
-    class F1ScoreAdapter(tf.keras.metrics.F1Score):
-        def __init__(self, name, class_id, threshold=0.5):
-            super().__init__(name=name, threshold=threshold)
-            self.class_id = class_id
-            
-        def update_state(self, y_true, y_pred, sample_weight=None):
-            # Преобразуем входные данные в правильный формат
-            y_true = tf.cast(y_true, tf.float32)
-            y_pred = tf.cast(y_pred, tf.float32)
-            
-            # Убеждаемся, что размерности соответствуют ожидаемым
-            if len(y_true.shape) == 3:  # (batch, sequence, classes)
-                y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-                y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-            
-            # Берем только нужный класс
-            y_true = y_true[:, self.class_id]
-            y_pred = y_pred[:, self.class_id]
-            
-            # Применяем порог для получения бинарных предсказаний
-            y_pred = tf.cast(y_pred > 0.5, tf.float32)
-            
-            # Добавляем размерность для совместимости с F1Score
-            y_true = tf.expand_dims(y_true, axis=-1)
-            y_pred = tf.expand_dims(y_pred, axis=-1)
-            
-            return super().update_state(y_true, y_pred, sample_weight)
-        
-        def result(self):
-            result = super().result()
-            return result
-    
-    # Добавляем F1Score для каждого класса
-    metrics.extend([
-        F1ScoreAdapter(name='f1_score_background', class_id=0, threshold=0.5),
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5),
-        F1ScoreAdapter(name='f1_score_transition', class_id=2, threshold=0.5)
-    ])
     
     model.compile(
         optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action'], class_weights['transition']]),
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
         metrics=metrics,
         weighted_metrics=['accuracy']
     )
