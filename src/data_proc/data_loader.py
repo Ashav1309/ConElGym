@@ -505,7 +505,9 @@ class VideoDataLoader:
                 
                 if valid_sequence and len(frames) == sequence_length:
                     # Создаем последовательность с правильной формой
+                    logger.debug(f"Форма кадров перед stack: {[f.shape for f in frames]}")
                     sequence = np.stack(frames)  # Форма: (sequence_length, height, width, channels)
+                    logger.debug(f"Форма последовательности после stack: {sequence.shape}")
                     sequences.append(sequence)
                     sequence_labels.append(sequence_label)
                     valid_sequences += 1
@@ -521,8 +523,11 @@ class VideoDataLoader:
                 return None, None
             
             # Преобразуем списки в numpy массивы
+            logger.debug(f"Форма последовательностей перед финальным stack: {[s.shape for s in sequences]}")
             sequences = np.stack(sequences)  # Форма: (n_sequences, sequence_length, height, width, channels)
             sequence_labels = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
+            logger.debug(f"Форма последовательностей после финального stack: {sequences.shape}")
+            logger.debug(f"Форма меток после финального stack: {sequence_labels.shape}")
             
             # Проверяем форму последовательностей
             expected_shape = (len(sequences), sequence_length, self.frame_size, self.frame_size, 3)
@@ -531,8 +536,8 @@ class VideoDataLoader:
                 return None, None
             
             logger.debug(f"Создано последовательностей: {valid_sequences}, пропущено: {skipped_sequences}")
-            logger.debug(f"Форма последовательностей: {sequences.shape}")
-            logger.debug(f"Форма меток: {sequence_labels.shape}")
+            logger.debug(f"Финальная форма последовательностей: {sequences.shape}")
+            logger.debug(f"Финальная форма меток: {sequence_labels.shape}")
             
             return sequences, sequence_labels
             
