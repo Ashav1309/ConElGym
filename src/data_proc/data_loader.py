@@ -701,18 +701,6 @@ class VideoDataLoader:
                 
                 logger.debug(f"[DEBUG] Поиск доступного видео (попытка {attempts + 1}/{max_attempts})")
                 logger.debug(f"[DEBUG] Доступно видео: {len(available_videos)}")
-                # last_available_count = len(available_videos)
-                # no_progress_count = 0
-                # while attempts < max_attempts:
-                #     if len(available_videos) == last_available_count:
-                #         no_progress_count += 1
-                #         if no_progress_count >= 5:
-                #             logger.warning("Нет прогресса в поиске доступного видео")
-                #             return None
-                #     else:
-                #         no_progress_count = 0
-                #     last_available_count = len(available_videos)
-                #     return video_path
             
             logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
             return None
@@ -981,31 +969,32 @@ class VideoDataLoader:
             logger.error(f"Ошибка при формировании батча: {str(e)}")
             return None, None
 
-    def data_generator(self, force_positive: bool = True, is_validation: bool = False) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
-        """
-        Генератор данных для обучения
+    def data_generator(self, force_positive: bool = True, is_validation: bool = False):
+        max_empty_batches = 20  # Увеличьте с 10 до 20
+        empty_batch_count = 0
         
-        Args:
-            force_positive: принудительно использовать положительные примеры
-            is_validation: флаг валидации
-            
-        Yields:
-            Tuple[tf.Tensor, tf.Tensor]: батч данных и меток
-        """
         while True:
-            X_batch, y_batch = self.get_batch(
-                batch_size=self.batch_size,
-                sequence_length=self.sequence_length,
-                target_size=self.target_size,
-                one_hot=True,
-                max_sequences_per_video=self.max_sequences_per_video,
-                force_positive=force_positive,
-                is_validation=is_validation
-            )
-            
-            if X_batch is not None and y_batch is not None:
-                yield X_batch, y_batch
-            else:
+            try:
+                X_batch, y_batch = self.get_batch(
+                    batch_size=self.batch_size,
+                    sequence_length=self.sequence_length,
+                    target_size=self.target_size,
+                    one_hot=True,
+                    max_sequences_per_video=self.max_sequences_per_video,
+                    force_positive=force_positive,
+                    is_validation=is_validation
+                )
+                
+                if X_batch is not None and y_batch is not None:
+                    empty_batch_count = 0
+                    yield X_batch, y_batch
+                else:
+                    empty_batch_count += 1
+                    if empty_batch_count >= max_empty_batches:
+                        logger.error("Слишком много пустых батчей подряд")
+                        break
+            except Exception as e:
+                logger.error(f"Ошибка в генераторе данных: {str(e)}")
                 break
 
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
