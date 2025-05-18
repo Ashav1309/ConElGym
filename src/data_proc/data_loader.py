@@ -446,51 +446,55 @@ class VideoDataLoader:
             background_dominant_sequences = []  # Последовательности с преобладанием фона
             background_dominant_labels = []
             
-            for start_idx in range(0, total_frames - sequence_length + 1, step):
-                # Проверяем, не выходим ли за пределы видео
-                if start_idx + sequence_length > total_frames:
-                    logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
-                    continue
-                
-                # Проверяем, есть ли хотя бы один кадр с действием в последовательности
-                sequence_label = labels[start_idx:start_idx + sequence_length]
-                has_action = np.any(sequence_label[:, 1] == 1)
-                
-                # Читаем кадры для последовательности
-                frames = []
-                cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                
-                for _ in range(sequence_length):
-                    ret, frame = cap.read()
-                    if not ret:
-                        # logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
+            max_sequence_attempts = 100
+            sequence_attempts = 0
+            while len(action_dominant_sequences) + len(background_dominant_sequences) < max_sequences and sequence_attempts < max_sequence_attempts:
+                sequence_attempts += 1
+                for start_idx in range(0, total_frames - sequence_length + 1, step):
+                    # Проверяем, не выходим ли за пределы видео
+                    if start_idx + sequence_length > total_frames:
+                        logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
                         continue
                     
-                    try:
-                        frame = cv2.resize(frame, (self.frame_size, self.frame_size))
-                        frames.append(frame)
-                    except Exception as e:
-                        logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
-                        continue
-                
-                if len(frames) == sequence_length:
-                    # Преобразуем кадры в numpy массив с правильной формой
-                    frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
+                    # Проверяем, есть ли хотя бы один кадр с действием в последовательности
+                    sequence_label = labels[start_idx:start_idx + sequence_length]
+                    has_action = np.any(sequence_label[:, 1] == 1)
                     
-                    # Вычисляем долю кадров с действием
-                    action_ratio = np.mean(sequence_label[:, 1])
+                    # Читаем кадры для последовательности
+                    frames = []
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
                     
-                    # Распределяем последовательности по группам
-                    if action_ratio > 0.5:  # Больше половины кадров - действие
-                        action_dominant_sequences.append(frames_array)
-                        action_dominant_labels.append(sequence_label)
-                    else:  # Больше половины кадров - фон
-                        background_dominant_sequences.append(frames_array)
-                        background_dominant_labels.append(sequence_label)
+                    for _ in range(sequence_length):
+                        ret, frame = cap.read()
+                        if not ret:
+                            # logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
+                            continue
+                        
+                        try:
+                            frame = cv2.resize(frame, (self.frame_size, self.frame_size))
+                            frames.append(frame)
+                        except Exception as e:
+                            logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
+                            continue
                     
-                    # Если набрали достаточно последовательностей, выходим
-                    if len(action_dominant_sequences) + len(background_dominant_sequences) >= max_sequences:
-                        break
+                    if len(frames) == sequence_length:
+                        # Преобразуем кадры в numpy массив с правильной формой
+                        frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
+                        
+                        # Вычисляем долю кадров с действием
+                        action_ratio = np.mean(sequence_label[:, 1])
+                        
+                        # Распределяем последовательности по группам
+                        if action_ratio > 0.5:  # Больше половины кадров - действие
+                            action_dominant_sequences.append(frames_array)
+                            action_dominant_labels.append(sequence_label)
+                        else:  # Больше половины кадров - фон
+                            background_dominant_sequences.append(frames_array)
+                            background_dominant_labels.append(sequence_label)
+                        
+                        # Если набрали достаточно последовательностей, выходим
+                        if len(action_dominant_sequences) + len(background_dominant_sequences) >= max_sequences:
+                            break
             
             cap.release()
             
@@ -616,6 +620,8 @@ class VideoDataLoader:
         try:
             max_attempts = len(self.video_paths)  # Максимальное количество попыток = количество видео в текущей группе
             attempts = 0
+            reset_count = 0
+            max_resets = 3
             
             while attempts < max_attempts:
                 # Проверяем, все ли видео в текущей порции обработаны
@@ -627,6 +633,10 @@ class VideoDataLoader:
                 
                 # Если нет доступных видео, переходим к следующей порции
                 if not available_videos:
+                    reset_count += 1
+                    if reset_count >= max_resets:
+                        logger.warning("Слишком много сбросов счетчика попыток")
+                        return None
                     logger.info("Все видео в текущей порции обработаны")
                     self.current_video_index += self.max_videos
                     
@@ -828,6 +838,9 @@ class VideoDataLoader:
         logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
         logger.debug(f"[DEBUG] Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
         
+        last_positive_count = 0
+        last_negative_count = 0
+        no_progress_count = 0
         while (len(X_batch) < batch_size and 
                (positive_count < max_positive or negative_count < max_negative) and 
                attempts < max_attempts):
@@ -901,6 +914,16 @@ class VideoDataLoader:
                             logger.debug("Не удалось собрать батч")
                             return None, None
                     continue
+                
+                if positive_count == last_positive_count and negative_count == last_negative_count:
+                    no_progress_count += 1
+                    if no_progress_count >= 10:  # Если нет прогресса 10 попыток подряд
+                        logger.warning("Нет прогресса в сборе батча")
+                        break
+                else:
+                    no_progress_count = 0
+                last_positive_count = positive_count
+                last_negative_count = negative_count
                 
             except Exception as e:
                 logger.error(f"Ошибка при получении последовательности: {str(e)}")
