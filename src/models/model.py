@@ -435,23 +435,30 @@ class GradientAccumulationModel(tf.keras.Model):
             traceback.print_exc()
             raise
 
-class TemporalF1Score(tf.keras.metrics.Metric):
-    def __init__(self, name='f1_score_element', threshold=0.5, **kwargs):
+class F1ScoreAdapter(tf.keras.metrics.Metric):
+    """
+    Адаптер для вычисления F1-score для конкретного класса
+    """
+    def __init__(self, name='f1_score', class_id=1, threshold=0.5, **kwargs):
         super().__init__(name=name, **kwargs)
+        self.class_id = class_id
         self.threshold = threshold
         self.true_positives = self.add_weight(name='tp', initializer='zeros')
         self.false_positives = self.add_weight(name='fp', initializer='zeros')
         self.false_negatives = self.add_weight(name='fn', initializer='zeros')
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        # Преобразуем one-hot encoded метки в индексы классов
-        y_true = tf.argmax(y_true, axis=-1)
-        y_pred = tf.argmax(y_pred, axis=-1)
+        # Получаем предсказания для нужного класса
+        y_pred = y_pred[..., self.class_id]
+        y_true = y_true[..., self.class_id]
         
-        # Вычисляем метрики с учетом временной размерности
-        true_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 1)), tf.float32))
-        false_positives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 0), tf.equal(y_pred, 1)), tf.float32))
-        false_negatives = tf.reduce_sum(tf.cast(tf.logical_and(tf.equal(y_true, 1), tf.equal(y_pred, 0)), tf.float32))
+        # Применяем порог
+        y_pred = tf.cast(y_pred > self.threshold, tf.float32)
+        
+        # Вычисляем метрики
+        true_positives = tf.reduce_sum(y_true * y_pred)
+        false_positives = tf.reduce_sum((1 - y_true) * y_pred)
+        false_negatives = tf.reduce_sum(y_true * (1 - y_pred))
         
         self.true_positives.assign_add(true_positives)
         self.false_positives.assign_add(false_positives)
@@ -551,7 +558,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
     
     # Преобразуем выход MobileNetV3 в последовательность для временных блоков
-    x = Reshape((-1, x.shape[1] * x.shape[2] * x.shape[3]))(x)
+    # Сохраняем временную размерность (sequence_length)
+    x = Reshape((input_shape[0], -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
     # Добавляем временные блоки
@@ -601,14 +609,14 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         # Преобразуем в 3D тензор для пространственно-временного внимания
         # Восстанавливаем пространственные размерности
         spatial_size = int(np.sqrt(x.shape[2] // 3))  # Предполагаем квадратное изображение
-        x = Reshape((-1, spatial_size, spatial_size, 3))(x)
+        x = Reshape((input_shape[0], spatial_size, spatial_size, 3))(x)
         print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")
         
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         print(f"[DEBUG] Форма после 3D Attention: {x.shape}")
         
         # Преобразуем обратно в последовательность
-        x = Reshape((-1, x.shape[2] * x.shape[3] * x.shape[4]))(x)
+        x = Reshape((input_shape[0], -1))(x)
         print(f"[DEBUG] Форма после Reshape: {x.shape}")
         
     elif temporal_block_type == 'transformer':
