@@ -468,13 +468,20 @@ class VideoDataLoader:
             sequences = []
             sequence_labels = []
             
+            # Проверяем все возможные начальные позиции
             for start_idx in range(0, total_frames - sequence_length + 1, step):
                 # Проверяем, не выходим ли за пределы видео
                 if start_idx + sequence_length > total_frames:
                     logger.debug(f"Пропуск последовательности: выход за пределы видео (кадр {start_idx + sequence_length} > {total_frames})")
                     skipped_sequences += 1
                     continue
-                    
+                
+                # Проверяем, все ли кадры в последовательности доступны
+                if any(frame_idx >= total_frames for frame_idx in range(start_idx, start_idx + sequence_length)):
+                    logger.debug(f"Пропуск последовательности: некоторые кадры недоступны (кадры {start_idx}-{start_idx + sequence_length - 1})")
+                    skipped_sequences += 1
+                    continue
+                
                 # Создаем последовательность
                 sequence = []
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
