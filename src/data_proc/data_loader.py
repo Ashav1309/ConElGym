@@ -296,10 +296,10 @@ class VideoDataLoader:
             self._load_video_chunk()
             
             data_type = 'train' if 'train' in str(self.data_path) else 'valid'
-            print(f"[DEBUG] Всего найдено {self.total_videos} видео")
-            print(f"[DEBUG] Загружено {self.video_count} видео из {self.total_videos} для текущей сессии")
+            logger.debug(f"[DEBUG] Всего найдено {self.total_videos} видео")
+            logger.debug(f"[DEBUG] Загружено {self.video_count} видео из {self.total_videos} для текущей сессии")
         except Exception as e:
-            print(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
+            logger.error(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
 
     def _load_video_chunk(self):
@@ -321,24 +321,24 @@ class VideoDataLoader:
                         valid_videos.append(video_path)
                         cap.release()
                     else:
-                        print(f"[WARNING] Видео повреждено или недоступно: {video_path}")
+                        logger.warning(f"[WARNING] Видео повреждено или недоступно: {video_path}")
                 else:
-                    print(f"[WARNING] Видео не найдено: {video_path}")
+                    logger.warning(f"[WARNING] Видео не найдено: {video_path}")
             
             self.video_paths = valid_videos
             self.video_count = len(self.video_paths)
             self.labels = [None] * self.video_count
             
-            print(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
+            logger.debug(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
             
             # Если все видео в текущей порции невалидны, пробуем следующую порцию
             if not valid_videos and start_idx < self.total_videos:
-                print("[DEBUG] Все видео в текущей порции невалидны, пробуем следующую порцию")
+                logger.debug("[DEBUG] Все видео в текущей порции невалидны, пробуем следующую порцию")
                 self.current_video_index = end_idx
                 self._load_video_chunk()
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
+            logger.error(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
             self.video_paths = []
             self.video_count = 0
             self.labels = []
@@ -361,12 +361,12 @@ class VideoDataLoader:
             
             # Проверяем наличие аннотаций в кэше
             if video_path in self.annotations_cache:
-                print(f"[DEBUG] Аннотации для {os.path.basename(video_path)} найдены в кэше")
+                logger.debug(f"[DEBUG] Аннотации для {os.path.basename(video_path)} найдены в кэше")
                 return self.annotations_cache[video_path]
             
             # Если файл аннотаций не существует, возвращаем пустые метки
             if not os.path.exists(annotation_path):
-                print(f"[DEBUG] Файл аннотаций не найден: {annotation_path}")
+                logger.debug(f"[DEBUG] Файл аннотаций не найден: {annotation_path}")
                 empty_labels = np.zeros((total_frames, 2))
                 empty_labels[:, 0] = 1  # Все кадры - фон [1, 0]
                 return empty_labels
@@ -385,20 +385,20 @@ class VideoDataLoader:
                     if frame_idx < total_frames:
                         labels[frame_idx] = [0, 1]  # Действие
             
-            print(f"[DEBUG] Статистика меток для {os.path.basename(video_path)}:")
-            print(f"  - Всего кадров: {total_frames}")
-            print(f"  - Кадры с фоном: {np.sum(labels[:, 0] == 1)}")
-            print(f"  - Кадры с действием: {np.sum(labels[:, 1] == 1)}")
-            print(f"  - Сумма всех меток: {np.sum(labels)}")
+            logger.debug(f"[DEBUG] Статистика меток для {os.path.basename(video_path)}:")
+            logger.debug(f"  - Всего кадров: {total_frames}")
+            logger.debug(f"  - Кадры с фоном: {np.sum(labels[:, 0] == 1)}")
+            logger.debug(f"  - Кадры с действием: {np.sum(labels[:, 1] == 1)}")
+            logger.debug(f"  - Сумма всех меток: {np.sum(labels)}")
             
             # Сохраняем в кэш
             self.annotations_cache[video_path] = labels
-            print(f"[DEBUG] Аннотации для {os.path.basename(video_path)} сохранены в кэш")
+            logger.debug(f"[DEBUG] Аннотации для {os.path.basename(video_path)} сохранены в кэш")
             
             return labels
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
+            logger.error(f"[ERROR] Ошибка при загрузке аннотаций для {video_path}: {str(e)}")
             # В случае ошибки возвращаем пустые метки
             empty_labels = np.zeros((total_frames, 2))
             empty_labels[:, 0] = 1  # Все кадры - фон [1, 0]
@@ -801,17 +801,17 @@ class VideoDataLoader:
                 self.processed_video_names.add(video_path)
                 self.total_processed_videos += 1
             
-            print(f"[DEBUG] Статистика батча {batch_number}:")
-            print(f"  - Размер батча: {X_batch.shape}")
-            print(f"  - Положительных примеров: {positive_count}")
-            print(f"  - Отрицательных примеров: {negative_count}")
-            print(f"  - Видео: {video_path}")
-            print(f"[DEBUG] Общая статистика обработки:")
-            print(f"  - Обработано видео: {self.total_processed_videos}/{self.total_videos} ({self.total_processed_videos/self.total_videos*100:.1f}%)")
-            print(f"  - Обработано кадров: {self.total_processed_frames}")
-            print(f"  - Обработано последовательностей: {self.total_processed_sequences}")
+            logger.debug(f"[DEBUG] Статистика батча {batch_number}:")
+            logger.debug(f"  - Размер батча: {X_batch.shape}")
+            logger.debug(f"  - Положительных примеров: {positive_count}")
+            logger.debug(f"  - Отрицательных примеров: {negative_count}")
+            logger.debug(f"  - Видео: {video_path}")
+            logger.debug(f"[DEBUG] Общая статистика обработки:")
+            logger.debug(f"  - Обработано видео: {self.total_processed_videos}/{self.total_videos} ({self.total_processed_videos/self.total_videos*100:.1f}%)")
+            logger.debug(f"  - Обработано кадров: {self.total_processed_frames}")
+            logger.debug(f"  - Обработано последовательностей: {self.total_processed_sequences}")
         except Exception as e:
-            print(f"[WARNING] Ошибка при сохранении статистики батча: {str(e)}")
+            logger.warning(f"[WARNING] Ошибка при сохранении статистики батча: {str(e)}")
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
@@ -1013,7 +1013,7 @@ class VideoDataLoader:
         Рассчитывает общее количество батчей для данных.
         """
         try:
-            print("[DEBUG] Начало расчета общего количества батчей")
+            logger.debug("[DEBUG] Начало расчета общего количества батчей")
             
             # Рассчитываем количество батчей на основе количества видео и ограничений
             total_sequences = 0
@@ -1032,12 +1032,12 @@ class VideoDataLoader:
             # Количество батчей = общее количество последовательностей / размер батча
             self.total_batches = total_sequences // self.batch_size
             
-            print(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
-            print(f"[DEBUG] Общее количество последовательностей: {total_sequences}")
+            logger.debug(f"[DEBUG] Рассчитано батчей: {self.total_batches}")
+            logger.debug(f"[DEBUG] Общее количество последовательностей: {total_sequences}")
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
+            logger.debug(f"[ERROR] Ошибка при расчете количества батчей: {str(e)}")
+            logger.debug("[DEBUG] Stack trace:", flush=True)
             import traceback
             traceback.print_exc()
             self.total_batches = 0
@@ -1073,7 +1073,7 @@ class VideoDataLoader:
             }
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
+            logger.error(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
             raise
 
     def _load_frame(self, video_path: str, frame_idx: int, target_size: Tuple[int, int]) -> Optional[np.ndarray]:
@@ -1091,14 +1091,14 @@ class VideoDataLoader:
         try:
             # Проверяем размер кэша
             if len(self.video_cache) >= self.cache_cleanup_threshold:
-                print("[DEBUG] Очистка кэша видео")
+                logger.debug("[DEBUG] Очистка кэша видео")
                 self.clear_cache()
             
             # Проверяем кэш
             if video_path in self.video_cache:
                 cap = self.video_cache[video_path]
                 if not cap.isOpened():
-                    print(f"[WARNING] Видео в кэше повреждено: {video_path}")
+                    logger.warning(f"[WARNING] Видео в кэше повреждено: {video_path}")
                     del self.video_cache[video_path]
                     cap = None
             else:
@@ -1108,7 +1108,7 @@ class VideoDataLoader:
             if cap is None:
                 cap = cv2.VideoCapture(video_path)
                 if not cap.isOpened():
-                    print(f"[ERROR] Не удалось открыть видео: {video_path}")
+                    logger.error(f"[ERROR] Не удалось открыть видео: {video_path}")
                     return None
                 self.video_cache[video_path] = cap
             
@@ -1118,32 +1118,32 @@ class VideoDataLoader:
             # Читаем кадр
             ret, frame = cap.read()
             if not ret:
-                print(f"[WARNING] Не удалось прочитать кадр {frame_idx} из {video_path}")
+                logger.warning(f"[WARNING] Не удалось прочитать кадр {frame_idx} из {video_path}")
                 return None
             
             # Проверяем размер кадра
             if frame.size == 0:
-                print(f"[WARNING] Пустой кадр {frame_idx} из {video_path}")
+                logger.warning(f"[WARNING] Пустой кадр {frame_idx} из {video_path}")
                 return None
             
             # Изменяем размер
             try:
                 frame = cv2.resize(frame, target_size)
             except Exception as e:
-                print(f"[WARNING] Ошибка при изменении размера кадра {frame_idx}: {str(e)}")
+                logger.warning(f"[WARNING] Ошибка при изменении размера кадра {frame_idx}: {str(e)}")
                 return None
             
             # Нормализуем
             try:
                 frame = frame.astype(np.float32) / 255.0
             except Exception as e:
-                print(f"[WARNING] Ошибка при нормализации кадра {frame_idx}: {str(e)}")
+                logger.warning(f"[WARNING] Ошибка при нормализации кадра {frame_idx}: {str(e)}")
                 return None
             
             return frame
             
         except Exception as e:
-            print(f"[ERROR] Ошибка при загрузке кадра: {str(e)}")
+            logger.error(f"[ERROR] Ошибка при загрузке кадра: {str(e)}")
             if video_path in self.video_cache:
                 del self.video_cache[video_path]
             return None 
