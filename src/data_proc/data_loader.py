@@ -743,7 +743,7 @@ class VideoDataLoader:
 
     def get_batch(self, batch_size, sequence_length, target_size, one_hot=True, max_sequences_per_video=None, force_positive=False, is_validation=False):
         """
-        Получение батча данных с исправлением некорректных форм
+        Получение батча данных с исправлением некорректных форм и балансировкой классов
         """
         X_batch = []
         y_batch = []
@@ -752,6 +752,12 @@ class VideoDataLoader:
         max_empty_sequences = 10  # Увеличиваем допустимое количество пустых последовательностей
         empty_sequence_count = 0
         
+        # Счетчики для балансировки классов
+        positive_count = 0
+        negative_count = 0
+        max_positive = int(batch_size * 0.75)  # 75% положительных
+        max_negative = batch_size - max_positive  # 25% отрицательных
+        
         # Ожидаемая форма последовательности
         expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
         
@@ -759,7 +765,9 @@ class VideoDataLoader:
         logger.debug(f"[DEBUG] Всего батчей: {self.total_batches}")
         logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
         
-        while len(X_batch) < batch_size and attempts < max_attempts:
+        while (len(X_batch) < batch_size and 
+               (positive_count < max_positive or negative_count < max_negative) and 
+               attempts < max_attempts):
             try:
                 X_seq, y_seq = self._get_sequence(
                     sequence_length=sequence_length,
@@ -796,10 +804,24 @@ class VideoDataLoader:
                             attempts += 1
                             continue
                     
-                    X_batch.append(X_seq)
-                    y_batch.append(y_seq)
-                    empty_sequence_count = 0
-                    logger.debug(f"[DEBUG] Добавлена последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
+                    # Проверяем тип последовательности и добавляем в батч с учетом балансировки
+                    is_positive = np.any(y_seq[:, 1] == 1)
+                    if is_positive and positive_count < max_positive:
+                        X_batch.append(X_seq)
+                        y_batch.append(y_seq)
+                        positive_count += 1
+                        empty_sequence_count = 0
+                        logger.debug(f"[DEBUG] Добавлена положительная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
+                    elif not is_positive and negative_count < max_negative:
+                        X_batch.append(X_seq)
+                        y_batch.append(y_seq)
+                        negative_count += 1
+                        empty_sequence_count = 0
+                        logger.debug(f"[DEBUG] Добавлена отрицательная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
+                    else:
+                        # Пропускаем пример, если достигли лимита для его класса
+                        attempts += 1
+                        continue
                 else:
                     empty_sequence_count += 1
                     attempts += 1
@@ -840,8 +862,8 @@ class VideoDataLoader:
                 X_batch=X_batch_array,
                 y_batch=y_batch_array,
                 batch_number=self.current_batch,
-                positive_count=sum(1 for y in y_batch if np.any(y[:, 1] == 1)),  # Считаем последовательности с действиями
-                negative_count=sum(1 for y in y_batch if not np.any(y[:, 1] == 1)),  # Считаем последовательности без действий
+                positive_count=positive_count,  # Используем уже подсчитанные значения
+                negative_count=negative_count,  # Используем уже подсчитанные значения
                 video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
             )
             
