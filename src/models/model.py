@@ -593,10 +593,6 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     
     # Добавляем слой dropout
     x = Dropout(dropout_rate)(x)
-    
-    # Усредняем по временной оси
-    x = GlobalAveragePooling1D()(x)
-    print(f"[DEBUG] Форма после GlobalAveragePooling1D: {x.shape}")
 
     # Добавляем выходной слой для двух классов
     outputs = Dense(2, activation='softmax')(x)  # 2 класса: фон и действие
