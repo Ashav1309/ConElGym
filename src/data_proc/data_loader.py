@@ -701,18 +701,18 @@ class VideoDataLoader:
                 
                 logger.debug(f"[DEBUG] Поиск доступного видео (попытка {attempts + 1}/{max_attempts})")
                 logger.debug(f"[DEBUG] Доступно видео: {len(available_videos)}")
-                last_available_count = len(available_videos)
-                no_progress_count = 0
-                while attempts < max_attempts:
-                    if len(available_videos) == last_available_count:
-                        no_progress_count += 1
-                        if no_progress_count >= 5:
-                            logger.warning("Нет прогресса в поиске доступного видео")
-                            return None
-                    else:
-                        no_progress_count = 0
-                    last_available_count = len(available_videos)
-                    return video_path
+                # last_available_count = len(available_videos)
+                # no_progress_count = 0
+                # while attempts < max_attempts:
+                #     if len(available_videos) == last_available_count:
+                #         no_progress_count += 1
+                #         if no_progress_count >= 5:
+                #             logger.warning("Нет прогресса в поиске доступного видео")
+                #             return None
+                #     else:
+                #         no_progress_count = 0
+                #     last_available_count = len(available_videos)
+                #     return video_path
             
             logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
             return None
