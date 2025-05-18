@@ -112,14 +112,14 @@ def load_and_prepare_data(batch_size):
             Config.SEQUENCE_LENGTH, 
             batch_size, 
             Config.INPUT_SIZE, 
-            force_positive=False  # Отключаем принудительное использование положительных примеров
+            force_positive=True  # Включаем принудительное использование положительных примеров для обучения
         )
         val_dataset = create_tuning_data_pipeline(
             val_loader, 
             Config.SEQUENCE_LENGTH, 
             batch_size, 
             Config.INPUT_SIZE, 
-            force_positive=False  # Отключаем принудительное использование положительных примеров
+            force_positive=False  # Оставляем отключенным для валидации
         )
         
         return train_dataset, val_dataset
