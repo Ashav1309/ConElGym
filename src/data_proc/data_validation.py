@@ -6,6 +6,7 @@ from src.data_proc.data_loader import VideoDataLoader
 import numpy as np
 from typing import List, Tuple, Dict
 import logging
+import tensorflow as tf
 
 logger = logging.getLogger(__name__)
 
@@ -287,22 +288,29 @@ def validate_training_data(train_data, val_data):
     try:
         print("[DEBUG] Валидация данных...")
         
+        # Получаем первый батч из датасетов
+        train_batch = next(iter(train_data))
+        val_batch = next(iter(val_data))
+        
         # Проверка на NaN и Inf
-        if np.isnan(train_data[0]).any() or np.isinf(train_data[0]).any():
+        if tf.reduce_any(tf.math.is_nan(train_batch[0])) or tf.reduce_any(tf.math.is_inf(train_batch[0])):
             raise ValueError("Обнаружены NaN или Inf в обучающих данных")
-        if np.isnan(val_data[0]).any() or np.isinf(val_data[0]).any():
+        if tf.reduce_any(tf.math.is_nan(val_batch[0])) or tf.reduce_any(tf.math.is_inf(val_batch[0])):
             raise ValueError("Обнаружены NaN или Inf в валидационных данных")
             
         # Проверка размерностей
-        if train_data[0].shape[1:] != val_data[0].shape[1:]:
+        if train_batch[0].shape[1:] != val_batch[0].shape[1:]:
             raise ValueError("Несоответствие размерностей обучающих и валидационных данных")
             
         # Проверка баланса классов
-        train_dist = np.bincount(train_data[1].argmax(axis=1))
-        val_dist = np.bincount(val_data[1].argmax(axis=1))
+        train_labels = train_batch[1]
+        val_labels = val_batch[1]
         
-        train_ratio = np.min(train_dist) / np.max(train_dist)
-        val_ratio = np.min(val_dist) / np.max(val_dist)
+        train_dist = tf.math.bincount(tf.argmax(train_labels, axis=1))
+        val_dist = tf.math.bincount(tf.argmax(val_labels, axis=1))
+        
+        train_ratio = tf.reduce_min(train_dist) / tf.reduce_max(train_dist)
+        val_ratio = tf.reduce_min(val_dist) / tf.reduce_max(val_dist)
         
         if train_ratio < 0.1:
             print(f"[WARNING] Сильный дисбаланс классов в обучающих данных: {train_ratio:.2f}")
