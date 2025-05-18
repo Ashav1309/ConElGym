@@ -504,7 +504,8 @@ class VideoDataLoader:
                         break
                 
                 if valid_sequence and len(frames) == sequence_length:
-                    sequence = np.stack(frames)
+                    # Создаем последовательность с правильной формой
+                    sequence = np.stack(frames)  # Форма: (sequence_length, height, width, channels)
                     sequences.append(sequence)
                     sequence_labels.append(sequence_label)
                     valid_sequences += 1
@@ -520,13 +521,14 @@ class VideoDataLoader:
                 return None, None
             
             # Преобразуем списки в numpy массивы
-            sequences = np.stack(sequences)
-            sequence_labels = np.stack(sequence_labels)
+            sequences = np.stack(sequences)  # Форма: (n_sequences, sequence_length, height, width, channels)
+            sequence_labels = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
             
             # Проверяем форму последовательностей
             expected_shape = (len(sequences), sequence_length, self.frame_size, self.frame_size, 3)
             if sequences.shape != expected_shape:
                 logger.warning(f"Неправильная форма последовательностей: ожидалось {expected_shape}, получено {sequences.shape}")
+                return None, None
             
             logger.debug(f"Создано последовательностей: {valid_sequences}, пропущено: {skipped_sequences}")
             logger.debug(f"Форма последовательностей: {sequences.shape}")
