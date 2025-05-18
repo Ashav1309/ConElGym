@@ -526,7 +526,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     Создает модель на основе MobileNetV3 с временными блоками для двухклассовой классификации (фон-действие)
     """
     if class_weights is None:
-        # Значения по умолчанию для двух классов
         class_weights = {
             'background': 1.0,
             'action': 4.3
@@ -540,9 +539,20 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     print(f"[DEBUG] Входная форма: {input_shape}")
     
+    # Извлекаем размерность изображения из input_shape
+    if len(input_shape) == 4:  # (sequence_length, height, width, channels)
+        image_shape = input_shape[1:]  # (height, width, channels)
+        sequence_length = input_shape[0]
+    else:  # (height, width, channels)
+        image_shape = input_shape
+        sequence_length = 12  # значение по умолчанию
+    
+    print(f"[DEBUG] Размерность изображения: {image_shape}")
+    print(f"[DEBUG] Длина последовательности: {sequence_length}")
+    
     # Создаем базовую модель MobileNetV3
     base_model = MobileNetV3Small(
-        input_shape=input_shape,
+        input_shape=image_shape,  # Передаем только размерность изображения
         include_top=False,
         weights='imagenet'
     )
@@ -553,12 +563,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     # Создаем входной слой
     inputs = Input(shape=input_shape)
     
-    # Применяем базовую модель
-    x = base_model(inputs)
+    # Применяем базовую модель к каждому кадру последовательности
+    x = TimeDistributed(base_model)(inputs)
     print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
     
     # Преобразуем выход MobileNetV3 в последовательность для временных блоков
-    sequence_length = 12  # Фиксированная длина последовательности
     x = Reshape((sequence_length, -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
@@ -603,6 +612,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Форма после Hybrid: {x.shape}")
         
     elif temporal_block_type == '3d_attention':
+        # Преобразуем в 3D тензор для пространственно-временного внимания
         spatial_size = int(np.sqrt(x.shape[2] // 3))
         x = Reshape((sequence_length, spatial_size, spatial_size, 3))(x)
         print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")
@@ -664,15 +674,20 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
 
 def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
     """
-    Создает модель на основе MobileNetV4 с улучшенной архитектурой
+    Создает модель на основе MobileNetV4 с улучшенной архитектурой для двухклассовой классификации
     """
     print("[DEBUG] Создание модели MobileNetV4...")
     
-    # Получаем параметры модели из конфигурации
-    model_params = Config.MODEL_PARAMS['v4']
+    # Извлекаем размерность изображения из input_shape
+    if len(input_shape) == 4:  # (sequence_length, height, width, channels)
+        image_shape = input_shape[1:]  # (height, width, channels)
+        sequence_length = input_shape[0]
+    else:  # (height, width, channels)
+        image_shape = input_shape
+        sequence_length = 12  # значение по умолчанию
     
-    # Используем параметры из конфигурации, если не указаны явно
-    dropout_rate = dropout_rate or model_params['dropout_rate']
+    print(f"[DEBUG] Размерность изображения: {image_shape}")
+    print(f"[DEBUG] Длина последовательности: {sequence_length}")
     
     # Загружаем веса классов из конфига
     if class_weights is None:
@@ -691,25 +706,26 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     
     # Создаем модель
-    inputs = Input(shape=input_shape[1:])  # Убираем размерность последовательности
-    x = inputs
+    inputs = Input(shape=input_shape)
     
-    # Добавляем слои MobileNetV4
-    x = Conv2D(32, (3, 3), strides=(2, 2), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = ReLU(max_value=6.0)(x)
+    # Применяем слои MobileNetV4 к каждому кадру последовательности
+    x = TimeDistributed(Conv2D(32, (3, 3), strides=(2, 2), padding='same'))(inputs)
+    x = TimeDistributed(BatchNormalization())(x)
+    x = TimeDistributed(ReLU(max_value=6.0))(x)
     
     # Добавляем инвертированные бутылочные слои
-    x = UniversalInvertedBottleneck(64, kernel_size=3, strides=1)(x)
-    x = UniversalInvertedBottleneck(128, kernel_size=3, strides=2)(x)
-    x = UniversalInvertedBottleneck(128, kernel_size=3, strides=1)(x)
-    x = UniversalInvertedBottleneck(256, kernel_size=3, strides=2)(x)
-    x = UniversalInvertedBottleneck(256, kernel_size=3, strides=1)(x)
-    x = UniversalInvertedBottleneck(512, kernel_size=3, strides=2)(x)
-    x = UniversalInvertedBottleneck(512, kernel_size=3, strides=1)(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(64, kernel_size=3, strides=1))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(128, kernel_size=3, strides=2))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(128, kernel_size=3, strides=1))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(256, kernel_size=3, strides=2))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(256, kernel_size=3, strides=1))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(512, kernel_size=3, strides=2))(x)
+    x = TimeDistributed(UniversalInvertedBottleneck(512, kernel_size=3, strides=1))(x)
+    
+    # Преобразуем в последовательность
+    x = Reshape((sequence_length, -1))(x)
     
     # Добавляем временной блок
-    x = Reshape((input_shape[0], -1))(x)  # Преобразуем в последовательность
     x = Bidirectional(LSTM(256, return_sequences=True))(x)
     x = GlobalAveragePooling1D()(x)
     
@@ -718,24 +734,24 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     x = Dropout(dropout_rate)(x)
     x = Dense(256, activation='relu')(x)
     x = Dropout(dropout_rate)(x)
-    outputs = Dense(num_classes, activation='softmax')(x)
+    outputs = Dense(2, activation='softmax')(x)  # 2 класса: фон и действие
     
     # Создаем модель
     model = Model(inputs=inputs, outputs=outputs)
     
-    # Компилируем модель
+    # Оптимизатор
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
     # Включаем mixed precision если используется GPU
     if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
     
-    # Создаем метрики
+    # Метрики для двухклассовой модели
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
     ]
     
     model.compile(
