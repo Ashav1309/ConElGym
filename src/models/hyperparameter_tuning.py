@@ -237,10 +237,13 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
     print(f"  - Base class weights: {base_weights}")
     print(f"  - Current class weights: {class_weights}")
     
+    # Извлекаем размерность изображения из input_shape
+    image_shape = input_shape[1:]  # Берем только размерности изображения (112, 112, 3)
+    
     # Создаем модель
     if model_type == 'v3':
         model = create_mobilenetv3_model(
-            input_shape=input_shape,
+            input_shape=image_shape,  # Передаем только размерность изображения
             num_classes=2,  # 2 класса: фон, действие
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
@@ -250,7 +253,7 @@ def create_and_compile_model(input_shape, num_classes, learning_rate, dropout_ra
         )
     else:
         model = create_mobilenetv4_model(
-            input_shape=input_shape,
+            input_shape=image_shape,  # Передаем только размерность изображения
             num_classes=2,
             dropout_rate=dropout_rate,
             class_weights=class_weights
@@ -364,6 +367,9 @@ def objective(trial):
         # Подбираем веса с отклонением ±30% от базовых значений
         weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.3)
         action_weight = base_weights['action'] * (1 + weight_deviation)
+        
+        # Ограничиваем максимальный вес действия до 10.0
+        action_weight = min(action_weight, 10.0)
         
         class_weights = {
             'background': 1.0,  # Фон всегда 1.0
