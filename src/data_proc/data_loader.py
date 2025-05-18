@@ -240,7 +240,7 @@ class VideoDataLoader:
             frame_diff_percent = (frame_diff / info.total_frames) * 100
             
             if frame_diff > 0:
-                if frame_diff_percent <= 5:  # Допускаем погрешность до 5%
+                if frame_diff_percent <= 6:  # Допускаем погрешность до 6%
                     logger.warning(f"Небольшое несоответствие количества кадров: заявлено {info.total_frames}, фактически {frame_count} (разница: {frame_diff_percent:.1f}%)")
                     # Используем фактическое количество кадров
                     info.total_frames = frame_count
