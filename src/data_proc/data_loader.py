@@ -13,6 +13,7 @@ import logging
 import gc
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -233,12 +234,15 @@ class VideoDataLoader:
             
             # Проверяем, что указатель кадров работает корректно
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Возвращаемся к началу
-            frame_count = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret or frame is None:
-                    break
-                frame_count += 1
+            # frame_count = 0
+            # while True:
+            #     ret, frame = cap.read()
+            #     if not ret or frame is None:
+            #         break
+            #     frame_count += 1
+            
+            # Используем заявленное количество кадров
+            frame_count = info.total_frames
             
             # Проверяем разницу между заявленным и фактическим количеством кадров
             frame_diff = abs(frame_count - info.total_frames)
@@ -442,7 +446,16 @@ class VideoDataLoader:
             background_dominant_sequences = []  # Последовательности с преобладанием фона
             background_dominant_labels = []
             
+            # Добавляем таймаут для чтения кадров
+            start_time = time.time()
+            timeout = 30  # 30 секунд на чтение кадров
+            
             for start_idx in range(0, total_frames - sequence_length + 1, step):
+                # Проверяем таймаут
+                if time.time() - start_time > timeout:
+                    logger.warning("Превышен таймаут чтения кадров")
+                    break
+                    
                 # Проверяем, не выходим ли за пределы видео
                 if start_idx + sequence_length > total_frames:
                     logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
@@ -490,61 +503,77 @@ class VideoDataLoader:
             
             cap.release()
             
-            # Балансируем количество последовательностей в каждой группе
+            # Адаптивная балансировка
             if force_positive:
-                # Для тренировочного датасета: 75% положительных, 25% отрицательных
-                positive_ratio = 0.75
-                max_positive = int(max_sequences * positive_ratio)
-                max_negative = max_sequences - max_positive
-                
-                logger.debug(f"Балансировка последовательностей: найдено {len(action_dominant_sequences)} положительных и {len(background_dominant_sequences)} отрицательных")
-                
-                # Если нет отрицательных примеров, создаем их из фоновых кадров
-                if len(background_dominant_sequences) == 0 and len(action_dominant_sequences) > 0:
-                    logger.debug("Создаем отрицательные примеры из фоновых кадров")
-                    # Находим кадры без действий
-                    background_frames = np.where(labels[:, 1] == 0)[0]
-                    if len(background_frames) >= sequence_length:
-                        # Создаем последовательности из фоновых кадров
-                        for i in range(0, len(background_frames) - sequence_length + 1, step):
-                            start_idx = background_frames[i]
-                            if start_idx + sequence_length > total_frames:
-                                continue
-                            
-                            # Читаем кадры
-                            frames = []
-                            cap = cv2.VideoCapture(video_path)
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
-                            
-                            for _ in range(sequence_length):
-                                ret, frame = cap.read()
-                                if not ret:
-                                    break
-                                frame = cv2.resize(frame, (self.frame_size, self.frame_size))
-                                frames.append(frame)
-                            
-                            cap.release()
-                            
-                            if len(frames) == sequence_length:
-                                frames_array = np.array(frames)
-                                sequence_label = labels[start_idx:start_idx + sequence_length]
-                                background_dominant_sequences.append(frames_array)
-                                background_dominant_labels.append(sequence_label)
+                # Вычисляем фактическое соотношение классов
+                total_sequences = len(action_dominant_sequences) + len(background_dominant_sequences)
+                if total_sequences > 0:
+                    actual_ratio = len(action_dominant_sequences) / total_sequences
+                    logger.debug(f"Фактическое соотношение классов: {actual_ratio:.2%} положительных")
+                    
+                    # Адаптируем соотношение в зависимости от доступных данных
+                    if actual_ratio < 0.3:  # Если положительных примеров меньше 30%
+                        positive_ratio = actual_ratio  # Используем фактическое соотношение
+                        logger.debug(f"Используем адаптивное соотношение: {positive_ratio:.2%} положительных")
+                    else:
+                        positive_ratio = 0.75  # Стандартное соотношение
+                        logger.debug(f"Используем стандартное соотношение: {positive_ratio:.2%} положительных")
+                    
+                    max_positive = int(max_sequences * positive_ratio)
+                    max_negative = max_sequences - max_positive
+                    
+                    logger.debug(f"Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
+                    
+                    # Если нет отрицательных примеров, создаем их из кадров с минимальным действием
+                    if len(background_dominant_sequences) == 0 and len(action_dominant_sequences) > 0:
+                        logger.debug("Создаем отрицательные примеры из кадров с минимальным действием")
+                        min_action_frames = np.where(labels[:, 1] < 0.3)[0]  # Кадры с менее 30% действия
+                        
+                        if len(min_action_frames) >= sequence_length:
+                            # Создаем последовательности из этих кадров
+                            for i in range(0, len(min_action_frames) - sequence_length + 1, step):
+                                start_idx = min_action_frames[i]
+                                if start_idx + sequence_length > total_frames:
+                                    continue
                                 
-                                if len(background_dominant_sequences) >= max_negative:
-                                    break
-                
-                if len(action_dominant_sequences) > max_positive:
-                    indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
-                    action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
-                    action_dominant_labels = [action_dominant_labels[i] for i in indices]
-                    logger.debug(f"Ограничили количество положительных последовательностей до {max_positive}")
-                
-                if len(background_dominant_sequences) > max_negative:
-                    indices = np.random.choice(len(background_dominant_sequences), max_negative, replace=False)
-                    background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
-                    background_dominant_labels = [background_dominant_labels[i] for i in indices]
-                    logger.debug(f"Ограничили количество отрицательных последовательностей до {max_negative}")
+                                # Читаем кадры
+                                frames = []
+                                cap = cv2.VideoCapture(video_path)
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                                
+                                for _ in range(sequence_length):
+                                    ret, frame = cap.read()
+                                    if not ret:
+                                        break
+                                    frame = cv2.resize(frame, (self.frame_size, self.frame_size))
+                                    frames.append(frame)
+                                
+                                cap.release()
+                                
+                                if len(frames) == sequence_length:
+                                    frames_array = np.array(frames)
+                                    sequence_label = labels[start_idx:start_idx + sequence_length]
+                                    background_dominant_sequences.append(frames_array)
+                                    background_dominant_labels.append(sequence_label)
+                                    
+                                    if len(background_dominant_sequences) >= max_negative:
+                                        break
+                    
+                    # Ограничиваем количество последовательностей
+                    if len(action_dominant_sequences) > max_positive:
+                        indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
+                        action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
+                        action_dominant_labels = [action_dominant_labels[i] for i in indices]
+                        logger.debug(f"Ограничили количество положительных последовательностей до {max_positive}")
+                    
+                    if len(background_dominant_sequences) > max_negative:
+                        indices = np.random.choice(len(background_dominant_sequences), max_negative, replace=False)
+                        background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
+                        background_dominant_labels = [background_dominant_labels[i] for i in indices]
+                        logger.debug(f"Ограничили количество отрицательных последовательностей до {max_negative}")
+                else:
+                    logger.warning("Не удалось создать последовательности")
+                    return None, None
             else:
                 # Для валидационного датасета: равное количество
                 max_per_group = max_sequences // 2
@@ -799,13 +828,19 @@ class VideoDataLoader:
         # Ожидаемая форма последовательности
         expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
         
+        # Добавляем таймаут для сбора батча
+        start_time = time.time()
+        timeout = 60  # 60 секунд на сбор батча
+        
         logger.debug(f"[DEBUG] Начало сбора батча {self.current_batch + 1}/{self.total_batches}")
         logger.debug(f"[DEBUG] Всего батчей: {self.total_batches}")
         logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
+        logger.debug(f"[DEBUG] Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
         
         while (len(X_batch) < batch_size and 
                (positive_count < max_positive or negative_count < max_negative) and 
-               attempts < max_attempts):
+               attempts < max_attempts and
+               time.time() - start_time < timeout):
             try:
                 X_seq, y_seq = self._get_sequence(
                     sequence_length=sequence_length,
@@ -850,12 +885,14 @@ class VideoDataLoader:
                         positive_count += 1
                         empty_sequence_count = 0
                         logger.debug(f"[DEBUG] Добавлена положительная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
+                        logger.debug(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
                     elif not is_positive and negative_count < max_negative:
                         X_batch.append(X_seq)
                         y_batch.append(y_seq)
                         negative_count += 1
                         empty_sequence_count = 0
                         logger.debug(f"[DEBUG] Добавлена отрицательная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
+                        logger.debug(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
                     else:
                         # Пропускаем пример, если достигли лимита для его класса
                         attempts += 1
@@ -887,6 +924,15 @@ class VideoDataLoader:
                         return None, None
                 continue
         
+        # Проверяем таймаут
+        if time.time() - start_time >= timeout:
+            logger.warning(f"Превышен таймаут сбора батча ({timeout} секунд)")
+            if len(X_batch) > 0:
+                logger.debug("Возвращаем неполный батч")
+            else:
+                logger.debug("Не удалось собрать батч")
+                return None, None
+        
         if len(X_batch) == 0:
             return None, None
         
@@ -900,14 +946,15 @@ class VideoDataLoader:
                 X_batch=X_batch_array,
                 y_batch=y_batch_array,
                 batch_number=self.current_batch,
-                positive_count=positive_count,  # Используем уже подсчитанные значения
-                negative_count=negative_count,  # Используем уже подсчитанные значения
+                positive_count=positive_count,
+                negative_count=negative_count,
                 video_path=os.path.basename(self.video_paths[self.current_video_index]) if self.current_video_index < len(self.video_paths) else "unknown"
             )
             
             self.current_batch += 1
             logger.debug(f"[DEBUG] Батч {self.current_batch}/{self.total_batches} собран успешно")
             logger.debug(f"[DEBUG] Всего собрано последовательностей: {self.total_processed_sequences}")
+            logger.debug(f"[DEBUG] Финальная балансировка: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
             return X_batch_array, y_batch_array
             
         except Exception as e:
