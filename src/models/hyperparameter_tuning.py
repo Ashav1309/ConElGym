@@ -108,7 +108,7 @@ def load_and_prepare_data(batch_size):
             Config.SEQUENCE_LENGTH, 
             Config.BATCH_SIZE, 
             Config.INPUT_SIZE, 
-            is_training=True, 
+            is_training=False,  # Отключаем аугментацию для подбора гиперпараметров
             force_positive=True,
             cache_dataset=False
         )
@@ -117,7 +117,7 @@ def load_and_prepare_data(batch_size):
             Config.SEQUENCE_LENGTH, 
             Config.BATCH_SIZE, 
             Config.INPUT_SIZE, 
-            is_training=False, 
+            is_training=False,  # Отключаем аугментацию для подбора гиперпараметров
             force_positive=False,
             cache_dataset=False
         )

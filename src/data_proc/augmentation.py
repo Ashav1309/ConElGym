@@ -3,57 +3,71 @@ import numpy as np
 import cv2
 from typing import Tuple, List
 from src.config import Config
+from sklearn.neighbors import NearestNeighbors
 
 def apply_augmentations(image):
     """
-    Применяет аугментации к изображению используя настройки из конфигурации
+    Применяет аугментации к изображению на основе настроек из конфига
     """
     if not Config.AUGMENTATION['enabled']:
         return image
         
     # Яркость
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        delta = np.random.uniform(*Config.AUGMENTATION['brightness_range'])
+    if np.random.random() < Config.AUGMENTATION['brightness_prob']:
+        delta = np.random.uniform(
+            -Config.AUGMENTATION['brightness_range'],
+            Config.AUGMENTATION['brightness_range']
+        )
         image = tf.image.adjust_brightness(image, delta)
     
     # Контраст
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        delta = np.random.uniform(*Config.AUGMENTATION['contrast_range'])
-        image = tf.image.adjust_contrast(image, delta)
+    if np.random.random() < Config.AUGMENTATION['contrast_prob']:
+        factor = np.random.uniform(
+            1.0 - Config.AUGMENTATION['contrast_range'],
+            1.0 + Config.AUGMENTATION['contrast_range']
+        )
+        image = tf.image.adjust_contrast(image, factor)
     
     # Поворот
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        angle = np.random.uniform(*Config.AUGMENTATION['rotation_range'])
+    if np.random.random() < Config.AUGMENTATION['rotation_prob']:
+        angle = np.random.uniform(
+            -Config.AUGMENTATION['rotation_range'],
+            Config.AUGMENTATION['rotation_range']
+        )
         image = tf.image.rot90(image, k=int(angle/90))
     
     # Отражение
-    if np.random.random() < Config.AUGMENTATION['flip_probability']:
+    if np.random.random() < Config.AUGMENTATION['flip_prob']:
         image = tf.image.flip_left_right(image)
-        
+    
     # Масштабирование
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        zoom = np.random.uniform(*Config.AUGMENTATION['zoom_range'])
-        image = tf.image.resize_with_crop_or_pad(image, 
-            int(image.shape[0] * zoom), 
-            int(image.shape[1] * zoom))
-        image = tf.image.resize(image, [image.shape[0], image.shape[1]])
+    if np.random.random() < Config.AUGMENTATION['scale_prob']:
+        scale = np.random.uniform(
+            1.0 - Config.AUGMENTATION['scale_range'],
+            1.0 + Config.AUGMENTATION['scale_range']
+        )
+        size = tf.cast(tf.shape(image)[:2], tf.float32)
+        new_size = tf.cast(size * scale, tf.int32)
+        image = tf.image.resize(image, new_size)
+        image = tf.image.resize_with_crop_or_pad(image, tf.shape(image)[0], tf.shape(image)[1])
     
     # Сдвиг
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        shear = np.random.uniform(*Config.AUGMENTATION['shear_range'])
-        image = tf.image.translate(image, [shear * image.shape[1], 0])
+    if np.random.random() < Config.AUGMENTATION['shift_prob']:
+        shift = np.random.uniform(
+            -Config.AUGMENTATION['shift_range'],
+            Config.AUGMENTATION['shift_range']
+        )
+        image = tf.image.translate(image, [shift, shift])
     
     # Шум
-    if np.random.random() < Config.AUGMENTATION['probability']:
-        noise = tf.random.normal(shape=tf.shape(image), 
-                               mean=0.0, 
-                               stddev=Config.AUGMENTATION['noise_factor'])
+    if np.random.random() < Config.AUGMENTATION['noise_prob']:
+        noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=Config.AUGMENTATION['noise_std'])
         image = tf.clip_by_value(image + noise, 0.0, 1.0)
     
     # Размытие
-    if np.random.random() < Config.AUGMENTATION['blur_probability']:
-        kernel_size = Config.AUGMENTATION['blur_kernel_size']
-        image = tf.image.gaussian_blur(image, kernel_size)
+    if np.random.random() < Config.AUGMENTATION['blur_prob']:
+        kernel_size = np.random.choice([3, 5])
+        image = tf.image.gaussian_filter2d(image, kernel_size, Config.AUGMENTATION['blur_sigma'])
     
     return image
 
@@ -70,11 +84,12 @@ def augment_sequence(frames: np.ndarray, labels: np.ndarray) -> Tuple[np.ndarray
     
     return np.array(augmented_frames), labels
 
-def augment_rare_classes(images, labels):
+def augment_rare_classes(images, labels, is_training=True):
     """
     Аугментирует только редкие классы (действия)
+    is_training: флаг, указывающий, что это режим обучения (аугментация применяется только в этом режиме)
     """
-    if not Config.AUGMENTATION['enabled']:
+    if not Config.AUGMENTATION['enabled'] or not is_training:
         return images, labels
         
     # Находим редкие классы (действия)
@@ -85,12 +100,10 @@ def augment_rare_classes(images, labels):
     augmented_labels = []
     
     for idx in rare_class_indices:
-        # Применяем аугментации
         aug_img = apply_augmentations(images[idx])
         augmented_images.append(aug_img)
         augmented_labels.append(labels[idx])
         
-        # Если включено увеличение положительных примеров
         if Config.DATA_BALANCING['oversample_positive']:
             for _ in range(int(Config.DATA_BALANCING['oversample_factor'] - 1)):
                 aug_img = apply_augmentations(images[idx])
@@ -101,6 +114,54 @@ def augment_rare_classes(images, labels):
     if len(augmented_images) > 0:
         images = np.concatenate([images, np.array(augmented_images)])
         labels = np.concatenate([labels, np.array(augmented_labels)])
+    
+    # Применяем SMOTE если включено
+    if Config.DATA_BALANCING['use_smote']:
+        images, labels = apply_smote(images, labels, k_neighbors=Config.DATA_BALANCING['smote_k_neighbors'])
+    
+    return images, labels
+
+def apply_smote(images, labels, k_neighbors=5):
+    """
+    Применяет SMOTE для генерации синтетических примеров положительного класса
+    """
+    if not Config.DATA_BALANCING['use_smote']:
+        return images, labels
+        
+    # Находим положительные примеры (действия)
+    positive_indices = np.where(np.argmax(labels, axis=1) == 1)[0]
+    if len(positive_indices) < 2:
+        return images, labels
+        
+    print(f"[DEBUG] SMOTE: найдено {len(positive_indices)} положительных примеров")
+    
+    # Подготавливаем данные для SMOTE
+    positive_images = images[positive_indices]
+    positive_labels = labels[positive_indices]
+    
+    # Вычисляем количество синтетических примеров
+    n_samples = int(len(positive_images) * (Config.DATA_BALANCING['oversample_factor'] - 1))
+    
+    # Находим k ближайших соседей
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(positive_images.reshape(len(positive_images), -1))
+    distances, indices = nbrs.kneighbors(positive_images.reshape(len(positive_images), -1))
+    
+    # Генерируем синтетические примеры
+    synthetic_images = []
+    synthetic_labels = []
+    
+    for i in range(n_samples):
+        idx = np.random.randint(0, len(positive_images))
+        neighbor_idx = np.random.choice(indices[idx][1:])
+        alpha = np.random.random()
+        synthetic_image = alpha * positive_images[idx] + (1 - alpha) * positive_images[neighbor_idx]
+        synthetic_images.append(synthetic_image)
+        synthetic_labels.append(positive_labels[idx])
+    
+    # Объединяем с оригинальными данными
+    if len(synthetic_images) > 0:
+        images = np.concatenate([images, np.array(synthetic_images)])
+        labels = np.concatenate([labels, np.array(synthetic_labels)])
     
     return images, labels
 

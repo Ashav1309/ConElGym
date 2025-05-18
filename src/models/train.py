@@ -136,6 +136,17 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
 
+        # Применяем аугментацию только в режиме обучения
+        if is_training:
+            dataset = dataset.map(
+                lambda x, y: tf.py_function(
+                    lambda x, y: augment_rare_classes(x, y, is_training=True),
+                    [x, y],
+                    [tf.float32, tf.float32]
+                ),
+                num_parallel_calls=tf.data.AUTOTUNE
+            )
+
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset

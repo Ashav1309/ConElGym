@@ -107,16 +107,21 @@ class Config:
     # Параметры аугментации
     AUGMENTATION = {
         'enabled': True,
-        'probability': 0.5,
-        'brightness_range': (0.8, 1.2),
-        'contrast_range': (0.8, 1.2),
-        'rotation_range': (-10, 10),
-        'flip_probability': 0.5,
-        'zoom_range': (0.9, 1.1),  # Добавляем масштабирование
-        'shear_range': (-0.1, 0.1),  # Добавляем сдвиг
-        'noise_factor': 0.05,  # Добавляем шум
-        'blur_probability': 0.2,  # Вероятность размытия
-        'blur_kernel_size': (3, 3)  # Размер ядра размытия
+        'brightness_prob': 0.5,
+        'brightness_range': 0.2,
+        'contrast_prob': 0.5,
+        'contrast_range': 0.2,
+        'rotation_prob': 0.5,
+        'rotation_range': 10,
+        'flip_prob': 0.5,
+        'scale_prob': 0.5,
+        'scale_range': 0.1,
+        'shift_prob': 0.5,
+        'shift_range': 0.1,
+        'noise_prob': 0.3,
+        'noise_std': 0.05,
+        'blur_prob': 0.2,
+        'blur_sigma': 1.0
     }
     
     # Настройки предотвращения переобучения
