@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import json
 from pathlib import Path
+import glob
 
 class Config:
     # Пути
@@ -14,9 +15,9 @@ class Config:
     MODEL_PATH = os.path.join(BASE_DIR, 'models', 'best_model.h5')
     
     # Базовые пути
-    DATA_DIR = 'data'
-    MODEL_SAVE_PATH = 'models'
-    LOG_DIR = 'logs'
+    DATA_DIR = os.path.abspath(os.path.join(BASE_DIR.parent, 'data'))
+    MODEL_SAVE_PATH = os.path.abspath(os.path.join(BASE_DIR.parent, 'models'))
+    LOG_DIR = os.path.abspath(os.path.join(BASE_DIR.parent, 'logs'))
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')

@@ -73,7 +73,7 @@ class VideoDataLoader:
         self.total_processed_frames = 0  # Общее количество обработанных кадров
         self.total_processed_sequences = 0  # Общее количество обработанных последовательностей
         
-        self.data_path = Path(data_path)
+        self.data_path = Path(os.path.abspath(data_path))
         self.max_videos = max_videos or Config.MAX_VIDEOS
         self.video_paths: List[str] = []
         self.labels: List[Optional[str]] = []
@@ -278,10 +278,17 @@ class VideoDataLoader:
         """Загрузка видео из директории с поддержкой лимита MAX_VIDEOS на одну сессию"""
         try:
             video_files = []
+            logger.debug(f"[DEBUG] Поиск видео в директории: {self.data_path}")
+            
             for ext in ['.mp4', '.avi', '.mov']:
-                video_files.extend(list(self.data_path.glob(f'*{ext}')))
+                pattern = f'*{ext}'
+                logger.debug(f"[DEBUG] Поиск по шаблону: {pattern}")
+                files = list(self.data_path.glob(pattern))
+                logger.debug(f"[DEBUG] Найдено {len(files)} файлов с расширением {ext}")
+                video_files.extend(files)
             
             if not video_files:
+                logger.error(f"[ERROR] Видео не найдены в {self.data_path}")
                 raise ValueError(f"Видео не найдены в {self.data_path}")
             
             # Сортируем видео по имени для воспроизводимости
@@ -298,6 +305,7 @@ class VideoDataLoader:
             data_type = 'train' if 'train' in str(self.data_path) else 'valid'
             logger.debug(f"[DEBUG] Всего найдено {self.total_videos} видео")
             logger.debug(f"[DEBUG] Загружено {self.video_count} видео из {self.total_videos} для текущей сессии")
+            logger.debug(f"[DEBUG] Пути к видео: {self.all_video_paths}")
         except Exception as e:
             logger.error(f"[ERROR] Ошибка при загрузке видео: {str(e)}")
             raise
