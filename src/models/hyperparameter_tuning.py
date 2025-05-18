@@ -344,8 +344,8 @@ def objective(trial):
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 256)
         model_type = Config.MODEL_TYPE
-        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'gru'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'tcn'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 8

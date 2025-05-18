@@ -554,6 +554,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             x = LSTM(lstm_units, return_sequences=True)(x)
         elif rnn_type == 'gru':
             x = GRU(lstm_units, return_sequences=True)(x)
+        elif rnn_type == 'bigru':
+            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
         else:
             raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
     elif temporal_block_type == 'tcn':
@@ -561,6 +563,40 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             num_channels=[lstm_units, lstm_units],
             kernel_size=3,
             dropout=dropout_rate
+        )(x)
+    elif temporal_block_type == 'hybrid':
+        # Комбинируем RNN и TCN
+        if rnn_type == 'lstm':
+            rnn_output = LSTM(lstm_units, return_sequences=True)(x)
+        elif rnn_type == 'gru':
+            rnn_output = GRU(lstm_units, return_sequences=True)(x)
+        elif rnn_type == 'bigru':
+            rnn_output = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
+        else:
+            raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
+        
+        tcn_output = TemporalConvNet(
+            num_channels=[lstm_units, lstm_units],
+            kernel_size=3,
+            dropout=dropout_rate
+        )(x)
+        
+        # Объединяем выходы
+        x = tf.keras.layers.Concatenate()([rnn_output, tcn_output])
+        x = Dense(lstm_units)(x)
+    elif temporal_block_type == '3d_attention':
+        # Преобразуем в 3D тензор для пространственно-временного внимания
+        x = Reshape((-1, x.shape[1], x.shape[2], x.shape[3]))(x)
+        x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
+        x = Reshape((-1, x.shape[2] * x.shape[3] * x.shape[4]))(x)
+    elif temporal_block_type == 'transformer':
+        # Преобразуем в последовательность для трансформера
+        x = Reshape((-1, x.shape[1] * x.shape[2] * x.shape[3]))(x)
+        x = TransformerBlock(
+            embed_dim=lstm_units,
+            num_heads=4,
+            ff_dim=lstm_units * 2,
+            rate=dropout_rate
         )(x)
     else:
         raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
