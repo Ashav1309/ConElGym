@@ -441,12 +441,18 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         # Создаем адаптер для F1Score
         class F1ScoreAdapter(tf.keras.metrics.F1Score):
             def update_state(self, y_true, y_pred, sample_weight=None):
-                y_true = tf.argmax(y_true, axis=-1)
-                y_pred = tf.argmax(y_pred, axis=-1)
-                y_true = tf.reshape(y_true, [-1])
-                y_pred = tf.reshape(y_pred, [-1])
-                y_true = tf.one_hot(tf.cast(y_true, tf.int32), depth=3)  # 3 класса
-                y_pred = tf.one_hot(tf.cast(y_pred, tf.int32), depth=3)  # 3 класса
+                # Преобразуем входные данные в правильный формат
+                y_true = tf.cast(y_true, tf.float32)
+                y_pred = tf.cast(y_pred, tf.float32)
+                
+                # Убеждаемся, что размерности соответствуют ожидаемым
+                if len(y_true.shape) == 3:  # (batch, sequence, classes)
+                    y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
+                    y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+                
+                # Применяем порог для получения бинарных предсказаний
+                y_pred = tf.cast(y_pred > 0.5, tf.float32)
+                
                 return super().update_state(y_true, y_pred, sample_weight)
             
             def result(self):
