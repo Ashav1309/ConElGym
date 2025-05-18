@@ -513,6 +513,9 @@ class VideoDataLoader:
                     sequence_array = np.stack(sequence)
                     expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
                     
+                    logger.debug(f"Форма текущей последовательности: {sequence_array.shape}")
+                    logger.debug(f"Ожидаемая форма: {expected_shape}")
+                    
                     if sequence_array.shape != expected_shape:
                         logger.warning(f"Некорректная форма последовательности: {sequence_array.shape}, ожидалось: {expected_shape}")
                         skipped_sequences += 1
@@ -522,6 +525,10 @@ class VideoDataLoader:
                     sequences.append(sequence_array)
                     sequence_labels.append(frame_labels[start_idx:start_idx + sequence_length])
                     valid_sequences += 1
+                    
+                    logger.debug(f"Успешно создана последовательность {valid_sequences}:")
+                    logger.debug(f"  - Форма последовательности: {sequence_array.shape}")
+                    logger.debug(f"  - Форма меток: {sequence_labels[-1].shape}")
                 
                 # Ограничиваем количество последовательностей
                 if len(sequences) >= max_sequences:
@@ -541,8 +548,8 @@ class VideoDataLoader:
             labels_array = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
             
             # Проверяем финальную форму
-            logger.debug(f"Форма последовательностей: {sequences_array.shape}")
-            logger.debug(f"Форма меток: {labels_array.shape}")
+            logger.debug(f"Финальная форма последовательностей: {sequences_array.shape}")
+            logger.debug(f"Финальная форма меток: {labels_array.shape}")
             
             # Проверяем, что форма соответствует ожидаемой
             expected_sequences_shape = (len(sequences), sequence_length, *target_size, 3) if target_size else (len(sequences), sequence_length)
@@ -552,6 +559,8 @@ class VideoDataLoader:
             
             # Возвращаем только одну последовательность
             if len(sequences) > 0:
+                logger.debug(f"Возвращаем последовательность с формой: {sequences[0].shape}")
+                logger.debug(f"Возвращаем метки с формой: {sequence_labels[0].shape}")
                 return sequences[0], sequence_labels[0]
             return None, None
             
