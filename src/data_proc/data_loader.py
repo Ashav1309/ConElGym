@@ -437,10 +437,10 @@ class VideoDataLoader:
                 logger.debug(f"Корректируем шаг до {step} для ограничения количества последовательностей")
             
             # Создаем последовательности
-            sequences = []
-            sequence_labels = []
-            positive_count = 0
-            negative_count = 0
+            positive_sequences = []
+            negative_sequences = []
+            positive_labels = []
+            negative_labels = []
             
             for start_idx in range(0, total_frames - sequence_length + 1, step):
                 # Проверяем, не выходим ли за пределы видео
@@ -476,30 +476,39 @@ class VideoDataLoader:
                 if len(frames) == sequence_length:
                     # Преобразуем кадры в numpy массив с правильной формой
                     frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
-                    sequences.append(frames_array)
-                    sequence_labels.append(sequence_label)
                     
-                    # Обновляем счетчики
+                    # Сохраняем последовательность в соответствующий список
                     if has_action:
-                        positive_count += 1
+                        positive_sequences.append(frames_array)
+                        positive_labels.append(sequence_label)
                     else:
-                        negative_count += 1
+                        negative_sequences.append(frames_array)
+                        negative_labels.append(sequence_label)
                     
                     # Если набрали достаточно последовательностей, выходим
-                    if len(sequences) >= max_sequences:
+                    if len(positive_sequences) + len(negative_sequences) >= max_sequences:
                         break
             
             cap.release()
             
-            if not sequences:
-                logger.warning("Не удалось создать последовательности")
+            # Выбираем последовательность с учетом force_positive
+            if force_positive and positive_sequences:
+                # Если нужны только положительные и они есть, берем случайную положительную
+                idx = np.random.randint(len(positive_sequences))
+                X = positive_sequences[idx]
+                y = positive_labels[idx]
+            elif not force_positive and (positive_sequences or negative_sequences):
+                # Если нужны любые последовательности, выбираем случайную
+                all_sequences = positive_sequences + negative_sequences
+                all_labels = positive_labels + negative_labels
+                idx = np.random.randint(len(all_sequences))
+                X = all_sequences[idx]
+                y = all_labels[idx]
+            else:
+                logger.warning("Не удалось создать последовательность")
                 return None, None
             
-            # Преобразуем списки в массивы
-            X = np.stack(sequences)
-            y = np.stack(sequence_labels)
-            
-            logger.debug(f"Создано последовательностей: {len(sequences)} (положительных: {positive_count}, отрицательных: {negative_count})")
+            logger.debug(f"Создана последовательность (положительных: {len(positive_sequences)}, отрицательных: {len(negative_sequences)})")
             return X, y
             
         except Exception as e:
@@ -719,6 +728,10 @@ class VideoDataLoader:
         # Ожидаемая форма последовательности
         expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
         
+        logger.debug(f"[DEBUG] Начало сбора батча {self.current_batch + 1}/{self.total_batches}")
+        logger.debug(f"[DEBUG] Всего батчей: {self.total_batches}")
+        logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
+        
         while len(X_batch) < batch_size and attempts < max_attempts:
             try:
                 X_seq, y_seq = self._get_sequence(
@@ -759,9 +772,11 @@ class VideoDataLoader:
                     X_batch.append(X_seq)
                     y_batch.append(y_seq)
                     empty_sequence_count = 0
+                    logger.debug(f"[DEBUG] Добавлена последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
                 else:
                     empty_sequence_count += 1
                     attempts += 1
+                    logger.debug(f"[DEBUG] Пустая последовательность (попытка {attempts}/{max_attempts})")
                     
                     if empty_sequence_count >= max_empty_sequences:
                         logger.warning(f"Слишком много пустых последовательностей подряд ({empty_sequence_count})")
@@ -804,6 +819,8 @@ class VideoDataLoader:
             )
             
             self.current_batch += 1
+            logger.debug(f"[DEBUG] Батч {self.current_batch}/{self.total_batches} собран успешно")
+            logger.debug(f"[DEBUG] Всего собрано последовательностей: {self.total_processed_sequences}")
             return X_batch_array, y_batch_array
             
         except Exception as e:
