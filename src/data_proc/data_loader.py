@@ -501,15 +501,19 @@ class VideoDataLoader:
                 max_positive = int(max_sequences * positive_ratio)
                 max_negative = max_sequences - max_positive
                 
+                logger.debug(f"Балансировка последовательностей: найдено {len(action_dominant_sequences)} положительных и {len(background_dominant_sequences)} отрицательных")
+                
                 if len(action_dominant_sequences) > max_positive:
                     indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
                     action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
                     action_dominant_labels = [action_dominant_labels[i] for i in indices]
+                    logger.debug(f"Ограничили количество положительных последовательностей до {max_positive}")
                 
                 if len(background_dominant_sequences) > max_negative:
                     indices = np.random.choice(len(background_dominant_sequences), max_negative, replace=False)
                     background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
                     background_dominant_labels = [background_dominant_labels[i] for i in indices]
+                    logger.debug(f"Ограничили количество отрицательных последовательностей до {max_negative}")
             else:
                 # Для валидационного датасета: равное количество
                 max_per_group = max_sequences // 2
@@ -542,6 +546,7 @@ class VideoDataLoader:
             y = all_labels[idx]
             
             logger.debug(f"Создана последовательность (действие: {len(action_dominant_sequences)}, фон: {len(background_dominant_sequences)})")
+            logger.debug(f"Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
             return X, y
             
         except Exception as e:
@@ -672,12 +677,14 @@ class VideoDataLoader:
 
         # Получаем последовательность
         try:
+            # Для тренировочного датасета всегда используем force_positive=True
+            # для обеспечения баланса 75/25 в create_sequences
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
                 labels=self.annotations_cache[video_path],
                 sequence_length=sequence_length,
                 max_sequences=self.max_sequences_per_video,
-                force_positive=force_positive
+                force_positive=True  # Всегда True для тренировочного датасета
             )
 
             if X_seq is not None and y_seq is not None:
