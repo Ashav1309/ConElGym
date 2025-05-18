@@ -799,67 +799,6 @@ class VideoDataLoader:
             logger.error(f"Ошибка при формировании батча: {str(e)}")
             return None, None
 
-    def prepare_batches(self, batch_size: int, sequence_length: int, target_size: Optional[Tuple[int, int]] = None) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-        """
-        Предварительный сбор всех батчей для обучения
-        
-        Args:
-            batch_size: размер батча
-            sequence_length: длина последовательности
-            target_size: размер кадра
-            
-        Returns:
-            Tuple[List[np.ndarray], List[np.ndarray]]: списки батчей X и y
-        """
-        print("[DEBUG] Начинаем предварительный сбор батчей")
-        X_batches = []
-        y_batches = []
-        batch_count = 0
-        
-        while batch_count < self.total_batches:
-            try:
-                X_batch, y_batch = self.get_batch(
-                    batch_size=batch_size,
-                    sequence_length=sequence_length,
-                    target_size=target_size,
-                    one_hot=True,
-                    max_sequences_per_video=self.max_sequences_per_video
-                )
-                
-                if X_batch is not None and y_batch is not None:
-                    X_batches.append(X_batch)
-                    y_batches.append(y_batch)
-                    batch_count += 1
-                    print(f"[DEBUG] Собран батч {batch_count}/{self.total_batches}")
-                else:
-                    print(f"[WARNING] Пропущен пустой батч")
-                    break
-                    
-            except Exception as e:
-                print(f"[ERROR] Ошибка при сборе батча: {str(e)}")
-                break
-        
-        print(f"[DEBUG] Сбор батчей завершен. Всего собрано: {len(X_batches)} батчей")
-        return X_batches, y_batches
-
-    def get_prepared_batch(self, batch_index: int) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Получение предварительно собранного батча
-        
-        Args:
-            batch_index: индекс батча
-            
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: батч данных и меток
-        """
-        if not hasattr(self, 'prepared_X_batches') or not hasattr(self, 'prepared_y_batches'):
-            raise ValueError("Батчи не были предварительно собраны. Вызовите prepare_batches() перед использованием")
-            
-        if batch_index >= len(self.prepared_X_batches):
-            raise ValueError(f"Индекс батча {batch_index} выходит за пределы ({len(self.prepared_X_batches)})")
-            
-        return self.prepared_X_batches[batch_index], self.prepared_y_batches[batch_index]
-
     def data_generator(self, force_positive: bool = True, is_validation: bool = False) -> Generator[Tuple[tf.Tensor, tf.Tensor], None, None]:
         """
         Генератор данных для обучения
@@ -871,11 +810,21 @@ class VideoDataLoader:
         Yields:
             Tuple[tf.Tensor, tf.Tensor]: батч данных и меток
         """
-        if not hasattr(self, 'prepared_X_batches') or not hasattr(self, 'prepared_y_batches'):
-            raise ValueError("Батчи не были предварительно собраны. Вызовите prepare_batches() перед использованием")
+        while True:
+            X_batch, y_batch = self.get_batch(
+                batch_size=self.batch_size,
+                sequence_length=self.sequence_length,
+                target_size=self.target_size,
+                one_hot=True,
+                max_sequences_per_video=self.max_sequences_per_video,
+                force_positive=force_positive,
+                is_validation=is_validation
+            )
             
-        for i in range(len(self.prepared_X_batches)):
-            yield self.prepared_X_batches[i], self.prepared_y_batches[i]
+            if X_batch is not None and y_batch is not None:
+                yield X_batch, y_batch
+            else:
+                break
 
     def load_data(self, sequence_length, batch_size, target_size=None, one_hot=False, infinite_loop=False, max_sequences_per_video=10):
         """

@@ -83,29 +83,14 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_h
         print("[DEBUG] Создание pipeline данных")
         print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         
-        # Предварительно собираем все батчи
-        print("[DEBUG] Начинаем предварительный сбор батчей")
-        X_batches, y_batches = loader.prepare_batches(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            target_size=target_size
-        )
-        
-        # Сохраняем батчи в загрузчике
-        loader.prepared_X_batches = X_batches
-        loader.prepared_y_batches = y_batches
-        
-        print(f"[DEBUG] Собрано {len(X_batches)} батчей")
-        print(f"[DEBUG] RAM после сбора батчей: {psutil.virtual_memory().used / 1024**3:.2f} GB")
-        
-        # Создаем dataset из предварительно собранных батчей
+        # Создаем dataset напрямую из генератора
         output_signature = (
             tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
         )
         
         dataset = tf.data.Dataset.from_generator(
-            loader.data_generator,
+            lambda: loader.data_generator(force_positive=force_positive, is_validation=not is_train),
             output_signature=output_signature
         )
         
