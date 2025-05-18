@@ -521,6 +521,54 @@ class TransformerBlock(tf.keras.layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
 
+class TemporalConvNet(tf.keras.layers.Layer):
+    """
+    Временная сверточная сеть (TCN) для обработки последовательностей
+    """
+    def __init__(self, num_channels, kernel_size=3, dropout=0.2, **kwargs):
+        super(TemporalConvNet, self).__init__(**kwargs)
+        self.num_channels = num_channels
+        self.kernel_size = kernel_size
+        self.dropout = dropout
+        self.layers = []
+        
+    def build(self, input_shape):
+        # Создаем слои TCN
+        for i, num_channels in enumerate(self.num_channels):
+            dilation_rate = 2 ** i
+            self.layers.append([
+                tf.keras.layers.Conv1D(
+                    filters=num_channels,
+                    kernel_size=self.kernel_size,
+                    dilation_rate=dilation_rate,
+                    padding='causal',
+                    activation='relu'
+                ),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.Dropout(self.dropout)
+            ])
+        super(TemporalConvNet, self).build(input_shape)
+        
+    def call(self, inputs, training=None):
+        x = inputs
+        for layers in self.layers:
+            residual = x
+            for layer in layers:
+                x = layer(x, training=training)
+            # Добавляем skip connection если размерности совпадают
+            if residual.shape[-1] == x.shape[-1]:
+                x = x + residual
+        return x
+    
+    def get_config(self):
+        config = super(TemporalConvNet, self).get_config()
+        config.update({
+            'num_channels': self.num_channels,
+            'kernel_size': self.kernel_size,
+            'dropout': self.dropout
+        })
+        return config
+
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
     """
     Создает модель на основе MobileNetV3 с временными блоками для двухклассовой классификации (фон-действие)
@@ -612,7 +660,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Форма после Hybrid: {x.shape}")
         
     elif temporal_block_type == '3d_attention':
-        # Преобразуем в 3D тензор для пространственно-временного внимания
         spatial_size = int(np.sqrt(x.shape[2] // 3))
         x = Reshape((sequence_length, spatial_size, spatial_size, 3))(x)
         print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")

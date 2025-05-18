@@ -56,8 +56,12 @@ val_loader = None
 train_data = None
 val_data = None
 
-def focal_loss(gamma=2., alpha=0.25):
+def focal_loss(gamma=2., alpha=None):
+    """
+    Focal loss для двухклассовой классификации (фон-действие)
+    """
     def focal_loss_fixed(y_true, y_pred):
+        # Преобразуем входные данные в тензоры
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
         
@@ -66,15 +70,26 @@ def focal_loss(gamma=2., alpha=0.25):
             y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
             y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
         
+        # Добавляем epsilon для численной стабильности
         epsilon = tf.keras.backend.epsilon()
         y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
         
+        # Если alpha не задан, используем 0.25 для всех классов
+        if alpha is None:
+            alpha_factor = tf.ones_like(y_true) * 0.25
+        elif isinstance(alpha, (list, tuple, np.ndarray)):
+            alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
+            alpha_factor = tf.reshape(alpha_factor, (1, -1))  # [1, num_classes]
+            alpha_factor = tf.ones_like(y_true) * alpha_factor
+        else:
+            alpha_factor = tf.ones_like(y_true) * float(alpha)
+        
         # Вычисляем focal loss
         cross_entropy = -y_true * tf.math.log(y_pred)
-        weight = alpha * tf.pow(1 - y_pred, gamma)
+        weight = alpha_factor * tf.pow(1 - y_pred, gamma)
         loss = weight * cross_entropy
         
-        return tf.reduce_mean(loss)
+        return tf.reduce_mean(tf.reduce_sum(loss, axis=-1))
     return focal_loss_fixed
 
 def clear_memory():
@@ -248,7 +263,7 @@ def create_and_compile_model(params, input_shape, num_classes=2, class_weights=N
         F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
     ]
     
-    # Компилируем модель
+    # Компилируем модель с focal loss для двух классов
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
