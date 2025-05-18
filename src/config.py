@@ -115,7 +115,7 @@ class Config:
         'n_trials': 50,  # Увеличить количество попыток
         'timeout': 7200,  # 2 часа
         'n_jobs': 1,
-        'epochs': 50,  # Увеличить количество эпох
+        'epochs': 100,  # Увеличить количество эпох
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,

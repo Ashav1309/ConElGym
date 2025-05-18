@@ -225,9 +225,9 @@ def create_and_compile_model(params, input_shape, num_classes, class_weights):
     
     # Создаем метрики
     metrics = [
-        Precision(name='precision'),
-        Recall(name='recall'),
-        F1Score(name='f1_score', num_classes=num_classes, threshold=0.5)
+        Precision(name='precision', thresholds=0.5),
+        Recall(name='recall', thresholds=0.5),
+        F1Score(name='f1_score', threshold=0.5)  # Убрал num_classes, оставил только threshold
     ]
     
     # Компилируем модель с focal loss и весами классов
