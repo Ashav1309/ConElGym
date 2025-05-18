@@ -637,7 +637,7 @@ class VideoDataLoader:
         if video_path not in self.sequence_counter:
             self.sequence_counter[video_path] = 0
 
-        # Получаем последовательности
+        # Получаем последовательность
         try:
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
@@ -648,19 +648,14 @@ class VideoDataLoader:
             )
 
             if X_seq is not None and y_seq is not None:
-                # Создаем уникальные идентификаторы для каждой последовательности
-                sequence_ids = [f"{os.path.basename(video_path)}_{self.sequence_counter[video_path] + i}" 
-                              for i in range(len(X_seq))]
-                
-                # Проверяем, не использовались ли эти последовательности ранее
-                used_sequences = [seq_id for seq_id in sequence_ids if seq_id in self.used_sequences]
-                if used_sequences:
-                    logger.debug(f"Последовательности {used_sequences} уже использованы")
+                # Создаём уникальный идентификатор только для одной последовательности
+                seq_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
+                if seq_id in self.used_sequences:
+                    logger.debug(f"Последовательность {seq_id} уже использована")
                     return None, None
 
-                # Добавляем последовательности в использованные
-                self.used_sequences.update(sequence_ids)
-                self.sequence_counter[video_path] += len(sequence_ids)
+                self.used_sequences.add(seq_id)
+                self.sequence_counter[video_path] += 1
 
                 # Проверяем, все ли прочитанные кадры использованы
                 video_info = self._get_video_info(video_path)
