@@ -154,7 +154,7 @@ def objective(trial):
         # Получаем гиперпараметры
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)  # Уменьшаем диапазон learning rate
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        lstm_units = trial.suggest_int('lstm_units', 32, 256)
+        lstm_units = trial.suggest_int('lstm_units', 64, 256)
         model_type = Config.MODEL_TYPE
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
