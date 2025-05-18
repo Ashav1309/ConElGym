@@ -56,8 +56,8 @@ class Config:
         'v3': {
             'dropout_rate': 0.3,
             'lstm_units': 256,
-            'rnn_type': 'lstm',
-            'temporal_block_type': 'rnn',
+            'rnn_type': 'lstm',  # Может быть 'lstm' или 'bigru'
+            'temporal_block_type': 'rnn',  # Может быть 'rnn', 'hybrid', '3d_attention', 'transformer'
             'class_weights': {
                 'background': None,  # Будет рассчитано автоматически
                 'action': None      # Будет рассчитано автоматически

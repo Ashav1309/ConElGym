@@ -67,50 +67,99 @@ def clear_memory():
         except:
             pass
 
-def create_data_pipeline(loader, sequence_length, batch_size, target_size, one_hot=True, infinite_loop=True, max_sequences_per_video=None, is_train=True, force_positive=True):
+def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_training=True, force_positive=False, cache_dataset=False):
     """
-    Создание pipeline данных для обучения
+    Создание оптимизированного pipeline данных для обучения и подбора гиперпараметров
     
     Args:
         loader: загрузчик данных
         sequence_length: длина последовательности
         batch_size: размер батча
         target_size: размер кадра
-        one_hot: использовать one-hot encoding
-        infinite_loop: бесконечный цикл
-        max_sequences_per_video: максимальное количество последовательностей на видео
-        is_train: флаг обучения
+        is_training: флаг обучения
         force_positive: принудительно использовать положительные примеры
+        cache_dataset: кэшировать датасет (используется только для небольших наборов данных)
     """
     try:
-        print("[DEBUG] Создание pipeline данных")
+        print("\n[DEBUG] Создание pipeline данных...")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - target_size: {target_size}")
+        print(f"  - is_training: {is_training}")
+        print(f"  - force_positive: {force_positive}")
+        print(f"  - cache_dataset: {cache_dataset}")
         print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
-        
+
+        def generator():
+            while True:
+                # Получаем следующую последовательность
+                X, y = loader._get_sequence(
+                    sequence_length=sequence_length,
+                    target_size=target_size,
+                    force_positive=force_positive
+                )
+                if X is not None and y is not None:
+                    print(f"[DEBUG] Форма входных данных X: {X.shape}")
+                    print(f"[DEBUG] Форма меток y: {y.shape}")
+                    print(f"[DEBUG] Тип меток y: {type(y)}")
+                    print(f"[DEBUG] Тип первого элемента y: {type(y[0])}")
+                    if isinstance(y[0], np.ndarray):
+                        print(f"[DEBUG] Форма первого элемента y: {y[0].shape}")
+                    
+                    # Преобразуем метки в one-hot encoding для 2 классов
+                    y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
+                    
+                    # Используем правильную индексацию для создания one-hot encoding
+                    for i in range(sequence_length):
+                        try:
+                            # Проверяем, является ли y[i] массивом
+                            if isinstance(y[i], np.ndarray):
+                                if y[i].size == 1:
+                                    label = int(y[i].item())
+                                else:
+                                    # Если это массив с несколькими элементами, берем первый
+                                    label = int(y[i][0])
+                            else:
+                                label = int(y[i])
+                            
+                            y_one_hot[i, label] = 1
+                            print(f"[DEBUG] Обработка метки {i}: исходное значение = {y[i]}, преобразованное = {label}")
+                        except Exception as e:
+                            print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
+                            print(f"[DEBUG] Значение y[{i}]: {y[i]}")
+                            print(f"[DEBUG] Тип y[{i}]: {type(y[i])}")
+                            if isinstance(y[i], np.ndarray):
+                                print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
+                            raise
+                    
+                    print(f"[DEBUG] Итоговая форма one-hot encoding: {y_one_hot.shape}")
+                    print(f"[DEBUG] Сумма меток в one-hot encoding: {np.sum(y_one_hot)}")
+                    yield X, y_one_hot
+
         # Создаем dataset напрямую из генератора
         output_signature = (
-            tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, sequence_length, 3), dtype=tf.float32)  # three-hot encoding
+            tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)  # two-hot encoding для 2 классов
         )
-        
+
         dataset = tf.data.Dataset.from_generator(
-            lambda: loader.data_generator(force_positive=force_positive, is_validation=not is_train),
+            generator,
             output_signature=output_signature
         )
-        
+
         # Оптимизация производительности
-        if Config.MEMORY_OPTIMIZATION['cache_dataset'] and (not hasattr(loader, 'video_count') or loader.video_count <= 50):
+        if cache_dataset and (not hasattr(loader, 'video_count') or loader.video_count <= 50):
             dataset = dataset.cache()
-        if is_train:
+        if is_training:
             dataset = dataset.shuffle(64)
-            dataset = dataset.batch(batch_size, drop_remainder=True)
-        else:
-            dataset = dataset.batch(batch_size)
+        dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
-        
+
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
         print("[DEBUG] Pipeline данных успешно создан")
         return dataset
-        
+
     except Exception as e:
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
@@ -312,6 +361,10 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         print(f"[DEBUG] Количество эпох: {epochs}")
         print(f"[DEBUG] Размер батча: {batch_size}")
 
+        # Загрузка лучших параметров из подбора гиперпараметров
+        best_params = load_best_params(model_type)
+        print(f"[DEBUG] Загружены лучшие параметры: {best_params}")
+
         # Загрузка весов классов из config_weights.json
         with open(Config.CONFIG_PATH, 'r') as f:
             config = json.load(f)
@@ -330,80 +383,53 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             Config.VALID_DATA_PATH,
             max_videos=None  # Убираем ограничение
         )
+        
         # Создаем пайплайны данных
         train_data = create_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
             batch_size,
             Config.TARGET_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=None,  # Убираем ограничение
-            is_train=True,
-            force_positive=True
+            is_training=True,
+            force_positive=True,
+            cache_dataset=True
         )
         val_data = create_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
             batch_size,
             Config.TARGET_SIZE,
-            one_hot=True,
-            infinite_loop=True,
-            max_sequences_per_video=None,  # Убираем ограничение
-            is_train=False,
-            force_positive=False
+            is_training=False,
+            force_positive=False,
+            cache_dataset=True
         )
-        # Создаем аугментатор
-        augmenter = VideoAugmenter(augment_probability=0.5)
-        # Создаем и компилируем модель
-        if model_type == 'v3':
-            model, _ = create_mobilenetv3_model(
-                input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
-                num_classes=Config.NUM_CLASSES,
-                dropout_rate=best_params['dropout_rate'],
-                lstm_units=best_params['lstm_units'],
-                class_weights=class_weights
-            )
-        else:
-            model, _ = create_mobilenetv4_model(
-                input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
-                num_classes=Config.NUM_CLASSES,
-                dropout_rate=best_params['dropout_rate'],
-                class_weights=class_weights
-            )
-        # Создаем метрики
-        metrics = [
-            'accuracy',
-            tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc'),  # Добавляем AUC
-            F1ScoreAdapter(name='f1_score_element', threshold=0.5)  # Используем импортированный F1ScoreAdapter
-        ]
         
-        # Компилируем модель с focal loss
+        # Создаем и компилируем модель с лучшими параметрами
+        model = create_model_with_params(
+            model_type=model_type,
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            num_classes=Config.NUM_CLASSES,
+            params={
+                'dropout_rate': best_params['dropout_rate'],
+                'lstm_units': best_params.get('lstm_units', Config.MODEL_PARAMS[model_type].get('lstm_units', 128)),
+                'rnn_type': best_params.get('rnn_type', 'lstm'),
+                'temporal_block_type': best_params.get('temporal_block_type', 'rnn')
+            },
+            class_weights=class_weights
+        )
+        
+        # Компилируем модель с лучшими параметрами
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+            optimizer=tf.keras.optimizers.Adam(
+                learning_rate=best_params['learning_rate'],
+                clipnorm=best_params.get('clipnorm', 1.0)
+            ),
             loss=focal_loss(gamma=Config.FOCAL_LOSS['gamma'], alpha=Config.FOCAL_LOSS['alpha']),
-            metrics=metrics
+            metrics=get_training_metrics()
         )
         
-        # Создаем колбэки
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_f1_score_element',
-                patience=Config.OVERFITTING_PREVENTION['early_stopping_patience'],
-                restore_best_weights=True,
-                mode='max'  # Явно указываем режим максимизации
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_f1_score_element',
-                factor=Config.OVERFITTING_PREVENTION['reduce_lr_factor'],
-                patience=Config.OVERFITTING_PREVENTION['reduce_lr_patience'],
-                min_lr=Config.OVERFITTING_PREVENTION['min_lr'],
-                mode='max'  # Явно указываем режим максимизации
-            ),
-            AdaptiveThresholdCallback(validation_data=(val_data[0], val_data[1]))  # Добавляем адаптивный порог
-        ]
+        # Создаем callbacks
+        callbacks = get_training_callbacks(val_data)
         
         # Обучаем модель
         history = model.fit(

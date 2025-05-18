@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.keras.callbacks import Callback
 from typing import Tuple
+from src.config import Config
 
 class AdaptiveThresholdCallback(Callback):
     """
@@ -39,4 +40,62 @@ class AdaptiveThresholdCallback(Callback):
         
         # Добавляем метрики в логи
         logs['val_threshold'] = self.best_threshold
-        logs['val_f1'] = self.best_f1 
+        logs['val_f1'] = self.best_f1
+
+def get_training_callbacks(val_data, config=None):
+    """
+    Получение callbacks для обучения модели
+    
+    Args:
+        val_data: валидационные данные
+        config: конфигурация с параметрами callbacks
+    """
+    if config is None:
+        config = Config.OVERFITTING_PREVENTION
+    
+    return [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_f1_score_element',
+            patience=config['early_stopping_patience'],
+            restore_best_weights=True,
+            mode='max'
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_f1_score_element',
+            factor=config['reduce_lr_factor'],
+            patience=config['reduce_lr_patience'],
+            min_lr=config['min_lr'],
+            mode='max'
+        ),
+        AdaptiveThresholdCallback(validation_data=val_data)
+    ]
+
+def get_tuning_callbacks(trial_number):
+    """
+    Получение callbacks для подбора гиперпараметров
+    
+    Args:
+        trial_number: номер текущего trial
+    """
+    return [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_f1_score',
+            patience=5,
+            restore_best_weights=True,
+            mode='max'
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_f1_score',
+            factor=0.5,
+            patience=3,
+            min_lr=1e-6,
+            mode='max'
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            f'best_model_trial_{trial_number}.h5',
+            monitor='val_f1_score',
+            save_best_only=True,
+            mode='max'
+        ),
+        tf.keras.callbacks.CSVLogger(f'trial_{trial_number}_history.csv')
+    ] 

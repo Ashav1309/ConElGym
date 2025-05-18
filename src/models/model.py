@@ -551,9 +551,18 @@ class SequenceFBetaScore(tf.keras.metrics.FBetaScore):
             
         super().update_state(y_true, y_pred, sample_weight)
 
-def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None):
+def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
     """
     Создание модели на основе MobileNetV3
+    
+    Args:
+        input_shape: форма входных данных
+        num_classes: количество классов
+        dropout_rate: коэффициент dropout
+        lstm_units: количество юнитов в LSTM
+        class_weights: веса классов
+        rnn_type: тип RNN ('lstm', 'bigru')
+        temporal_block_type: тип временного блока ('rnn', 'hybrid', '3d_attention', 'transformer')
     """
     if class_weights is None:
         class_weights = {
@@ -568,6 +577,8 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
     print(f"[DEBUG] Входная форма: {input_shape}")
+    print(f"[DEBUG] Тип RNN: {rnn_type}")
+    print(f"[DEBUG] Тип временного блока: {temporal_block_type}")
     
     # Извлекаем размерность изображения из input_shape
     if len(input_shape) == 4:  # (sequence_length, height, width, channels)
@@ -582,7 +593,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     
     # Создаем базовую модель MobileNetV3
     base_model = MobileNetV3Small(
-        input_shape=image_shape,  # Передаем только размерность изображения
+        input_shape=image_shape,
         include_top=False,
         weights='imagenet'
     )
@@ -601,9 +612,33 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     x = Reshape((sequence_length, -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
-    # Добавляем временные блоки
-    x = LSTM(lstm_units, return_sequences=True)(x)
+    # Добавляем RNN слой в зависимости от типа
+    if rnn_type == 'lstm':
+        x = LSTM(lstm_units, return_sequences=True)(x)
+    elif rnn_type == 'bigru':
+        x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
+    else:
+        raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
     print(f"[DEBUG] Форма после RNN: {x.shape}")
+    
+    # Добавляем временной блок в зависимости от типа
+    if temporal_block_type == 'rnn':
+        # Используем уже добавленный RNN слой
+        pass
+    elif temporal_block_type == 'hybrid':
+        # Комбинируем RNN с TCN
+        x = TemporalConvNet(num_channels=[lstm_units, lstm_units//2], kernel_size=3, dropout=dropout_rate)(x)
+    elif temporal_block_type == '3d_attention':
+        # Преобразуем в 3D форму для пространственно-временного внимания
+        x = Reshape((sequence_length, int(x.shape[-1]**0.5), int(x.shape[-1]**0.5), 1))(x)
+        x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
+        x = Reshape((sequence_length, -1))(x)
+    elif temporal_block_type == 'transformer':
+        # Используем трансформерный блок
+        x = TransformerBlock(embed_dim=lstm_units, num_heads=4, ff_dim=lstm_units*2, rate=dropout_rate)(x)
+    else:
+        raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
+    print(f"[DEBUG] Форма после временного блока: {x.shape}")
     
     # Добавляем слой нормализации
     x = BatchNormalization()(x)
@@ -625,9 +660,9 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     # Метрики для двухклассовой модели
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
-        SequenceFBetaScore(name='f1_score_action', beta=1.0, threshold=0.5)               # F1-score для класса "действие"
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        SequenceFBetaScore(name='f1_score_action', beta=1.0, threshold=0.5)
     ]
     
     model.compile(
@@ -724,40 +759,42 @@ def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class
     
     return model
 
-def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, model_type='v3', class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
+def create_model_with_params(model_type, input_shape, num_classes, params, class_weights):
     """
     Создание модели с заданными параметрами
-    temporal_block_type: 'rnn' или 'hybrid'
-    """
-    print("\n[DEBUG] Создание модели...")
-    print(f"[DEBUG] Параметры создания модели:")
-    print(f"  - model_type: {model_type}")
-    print(f"  - dropout_rate: {dropout_rate}")
-    print(f"  - lstm_units: {lstm_units}")
-    print(f"  - class_weights: {class_weights}")
-    print(f"  - rnn_type: {rnn_type}")
-    print(f"  - temporal_block_type: {temporal_block_type}")
     
-    # Получаем параметры модели из конфигурации
-    model_params = Config.MODEL_PARAMS[model_type]
+    Args:
+        model_type: тип модели ('v3' или 'v4')
+        input_shape: форма входных данных
+        num_classes: количество классов
+        params: словарь с параметрами модели
+        class_weights: словарь с весами классов
+    """
+    print("\n[DEBUG] Создание модели с параметрами:")
+    print(f"  - Тип модели: {model_type}")
+    print(f"  - Dropout: {params['dropout_rate']}")
+    print(f"  - LSTM units: {params.get('lstm_units', 'N/A')}")
+    print(f"  - RNN type: {params.get('rnn_type', 'lstm')}")
+    print(f"  - Temporal block type: {params.get('temporal_block_type', 'rnn')}")
+    print(f"  - Веса классов: {class_weights}")
     
     if model_type == 'v3':
         return create_mobilenetv3_model(
             input_shape=input_shape,
             num_classes=num_classes,
-            dropout_rate=dropout_rate,
-            lstm_units=lstm_units,
-            class_weights=class_weights
+            dropout_rate=params['dropout_rate'],
+            lstm_units=params['lstm_units'],
+            class_weights=class_weights,
+            rnn_type=params.get('rnn_type', 'lstm'),
+            temporal_block_type=params.get('temporal_block_type', 'rnn')
         )
-    elif model_type == 'v4':
+    else:  # v4
         return create_mobilenetv4_model(
             input_shape=input_shape,
             num_classes=num_classes,
-            dropout_rate=dropout_rate,
+            dropout_rate=params['dropout_rate'],
             class_weights=class_weights
         )
-    else:
-        raise ValueError(f"Неверный тип модели: {model_type}. Допустимые значения: v3, v4")
 
 def postprocess_predictions(preds, threshold=0.5):
     """
@@ -789,10 +826,15 @@ def indices_to_seconds(indices, fps):
 if __name__ == "__main__":
     try:
         # Инициализация компонентов
-        model, class_weights = create_model(
+        model, class_weights = create_model_with_params(
+            model_type='v3',
             input_shape=(16, 224, 224, 3),  # 16 кадров, размер 224x224, 3 канала
             num_classes=2,  # Начало и конец элемента
-            model_type='v3'
+            params={
+                'dropout_rate': 0.3,
+                'lstm_units': 128
+            },
+            class_weights=class_weights
         )
         model.summary()
         

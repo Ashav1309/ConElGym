@@ -50,6 +50,7 @@ from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
 from src.models.losses import focal_loss, F1ScoreAdapter
 from src.models.metrics import f1_score_element
+from src.models.train import create_data_pipeline  # Импортируем общую функцию
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -132,149 +133,6 @@ def setup_device():
 # Инициализация устройства
 device_available = setup_device()
 
-def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, is_training=True, force_positive=False):
-    """
-    Создание оптимизированного pipeline данных для подбора гиперпараметров
-    """
-    try:
-        print("\n[DEBUG] Создание pipeline данных для подбора гиперпараметров...")
-        print(f"[DEBUG] Параметры:")
-        print(f"  - sequence_length: {sequence_length}")
-        print(f"  - batch_size: {batch_size}")
-        print(f"  - input_size: {input_size}")
-        print(f"  - is_training: {is_training}")
-        print(f"  - force_positive: {force_positive}")
-
-        # Устанавливаем размер батча в загрузчике
-        data_loader.batch_size = batch_size
-
-        def generator():
-            while True:
-                # Получаем следующую последовательность
-                X, y = data_loader._get_sequence(
-                    sequence_length=sequence_length,
-                    target_size=input_size,
-                    force_positive=force_positive
-                )
-                if X is not None and y is not None:
-                    # Преобразуем метки в one-hot encoding для 2 классов
-                    y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
-                    # Используем правильную индексацию для создания one-hot encoding
-                    for i in range(sequence_length):
-                        label = y[i].item() if isinstance(y[i], np.ndarray) else y[i]
-                        y_one_hot[i, int(label)] = 1
-                    yield X, y_one_hot
-
-        # Создаем dataset напрямую из генератора
-        output_signature = (
-            tf.TensorSpec(shape=(sequence_length, *input_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)  # two-hot encoding для 2 классов
-        )
-
-        dataset = tf.data.Dataset.from_generator(
-            generator,
-            output_signature=output_signature
-        )
-
-        # Оптимизация производительности
-        if is_training:
-            dataset = dataset.shuffle(64)
-        dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
-
-        print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
-        print("[DEBUG] Pipeline данных успешно создан")
-        return dataset
-
-    except Exception as e:
-        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
-
-def create_and_compile_model(params, input_shape, num_classes, class_weights):
-    """
-    Создание и компиляция модели с заданными параметрами
-    """
-    print("\n[DEBUG] Создание модели с параметрами:")
-    print(f"  - Тип модели: {params['model_type']}")
-    print(f"  - Dropout: {params['dropout_rate']}")
-    print(f"  - LSTM units: {params['lstm_units']}")
-    print(f"  - Веса классов: {class_weights}")
-    
-    # Создаем модель в зависимости от типа
-    if params['model_type'] == 'v3':
-        model = create_mobilenetv3_model(
-            input_shape=input_shape,
-            num_classes=num_classes,
-            dropout_rate=params['dropout_rate'],
-            lstm_units=params['lstm_units'],
-            class_weights=class_weights
-        )
-    else:  # v4
-        model = create_mobilenetv4_model(
-            input_shape=input_shape,
-            num_classes=num_classes,
-            dropout_rate=params['dropout_rate'],
-            class_weights=class_weights
-        )
-    
-    # Создаем оптимизатор
-    optimizer = Adam(
-        learning_rate=params['learning_rate'],
-        clipnorm=params.get('clipnorm', 1.0)
-    )
-    
-    # Создаем метрики для работы с последовательностями
-    class SequenceMetrics(tf.keras.metrics.Metric):
-        def __init__(self, name='sequence_metrics', **kwargs):
-            super().__init__(name=name, **kwargs)
-            self.precision = tf.keras.metrics.Precision(thresholds=0.5)
-            self.recall = tf.keras.metrics.Recall(thresholds=0.5)
-            self.f1 = tf.keras.metrics.F1Score(threshold=0.5)
-            
-        def update_state(self, y_true, y_pred, sample_weight=None):
-            # Преобразуем входные данные в 2D
-            batch_size = tf.shape(y_true)[0]
-            y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-            y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-            
-            if sample_weight is not None:
-                sample_weight = tf.reshape(sample_weight, [-1])
-            
-            # Обновляем метрики
-            self.precision.update_state(y_true, y_pred, sample_weight)
-            self.recall.update_state(y_true, y_pred, sample_weight)
-            self.f1.update_state(y_true, y_pred, sample_weight)
-            
-        def result(self):
-            return {
-                'precision': self.precision.result(),
-                'recall': self.recall.result(),
-                'f1_score': self.f1.result()
-            }
-            
-        def reset_state(self):
-            self.precision.reset_state()
-            self.recall.reset_state()
-            self.f1.reset_state()
-    
-    # Создаем метрики
-    metrics = [
-        'accuracy',
-        SequenceMetrics(name='sequence_metrics')
-    ]
-    
-    # Компилируем модель с focal loss и весами классов
-    model.compile(
-        optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
-        metrics=metrics
-    )
-    
-    return model
-
 def load_and_prepare_data(batch_size):
     """
     Загрузка и подготовка данных для обучения
@@ -300,8 +158,24 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(train_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, True, True)
-        val_dataset = create_data_pipeline(val_loader, Config.SEQUENCE_LENGTH, Config.BATCH_SIZE, Config.INPUT_SIZE, False, False)
+        train_dataset = create_data_pipeline(
+            train_loader, 
+            Config.SEQUENCE_LENGTH, 
+            Config.BATCH_SIZE, 
+            Config.INPUT_SIZE, 
+            is_training=True, 
+            force_positive=True,
+            cache_dataset=False
+        )
+        val_dataset = create_data_pipeline(
+            val_loader, 
+            Config.SEQUENCE_LENGTH, 
+            Config.BATCH_SIZE, 
+            Config.INPUT_SIZE, 
+            is_training=False, 
+            force_positive=False,
+            cache_dataset=False
+        )
         
         return train_dataset, val_dataset
     except Exception as e:
@@ -337,8 +211,8 @@ def objective(trial):
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 32, 256)
         model_type = Config.MODEL_TYPE
-        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'gru'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'tcn'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 8
@@ -360,7 +234,7 @@ def objective(trial):
             }
         
         # Подбираем веса с отклонением только в сторону уменьшения на 30% от базовых значений
-        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.0)  # Изменяем диапазон с [-0.3, 0.3] на [-0.3, 0.0]
+        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.0)
         action_weight = base_weights['action'] * (1 + weight_deviation)
         
         class_weights = {
@@ -384,7 +258,8 @@ def objective(trial):
                 'lstm_units': lstm_units,
                 'model_type': model_type,
                 'rnn_type': rnn_type,
-                'temporal_block_type': temporal_block_type
+                'temporal_block_type': temporal_block_type,
+                'clipnorm': clipnorm
             },
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
@@ -392,28 +267,7 @@ def objective(trial):
         )
         
         # Создаем callbacks
-        callbacks = [
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_f1_score',
-                patience=5,
-                restore_best_weights=True,
-                mode='max'
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_f1_score',
-                factor=0.5,
-                patience=3,
-                min_lr=1e-6,
-                mode='max'
-            ),
-            tf.keras.callbacks.ModelCheckpoint(
-                f'best_model_trial_{trial.number}.h5',
-                monitor='val_f1_score',
-                save_best_only=True,
-                mode='max'
-            ),
-            tf.keras.callbacks.CSVLogger(f'trial_{trial.number}_history.csv')
-        ]
+        callbacks = get_tuning_callbacks(trial.number)
         
         # Обучаем модель
         history = model.fit(
@@ -588,3 +442,44 @@ def tune_hyperparameters(n_trials=None):
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
         raise
+
+def create_and_compile_model(params, input_shape, num_classes, class_weights):
+    """
+    Создание и компиляция модели с заданными параметрами
+    """
+    print("\n[DEBUG] Создание модели с параметрами:")
+    print(f"  - Тип модели: {params['model_type']}")
+    print(f"  - Dropout: {params['dropout_rate']}")
+    print(f"  - LSTM units: {params['lstm_units']}")
+    print(f"  - Тип RNN: {params['rnn_type']}")
+    print(f"  - Тип временного блока: {params['temporal_block_type']}")
+    print(f"  - Веса классов: {class_weights}")
+    
+    # Создаем модель
+    model = create_model_with_params(
+        model_type=params['model_type'],
+        input_shape=input_shape,
+        num_classes=num_classes,
+        params={
+            'dropout_rate': params['dropout_rate'],
+            'lstm_units': params['lstm_units'],
+            'rnn_type': params['rnn_type'],
+            'temporal_block_type': params['temporal_block_type']
+        },
+        class_weights=class_weights
+    )
+    
+    # Создаем оптимизатор
+    optimizer = Adam(
+        learning_rate=params['learning_rate'],
+        clipnorm=params.get('clipnorm', 1.0)
+    )
+    
+    # Компилируем модель с focal loss и метриками
+    model.compile(
+        optimizer=optimizer,
+        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
+        metrics=get_tuning_metrics()
+    )
+    
+    return model
