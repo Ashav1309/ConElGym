@@ -158,7 +158,7 @@ class Config:
     }
     
     # Константы для валидации данных
-    MIN_TRAIN_VIDEOS = 10  # Минимальное количество видео для обучения
+    MIN_TRAIN_VIDEOS = 10
     MIN_VAL_VIDEOS = 3    # Минимальное количество видео для валидации
     MIN_VIDEO_WIDTH = 320  # Минимальная ширина видео
     MIN_VIDEO_HEIGHT = 240 # Минимальная высота видео
@@ -178,7 +178,8 @@ class Config:
         'enabled': True,
         'update_frequency': 5,
         'f1_threshold': 0.5,
-        'weight_increase': 1.1
+        'weight_increase': 1.1,
+        'num_classes': 2  # 2 класса: фон, действие
     }
     
     # Параметры адаптивного обучения
@@ -186,7 +187,8 @@ class Config:
         'enabled': True,
         'patience': 3,
         'lr_reduction': 0.5,
-        'weight_increase': 1.1
+        'weight_increase': 1.1,
+        'num_classes': 2  # 2 класса: фон, действие
     }
     
     @classmethod

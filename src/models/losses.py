@@ -7,11 +7,11 @@ import os
 
 def focal_loss(gamma=2., alpha=None, beta=0.999):
     """
-    Focal loss для three-hot encoded меток с поддержкой весов классов.
+    Focal loss для two-hot encoded меток с поддержкой весов классов.
     
     Args:
         gamma: фокусный параметр для уменьшения веса хорошо классифицированных примеров
-        alpha: веса для каждого класса (список из 3 элементов для фона, действия и перехода)
+        alpha: веса для каждого класса (список из 2 элементов для фона и действия)
         beta: параметр для дополнительной балансировки классов
     """
     def focal_loss_fixed(y_true, y_pred):
@@ -26,8 +26,7 @@ def focal_loss(gamma=2., alpha=None, beta=0.999):
         # Применяем веса к каждому классу
         weights = tf.constant([
             class_weights['background'],
-            class_weights['action'],
-            class_weights['transition']
+            class_weights['action']
         ])
         
         # Проверяем и исправляем размерности
@@ -89,7 +88,7 @@ class DynamicClassWeights(Callback):
         
         # Рассчитываем F1-score для каждого класса
         f1_scores = []
-        for i in range(3):  # 3 класса
+        for i in range(2):  # 2 класса
             f1 = tf.keras.metrics.F1Score()(y_true[:, i], y_pred[:, i])
             f1_scores.append(f1)
         
@@ -97,7 +96,7 @@ class DynamicClassWeights(Callback):
         current_weights = self.model.class_weights
         new_weights = {}
         
-        for i, (class_name, f1) in enumerate(zip(['background', 'action', 'transition'], f1_scores)):
+        for i, (class_name, f1) in enumerate(zip(['background', 'action'], f1_scores)):
             # Увеличиваем вес для классов с низким F1-score
             if f1 < 0.5:  # Порог для "плохих" классов
                 new_weights[class_name] = current_weights[class_name] * 1.1

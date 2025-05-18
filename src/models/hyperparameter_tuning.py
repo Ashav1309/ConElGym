@@ -49,6 +49,7 @@ from src.data_proc.data_augmentation import VideoAugmenter
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
+from src.models.losses import focal_loss, F1ScoreAdapter
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None

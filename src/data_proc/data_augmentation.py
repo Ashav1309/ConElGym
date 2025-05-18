@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 import tensorflow as tf
 from typing import Tuple, List
+from src.models.losses import focal_loss
 
 def augment_frame(frame: np.ndarray) -> np.ndarray:
     """
@@ -144,22 +145,6 @@ class VideoAugmenter:
                 augmented_labels.append(labels)
         
         return np.array(augmented_frames), np.array(augmented_labels)
-
-def focal_loss(gamma: float = 2.0, alpha: float = 0.25) -> tf.keras.losses.Loss:
-    """
-    Focal Loss для бинарной классификации
-    """
-    def focal_loss_fixed(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
-        # Преобразуем предсказания в вероятности
-        y_pred = tf.clip_by_value(y_pred, 1e-7, 1 - 1e-7)
-        
-        # Вычисляем focal loss
-        pt = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
-        focal_loss = -alpha * tf.pow(1 - pt, gamma) * tf.math.log(pt)
-        
-        return tf.reduce_mean(focal_loss)
-    
-    return focal_loss_fixed
 
 class AdaptiveThresholdCallback(tf.keras.callbacks.Callback):
     """

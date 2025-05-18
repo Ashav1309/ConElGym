@@ -18,7 +18,8 @@ from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
 import psutil
-from src.data_proc.data_augmentation import VideoAugmenter, focal_loss, AdaptiveThresholdCallback
+from src.data_proc.data_augmentation import VideoAugmenter, AdaptiveThresholdCallback
+from src.models.losses import focal_loss  # Импортируем focal_loss из losses.py
 
 # Включаем eager execution
 tf.config.run_functions_eagerly(True)
@@ -199,11 +200,11 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
 
 def f1_score_element(y_true, y_pred):
     """
-    Вычисление F1-score для элемента с учетом временной размерности и three-hot encoded меток
+    Вычисление F1-score для элемента с учетом временной размерности и two-hot encoded меток
     """
-    # Объединяем классы действия и перехода в один положительный класс
-    y_true_bin = tf.reduce_any(y_true[:, :, 1:], axis=-1)  # Объединяем действие и переход
-    y_pred_bin = tf.reduce_any(y_pred[:, :, 1:], axis=-1)  # Объединяем действие и переход
+    # Получаем предсказания для класса действия
+    y_true_bin = y_true[:, :, 1]  # Класс действия
+    y_pred_bin = y_pred[:, :, 1]  # Класс действия
     
     true_positives = tf.reduce_sum(tf.cast((y_true_bin == 1) & (y_pred_bin == 1), tf.float32))
     predicted_positives = tf.reduce_sum(tf.cast(y_pred_bin == 1, tf.float32))
@@ -318,43 +319,6 @@ def load_best_params(model_type=None):
     if model_type == 'v3':
         default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
     return default_params
-
-def focal_loss(gamma=2., alpha=0.25):
-    def focal_loss_fixed(y_true, y_pred):
-        y_true = tf.convert_to_tensor(y_true, tf.float32)
-        y_pred = tf.convert_to_tensor(y_pred, tf.float32)
-        
-        # Загружаем веса классов
-        with open(Config.CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-            class_weights = config['MODEL_PARAMS'][Config.MODEL_TYPE]['class_weights']
-        
-        # Применяем веса к каждому классу
-        weights = tf.constant([
-            class_weights['background'],
-            class_weights['action'],
-            class_weights['transition']
-        ])
-        
-        # Вычисляем focal loss с весами
-        epsilon = tf.keras.backend.epsilon()
-        y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
-        
-        # Вычисляем веса для каждого класса
-        alpha_weight = alpha * y_true + (1 - alpha) * (1 - y_true)
-        
-        # Вычисляем фокусный вес
-        pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-        focal_weight = tf.pow(1 - pt, gamma)
-        
-        # Вычисляем кросс-энтропию
-        cross_entropy = -y_true * tf.math.log(y_pred)
-        
-        # Применяем веса классов и фокусный вес
-        loss = alpha_weight * focal_weight * cross_entropy * weights
-        
-        return tf.reduce_mean(loss)
-    return focal_loss_fixed
 
 def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BATCH_SIZE):
     """

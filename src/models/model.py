@@ -17,7 +17,6 @@ import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
 from src.config import Config
-import numpy as np
 from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
 from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
@@ -569,107 +568,9 @@ class TemporalConvNet(tf.keras.layers.Layer):
         })
         return config
 
-def focal_loss(gamma=2., alpha=None):
+def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None):
     """
-    Focal loss для двухклассовой классификации (фон-действие)
-    """
-    def focal_loss_fixed(y_true, y_pred):
-        print("\n[DEBUG] ===== Focal Loss Debug Info =====")
-        print(f"[DEBUG] Input shapes:")
-        print(f"  - y_true shape: {y_true.shape}")
-        print(f"  - y_pred shape: {y_pred.shape}")
-        print(f"  - y_true type: {type(y_true)}")
-        print(f"  - y_pred type: {type(y_pred)}")
-        
-        # Преобразуем входные данные в тензоры
-        y_true = tf.convert_to_tensor(y_true, tf.float32)
-        y_pred = tf.convert_to_tensor(y_pred, tf.float32)
-        
-        print(f"\n[DEBUG] After tensor conversion:")
-        print(f"  - y_true shape: {y_true.shape}")
-        print(f"  - y_pred shape: {y_pred.shape}")
-        print(f"  - y_true type: {type(y_true)}")
-        print(f"  - y_pred type: {type(y_pred)}")
-        
-        # Проверяем и исправляем размерности
-        if len(y_true.shape) == 3:  # [batch, sequence, classes]
-            print(f"\n[DEBUG] Reducing sequence dimension:")
-            print(f"  - Original y_true shape: {y_true.shape}")
-            print(f"  - Original y_pred shape: {y_pred.shape}")
-            
-            # Убираем временную размерность, усредняя по ней
-            y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
-            y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
-            
-            print(f"  - After reduction y_true shape: {y_true.shape}")
-            print(f"  - After reduction y_pred shape: {y_pred.shape}")
-        
-        # Добавляем epsilon для численной стабильности
-        epsilon = tf.keras.backend.epsilon()
-        y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
-        
-        print(f"\n[DEBUG] Alpha processing:")
-        print(f"  - Alpha value: {alpha}")
-        print(f"  - Alpha type: {type(alpha)}")
-        
-        # Если alpha не задан, используем 0.25 для всех классов
-        if alpha is None:
-            print("  - Using default alpha (0.25)")
-            alpha_factor = tf.ones_like(y_true) * 0.25
-        elif isinstance(alpha, (list, tuple, np.ndarray)):
-            print("  - Processing alpha as list/tuple/array")
-            # Преобразуем alpha в тензор и приводим к нужной форме
-            alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
-            print(f"  - Alpha factor shape before reshape: {alpha_factor.shape}")
-            
-            # Проверяем количество классов
-            num_classes = y_true.shape[-1]
-            print(f"  - Number of classes in y_true: {num_classes}")
-            print(f"  - Number of alpha weights: {len(alpha_factor)}")
-            
-            # Если количество классов не совпадает с количеством весов
-            if len(alpha_factor) != num_classes:
-                print(f"  - Adjusting alpha weights to match number of classes")
-                # Если у нас больше классов, чем весов, используем только первые num_classes весов
-                if len(alpha_factor) > num_classes:
-                    print(f"  - Truncating alpha weights to {num_classes}")
-                    alpha_factor = alpha_factor[:num_classes]
-                # Если у нас меньше классов, чем весов, используем только первые len(alpha_factor) классов
-                else:
-                    print(f"  - Using only first {len(alpha_factor)} classes")
-                    y_true = y_true[:, :len(alpha_factor)]
-                    y_pred = y_pred[:, :len(alpha_factor)]
-            
-            alpha_factor = tf.reshape(alpha_factor, (1, -1))  # [1, num_classes]
-            print(f"  - Alpha factor shape after reshape: {alpha_factor.shape}")
-            
-            # Расширяем alpha_factor до размерности y_true
-            alpha_factor = tf.tile(alpha_factor, [tf.shape(y_true)[0], 1])
-            print(f"  - Alpha factor shape after tile: {alpha_factor.shape}")
-            print(f"  - y_true shape for comparison: {y_true.shape}")
-        else:
-            print(f"  - Using scalar alpha: {float(alpha)}")
-            alpha_factor = tf.ones_like(y_true) * float(alpha)
-        
-        print(f"\n[DEBUG] Loss computation:")
-        print(f"  - Alpha factor shape: {alpha_factor.shape}")
-        print(f"  - y_true shape: {y_true.shape}")
-        print(f"  - y_pred shape: {y_pred.shape}")
-        
-        # Вычисляем focal loss
-        cross_entropy = -y_true * tf.math.log(y_pred)
-        weight = alpha_factor * tf.pow(1 - y_pred, gamma)
-        loss = weight * cross_entropy
-        
-        print(f"  - Final loss shape: {loss.shape}")
-        print("[DEBUG] ===== End Focal Loss Debug Info =====\n")
-        
-        return tf.reduce_mean(tf.reduce_sum(loss, axis=-1))
-    return focal_loss_fixed
-
-def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
-    """
-    Создает модель на основе MobileNetV3 с временными блоками для двухклассовой классификации (фон-действие)
+    Создание модели на основе MobileNetV3
     """
     if class_weights is None:
         class_weights = {
@@ -718,67 +619,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
     # Добавляем временные блоки
-    if temporal_block_type == 'rnn':
-        if rnn_type == 'lstm':
-            x = LSTM(lstm_units, return_sequences=True)(x)
-        elif rnn_type == 'gru':
-            x = GRU(lstm_units, return_sequences=True)(x)
-        elif rnn_type == 'bigru':
-            x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
-        else:
-            raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
-        print(f"[DEBUG] Форма после RNN: {x.shape}")
-        
-    elif temporal_block_type == 'tcn':
-        x = TemporalConvNet(
-            num_channels=[lstm_units, lstm_units],
-            kernel_size=3,
-            dropout=dropout_rate
-        )(x)
-        print(f"[DEBUG] Форма после TCN: {x.shape}")
-        
-    elif temporal_block_type == 'hybrid':
-        if rnn_type == 'lstm':
-            rnn_output = LSTM(lstm_units, return_sequences=True)(x)
-        elif rnn_type == 'gru':
-            rnn_output = GRU(lstm_units, return_sequences=True)(x)
-        elif rnn_type == 'bigru':
-            rnn_output = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
-        else:
-            raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
-        
-        tcn_output = TemporalConvNet(
-            num_channels=[lstm_units, lstm_units],
-            kernel_size=3,
-            dropout=dropout_rate
-        )(x)
-        
-        x = tf.keras.layers.Concatenate()([rnn_output, tcn_output])
-        x = Dense(lstm_units)(x)
-        print(f"[DEBUG] Форма после Hybrid: {x.shape}")
-        
-    elif temporal_block_type == '3d_attention':
-        spatial_size = int(np.sqrt(x.shape[2] // 3))
-        x = Reshape((sequence_length, spatial_size, spatial_size, 3))(x)
-        print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")
-        
-        x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
-        print(f"[DEBUG] Форма после 3D Attention: {x.shape}")
-        
-        x = Reshape((sequence_length, -1))(x)
-        print(f"[DEBUG] Форма после Reshape: {x.shape}")
-        
-    elif temporal_block_type == 'transformer':
-        x = TransformerBlock(
-            embed_dim=lstm_units,
-            num_heads=4,
-            ff_dim=lstm_units * 2,
-            rate=dropout_rate
-        )(x)
-        print(f"[DEBUG] Форма после Transformer: {x.shape}")
-        
-    else:
-        raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
+    x = LSTM(lstm_units, return_sequences=True)(x)
+    print(f"[DEBUG] Форма после RNN: {x.shape}")
     
     # Добавляем слой нормализации
     x = BatchNormalization()(x)
@@ -795,10 +637,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     model = Model(inputs=inputs, outputs=outputs)
     
     # Оптимизатор
-    optimizer = tf.keras.optimizers.Adam(
-        learning_rate=Config.LEARNING_RATE,
-        clipnorm=1.0
-    )
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
     # Метрики для двухклассовой модели
     metrics = [
@@ -808,7 +647,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
     ]
     
-    # Компилируем модель с focal loss для двух классов
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
@@ -817,9 +655,9 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     
     return model
 
-def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_weights=None):
+def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class_weights=None):
     """
-    Создает модель на основе MobileNetV4 с улучшенной архитектурой для двухклассовой классификации
+    Создание модели на основе MobileNetV4
     """
     print("[DEBUG] Создание модели MobileNetV4...")
     
@@ -871,7 +709,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     x = Reshape((sequence_length, -1))(x)
     
     # Добавляем временной блок
-    x = Bidirectional(LSTM(256, return_sequences=True))(x)
+    x = LSTM(256, return_sequences=True)(x)
     x = GlobalAveragePooling1D()(x)
     
     # Добавляем слои классификации
@@ -887,10 +725,6 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     # Оптимизатор
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
-    # Включаем mixed precision если используется GPU
-    if Config.DEVICE_CONFIG['use_gpu'] and Config.MEMORY_OPTIMIZATION['use_mixed_precision']:
-        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
-    
     # Метрики для двухклассовой модели
     metrics = [
         'accuracy',
@@ -902,8 +736,7 @@ def create_mobilenetv4_model(input_shape, num_classes, dropout_rate=0.5, class_w
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
-        metrics=metrics,
-        weighted_metrics=['accuracy']
+        metrics=metrics
     )
     
     return model
@@ -931,8 +764,6 @@ def create_model(input_shape, num_classes, dropout_rate=0.5, lstm_units=64, mode
             num_classes=num_classes,
             dropout_rate=dropout_rate,
             lstm_units=lstm_units,
-            rnn_type=rnn_type,
-            temporal_block_type=temporal_block_type,
             class_weights=class_weights
         )
     elif model_type == 'v4':
