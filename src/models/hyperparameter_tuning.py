@@ -159,7 +159,9 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
                 if X is not None and y is not None:
                     # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
-                    y_one_hot[np.arange(sequence_length), y.astype(int)] = 1
+                    # Используем правильную индексацию для создания one-hot encoding
+                    for i in range(sequence_length):
+                        y_one_hot[i, int(y[i])] = 1
                     yield X, y_one_hot
 
         # Создаем dataset напрямую из генератора
