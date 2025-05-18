@@ -320,15 +320,12 @@ def objective(trial):
             print("[WARNING] Используем значения по умолчанию.")
             base_weights = {
                 'background': 1.0,
-                'action': 4.3
+                'action': 10 
             }
         
-        # Подбираем веса с отклонением ±30% от базовых значений
-        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.3)
+        # Подбираем веса с отклонением только в сторону уменьшения на 30% от базовых значений
+        weight_deviation = trial.suggest_float('weight_deviation', -0.3, 0.0)  # Изменяем диапазон с [-0.3, 0.3] на [-0.3, 0.0]
         action_weight = base_weights['action'] * (1 + weight_deviation)
-        
-        # Ограничиваем максимальный вес действия до 10.0
-        action_weight = min(action_weight, 10.0)
         
         class_weights = {
             'background': 1.0,  # Фон всегда 1.0
