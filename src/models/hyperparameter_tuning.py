@@ -161,7 +161,8 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
                     # Используем правильную индексацию для создания one-hot encoding
                     for i in range(sequence_length):
-                        y_one_hot[i, int(y[i])] = 1
+                        label = y[i].item() if isinstance(y[i], np.ndarray) else y[i]
+                        y_one_hot[i, int(label)] = 1
                     yield X, y_one_hot
 
         # Создаем dataset напрямую из генератора
