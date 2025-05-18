@@ -523,18 +523,18 @@ class TransformerBlock(tf.keras.layers.Layer):
 
 def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_units=256, rnn_type='lstm', temporal_block_type='rnn', class_weights=None):
     """
-    Создает модель на основе MobileNetV3 с временными блоками
+    Создает модель на основе MobileNetV3 с временными блоками для двухклассовой классификации (фон-действие)
     """
     if class_weights is None:
-        # Значения по умолчанию
+        # Значения по умолчанию для двух классов
         class_weights = {
             'background': 1.0,
             'action': 4.3
         }
     
     tf_class_weights = {
-        0: class_weights['background'],
-        1: class_weights['action']
+        0: class_weights['background'],  # фон
+        1: class_weights['action']       # действие
     }
     
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
@@ -558,8 +558,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
     
     # Преобразуем выход MobileNetV3 в последовательность для временных блоков
-    # Сохраняем временную размерность (sequence_length)
-    x = Reshape((input_shape[0], -1))(x)
+    sequence_length = 12  # Фиксированная длина последовательности
+    x = Reshape((sequence_length, -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
     # Добавляем временные блоки
@@ -575,7 +575,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Форма после RNN: {x.shape}")
         
     elif temporal_block_type == 'tcn':
-        # TCN ожидает (batch_size, sequence_length, features)
         x = TemporalConvNet(
             num_channels=[lstm_units, lstm_units],
             kernel_size=3,
@@ -584,7 +583,6 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         print(f"[DEBUG] Форма после TCN: {x.shape}")
         
     elif temporal_block_type == 'hybrid':
-        # Комбинируем RNN и TCN
         if rnn_type == 'lstm':
             rnn_output = LSTM(lstm_units, return_sequences=True)(x)
         elif rnn_type == 'gru':
@@ -600,27 +598,22 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             dropout=dropout_rate
         )(x)
         
-        # Объединяем выходы
         x = tf.keras.layers.Concatenate()([rnn_output, tcn_output])
         x = Dense(lstm_units)(x)
         print(f"[DEBUG] Форма после Hybrid: {x.shape}")
         
     elif temporal_block_type == '3d_attention':
-        # Преобразуем в 3D тензор для пространственно-временного внимания
-        # Восстанавливаем пространственные размерности
-        spatial_size = int(np.sqrt(x.shape[2] // 3))  # Предполагаем квадратное изображение
-        x = Reshape((input_shape[0], spatial_size, spatial_size, 3))(x)
+        spatial_size = int(np.sqrt(x.shape[2] // 3))
+        x = Reshape((sequence_length, spatial_size, spatial_size, 3))(x)
         print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")
         
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         print(f"[DEBUG] Форма после 3D Attention: {x.shape}")
         
-        # Преобразуем обратно в последовательность
-        x = Reshape((input_shape[0], -1))(x)
+        x = Reshape((sequence_length, -1))(x)
         print(f"[DEBUG] Форма после Reshape: {x.shape}")
         
     elif temporal_block_type == 'transformer':
-        # Transformer ожидает (batch_size, sequence_length, features)
         x = TransformerBlock(
             embed_dim=lstm_units,
             num_heads=4,
@@ -639,8 +632,8 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     # Добавляем слой dropout
     x = Dropout(dropout_rate)(x)
     
-    # Добавляем выходной слой
-    outputs = Dense(num_classes, activation='softmax')(x)
+    # Добавляем выходной слой для двух классов
+    outputs = Dense(2, activation='softmax')(x)  # 2 класса: фон и действие
     print(f"[DEBUG] Выходная форма: {outputs.shape}")
     
     # Создаем модель
@@ -652,15 +645,15 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         clipnorm=1.0
     )
     
-    # Метрики
+    # Метрики для двухклассовой модели
     metrics = [
         'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
+        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
     ]
     
-    # Компилируем модель
+    # Компилируем модель с focal loss для двух классов
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
