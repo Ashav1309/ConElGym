@@ -531,6 +531,7 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     }
     
     print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
+    print(f"[DEBUG] Входная форма: {input_shape}")
     
     # Создаем базовую модель MobileNetV3
     base_model = MobileNetV3Small(
@@ -547,6 +548,11 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
     
     # Применяем базовую модель
     x = base_model(inputs)
+    print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
+    
+    # Преобразуем выход MobileNetV3 в последовательность для временных блоков
+    x = Reshape((-1, x.shape[1] * x.shape[2] * x.shape[3]))(x)
+    print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
     # Добавляем временные блоки
     if temporal_block_type == 'rnn':
@@ -558,12 +564,17 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
             x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
         else:
             raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
+        print(f"[DEBUG] Форма после RNN: {x.shape}")
+        
     elif temporal_block_type == 'tcn':
+        # TCN ожидает (batch_size, sequence_length, features)
         x = TemporalConvNet(
             num_channels=[lstm_units, lstm_units],
             kernel_size=3,
             dropout=dropout_rate
         )(x)
+        print(f"[DEBUG] Форма после TCN: {x.shape}")
+        
     elif temporal_block_type == 'hybrid':
         # Комбинируем RNN и TCN
         if rnn_type == 'lstm':
@@ -584,31 +595,45 @@ def create_mobilenetv3_model(input_shape, num_classes, dropout_rate=0.3, lstm_un
         # Объединяем выходы
         x = tf.keras.layers.Concatenate()([rnn_output, tcn_output])
         x = Dense(lstm_units)(x)
+        print(f"[DEBUG] Форма после Hybrid: {x.shape}")
+        
     elif temporal_block_type == '3d_attention':
         # Преобразуем в 3D тензор для пространственно-временного внимания
-        x = Reshape((-1, x.shape[1], x.shape[2], x.shape[3]))(x)
+        # Восстанавливаем пространственные размерности
+        spatial_size = int(np.sqrt(x.shape[2] // 3))  # Предполагаем квадратное изображение
+        x = Reshape((-1, spatial_size, spatial_size, 3))(x)
+        print(f"[DEBUG] Форма перед 3D Attention: {x.shape}")
+        
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
+        print(f"[DEBUG] Форма после 3D Attention: {x.shape}")
+        
+        # Преобразуем обратно в последовательность
         x = Reshape((-1, x.shape[2] * x.shape[3] * x.shape[4]))(x)
+        print(f"[DEBUG] Форма после Reshape: {x.shape}")
+        
     elif temporal_block_type == 'transformer':
-        # Преобразуем в последовательность для трансформера
-        x = Reshape((-1, x.shape[1] * x.shape[2] * x.shape[3]))(x)
+        # Transformer ожидает (batch_size, sequence_length, features)
         x = TransformerBlock(
             embed_dim=lstm_units,
             num_heads=4,
             ff_dim=lstm_units * 2,
             rate=dropout_rate
         )(x)
+        print(f"[DEBUG] Форма после Transformer: {x.shape}")
+        
     else:
         raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
     
     # Добавляем слой нормализации
     x = BatchNormalization()(x)
+    print(f"[DEBUG] Форма после BatchNorm: {x.shape}")
     
     # Добавляем слой dropout
     x = Dropout(dropout_rate)(x)
     
     # Добавляем выходной слой
     outputs = Dense(num_classes, activation='softmax')(x)
+    print(f"[DEBUG] Выходная форма: {outputs.shape}")
     
     # Создаем модель
     model = Model(inputs=inputs, outputs=outputs)
