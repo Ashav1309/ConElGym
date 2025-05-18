@@ -280,7 +280,7 @@ class VideoDataLoader:
             video_files = []
             logger.debug(f"[DEBUG] Поиск видео в директории: {self.data_path}")
             
-            for ext in ['.mp4', '.avi', '.mov']:
+            for ext in ['.mp4']:
                 pattern = f'*{ext}'
                 logger.debug(f"[DEBUG] Поиск по шаблону: {pattern}")
                 files = list(self.data_path.glob(pattern))
