@@ -578,11 +578,17 @@ def focal_loss(gamma=2., alpha=None):
         y_true = tf.convert_to_tensor(y_true, tf.float32)
         y_pred = tf.convert_to_tensor(y_pred, tf.float32)
         
+        print(f"[DEBUG] focal_loss - y_true shape: {y_true.shape}")
+        print(f"[DEBUG] focal_loss - y_pred shape: {y_pred.shape}")
+        
         # Проверяем и исправляем размерности
         if len(y_true.shape) == 3:  # [batch, sequence, classes]
+            print(f"[DEBUG] focal_loss - reducing sequence dimension")
             # Убираем временную размерность, усредняя по ней
             y_true = tf.reduce_mean(y_true, axis=1)  # [batch, classes]
             y_pred = tf.reduce_mean(y_pred, axis=1)  # [batch, classes]
+            print(f"[DEBUG] focal_loss - after reduction - y_true shape: {y_true.shape}")
+            print(f"[DEBUG] focal_loss - after reduction - y_pred shape: {y_pred.shape}")
         
         # Добавляем epsilon для численной стабильности
         epsilon = tf.keras.backend.epsilon()
@@ -592,12 +598,16 @@ def focal_loss(gamma=2., alpha=None):
         if alpha is None:
             alpha_factor = tf.ones_like(y_true) * 0.25
         elif isinstance(alpha, (list, tuple, np.ndarray)):
+            print(f"[DEBUG] focal_loss - alpha: {alpha}")
             # Преобразуем alpha в тензор и приводим к нужной форме
             alpha_factor = tf.convert_to_tensor(alpha, dtype=tf.float32)
+            print(f"[DEBUG] focal_loss - alpha_factor shape before reshape: {alpha_factor.shape}")
             alpha_factor = tf.reshape(alpha_factor, (1, -1))  # [1, num_classes]
+            print(f"[DEBUG] focal_loss - alpha_factor shape after reshape: {alpha_factor.shape}")
             
             # Расширяем alpha_factor до размерности y_true
             alpha_factor = tf.tile(alpha_factor, [tf.shape(y_true)[0], 1])
+            print(f"[DEBUG] focal_loss - alpha_factor shape after tile: {alpha_factor.shape}")
         else:
             alpha_factor = tf.ones_like(y_true) * float(alpha)
         
