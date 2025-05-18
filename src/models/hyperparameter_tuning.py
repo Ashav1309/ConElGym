@@ -166,6 +166,32 @@ def objective(trial):
         batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
+        # Подбираем параметры аугментации
+        augmentation_params = {
+            'brightness_range': trial.suggest_float('brightness_range', 0.1, 0.3),
+            'contrast_range': trial.suggest_float('contrast_range', 0.1, 0.3),
+            'rotation_range': trial.suggest_int('rotation_range', 5, 15),
+            'noise_std': trial.suggest_float('noise_std', 0.02, 0.08),
+            'blur_sigma': trial.suggest_float('blur_sigma', 0.5, 1.5)
+        }
+        
+        # Подбираем вероятности аугментации
+        augmentation_probs = {
+            'brightness_prob': trial.suggest_float('brightness_prob', 0.3, 0.7),
+            'contrast_prob': trial.suggest_float('contrast_prob', 0.3, 0.7),
+            'rotation_prob': trial.suggest_float('rotation_prob', 0.3, 0.7),
+            'noise_prob': trial.suggest_float('noise_prob', 0.2, 0.4),
+            'blur_prob': trial.suggest_float('blur_prob', 0.1, 0.3)
+        }
+        
+        # Обновляем параметры аугментации в конфиге
+        Config.AUGMENTATION.update(augmentation_params)
+        Config.AUGMENTATION.update(augmentation_probs)
+        
+        print(f"[DEBUG] Подобранные параметры аугментации:")
+        print(f"  - Параметры: {augmentation_params}")
+        print(f"  - Вероятности: {augmentation_probs}")
+        
         # Загружаем базовые веса из config_weights.json
         try:
             with open(Config.CONFIG_PATH, 'r') as f:
@@ -206,7 +232,9 @@ def objective(trial):
                 'model_type': model_type,
                 'rnn_type': rnn_type,
                 'temporal_block_type': temporal_block_type,
-                'clipnorm': clipnorm
+                'clipnorm': clipnorm,
+                'augmentation_params': augmentation_params,
+                'augmentation_probs': augmentation_probs
             },
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
@@ -228,19 +256,15 @@ def objective(trial):
         # Очищаем память после обучения
         clear_memory()
         
-        # Возвращаем среднее значение F1-score за последние 3 эпохи
-        if 'val_f1_score' in history.history:
-            return np.mean(history.history['val_f1_score'][-3:])
-        else:
-            print("[WARNING] Метрика val_f1_score не найдена в истории")
-            return float('-inf')
-            
+        # Возвращаем лучший F1-score на валидации
+        return max(history.history['val_f1_score'])
+        
     except Exception as e:
-        print(f"[ERROR] Ошибка в objective: {str(e)}")
+        print(f"[ERROR] Ошибка в триале #{trial.number}: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
-        clear_memory()  # Очищаем память в случае ошибки
-        return float('-inf')
+        clear_memory()
+        raise
 
 def save_tuning_results(study, total_time, n_trials):
     """
@@ -270,86 +294,49 @@ def save_tuning_results(study, total_time, n_trials):
             f.write(f"  - batch_size: {Config.BATCH_SIZE}\n")
             f.write(f"  - epochs: {Config.EPOCHS}\n")
             f.write(f"  - class_weights: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']}\n")
-        
-        # Сохраняем результаты в JSON
-        results_json = {
-            'model_type': Config.MODEL_TYPE,
-            'model_settings': {
-                'sequence_length': Config.SEQUENCE_LENGTH,
-                'input_size': Config.INPUT_SIZE,
-                'batch_size': Config.BATCH_SIZE,
-                'epochs': Config.EPOCHS,
-                'class_weights': Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']
-            },
-            'execution_time': int(total_time),
-            'n_trials': n_trials,
-            'best_value': float(study.best_value) if study.best_value is not None else None,
-            'best_params': study.best_params,
-            'all_trials': []
-        }
-        
-        for trial in study.trials:
-            if trial.value is not None:
-                trial_data = {
-                    'number': trial.number,
-                    'value': float(trial.value),
-                    'params': trial.params,
-                    'state': trial.state.name,
-                    'duration': float(trial.duration) if trial.duration is not None else None
-                }
-                results_json['all_trials'].append(trial_data)
-        
-        json_file = os.path.join(tuning_dir, 'optuna_results.json')
-        with open(json_file, 'w') as f:
-            json.dump(results_json, f, indent=4)
-        
-        # Подробный лог по каждому trial
-        log_file = os.path.join(tuning_dir, 'trial_logs.txt')
-        with open(log_file, 'w') as flog:
-            flog.write(f"=== Результаты оптимизации гиперпараметров ===\n")
-            flog.write(f"Модель: {Config.MODEL_TYPE}\n")
-            flog.write(f"Время выполнения: {timedelta(seconds=int(total_time))}\n")
-            flog.write(f"Количество trials: {n_trials}\n")
-            flog.write(f"Лучшее значение: {study.best_value}\n\n")
             
-            flog.write("Настройки модели:\n")
-            flog.write(f"  - sequence_length: {Config.SEQUENCE_LENGTH}\n")
-            flog.write(f"  - input_size: {Config.INPUT_SIZE}\n")
-            flog.write(f"  - batch_size: {Config.BATCH_SIZE}\n")
-            flog.write(f"  - epochs: {Config.EPOCHS}\n")
-            flog.write(f"  - class_weights: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']}\n\n")
+            # Добавляем информацию о параметрах аугментации
+            f.write("\nПараметры аугментации:\n")
+            for key, value in Config.AUGMENTATION.items():
+                f.write(f"  - {key}: {value}\n")
             
-            for trial in study.trials:
-                flog.write(f"Trial {trial.number} | State: {trial.state.name}\n")
-                if trial.value is not None:
-                    flog.write(f"  Value: {trial.value}\n")
-                for key, value in trial.params.items():
-                    flog.write(f"  {key}: {value}\n")
-                if trial.user_attrs:
-                    flog.write(f"  User attrs: {trial.user_attrs}\n")
-                if trial.system_attrs:
-                    flog.write(f"  System attrs: {trial.system_attrs}\n")
-                flog.write(f"  Duration: {trial.duration}\n")
-                flog.write("-"*40 + "\n")
+            # Добавляем информацию о лучших параметрах аугментации
+            f.write("\nЛучшие параметры аугментации:\n")
+            augmentation_params = {k: v for k, v in study.best_params.items() 
+                                if k in ['brightness_range', 'contrast_range', 'rotation_range', 
+                                       'noise_std', 'blur_sigma', 'brightness_prob', 'contrast_prob',
+                                       'rotation_prob', 'noise_prob', 'blur_prob']}
+            for key, value in augmentation_params.items():
+                f.write(f"  - {key}: {value}\n")
         
-        # Визуализация результатов с использованием новой функции из config.py
+        # Создаем визуализации
         try:
-            from src.config import plot_tuning_results
-            plot_tuning_results(study)
-            print("[DEBUG] Визуализация результатов успешно создана")
+            # График оптимизации
+            plt.figure(figsize=(10, 6))
+            optuna.visualization.matplotlib.plot_optimization_history(study)
+            plt.savefig(os.path.join(tuning_dir, 'optimization_history.png'))
+            plt.close()
+            
+            # График важности параметров
+            plt.figure(figsize=(12, 8))
+            optuna.visualization.matplotlib.plot_param_importances(study)
+            plt.savefig(os.path.join(tuning_dir, 'param_importances.png'))
+            plt.close()
+            
+            # График параллельных координат
+            plt.figure(figsize=(15, 10))
+            optuna.visualization.matplotlib.plot_parallel_coordinate(study)
+            plt.savefig(os.path.join(tuning_dir, 'parallel_coordinate.png'))
+            plt.close()
+            
         except Exception as e:
-            print(f"[WARNING] Не удалось создать визуализацию: {e}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
+            print(f"[WARNING] Ошибка при создании визуализаций: {str(e)}")
         
-        print("[DEBUG] Результаты подбора гиперпараметров успешно сохранены")
-        print(f"[DEBUG] Файлы сохранены в директории: {tuning_dir}")
+        print(f"[DEBUG] Результаты сохранены в {tuning_dir}")
         
     except Exception as e:
         print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
-        import traceback
         traceback.print_exc()
         raise
 
@@ -401,6 +388,14 @@ def create_and_compile_model(params, input_shape, num_classes, class_weights):
     print(f"  - Тип RNN: {params['rnn_type']}")
     print(f"  - Тип временного блока: {params['temporal_block_type']}")
     print(f"  - Веса классов: {class_weights}")
+    print(f"  - Параметры аугментации: {params.get('augmentation_params', {})}")
+    print(f"  - Вероятности аугментации: {params.get('augmentation_probs', {})}")
+    
+    # Обновляем параметры аугментации в конфиге
+    if 'augmentation_params' in params:
+        Config.AUGMENTATION.update(params['augmentation_params'])
+    if 'augmentation_probs' in params:
+        Config.AUGMENTATION.update(params['augmentation_probs'])
     
     # Создаем модель
     model = create_model_with_params(
