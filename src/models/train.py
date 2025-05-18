@@ -18,8 +18,10 @@ from tensorflow.keras.metrics import Precision, Recall
 import json
 import re
 import psutil
-from src.data_proc.data_augmentation import VideoAugmenter, AdaptiveThresholdCallback
-from src.models.losses import focal_loss  # Импортируем focal_loss из losses.py
+from src.data_proc.data_augmentation import VideoAugmenter
+from src.models.losses import focal_loss, F1ScoreAdapter
+from src.models.metrics import f1_score_element
+from src.models.callbacks import AdaptiveThresholdCallback
 
 # Включаем eager execution
 tf.config.run_functions_eagerly(True)
@@ -198,30 +200,6 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
     plt.savefig(os.path.join(save_path, 'confusion_matrix.png'))
     plt.close()
 
-def f1_score_element(y_true, y_pred):
-    """
-    Вычисление F1-score для элемента с учетом временной размерности и two-hot encoded меток
-    """
-    # Получаем предсказания для класса действия
-    y_true_bin = y_true[:, :, 1]  # Класс действия
-    y_pred_bin = y_pred[:, :, 1]  # Класс действия
-    
-    true_positives = tf.reduce_sum(tf.cast((y_true_bin == 1) & (y_pred_bin == 1), tf.float32))
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred_bin == 1, tf.float32))
-    possible_positives = tf.reduce_sum(tf.cast(y_true_bin == 1, tf.float32))
-    
-    # Добавляем epsilon для предотвращения деления на ноль
-    epsilon = tf.keras.backend.epsilon()
-    
-    # Вычисляем precision и recall
-    precision = true_positives / (predicted_positives + epsilon)
-    recall = true_positives / (possible_positives + epsilon)
-    
-    # Вычисляем F1-score
-    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
-    
-    return f1
-
 def load_best_params(model_type=None):
     """
     Загрузка лучших параметров из файла optuna_results.txt и весов из config_weights.json
@@ -399,34 +377,9 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             'accuracy',
             tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
             tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
-            tf.keras.metrics.AUC(name='auc')  # Добавляем AUC
+            tf.keras.metrics.AUC(name='auc'),  # Добавляем AUC
+            F1ScoreAdapter(name='f1_score_element', threshold=0.5)  # Используем импортированный F1ScoreAdapter
         ]
-        
-        # Создаем адаптер для F1Score
-        class F1ScoreAdapter(tf.keras.metrics.F1Score):
-            def update_state(self, y_true, y_pred, sample_weight=None):
-                # Преобразуем входные данные в правильный формат
-                y_true = tf.cast(y_true, tf.float32)
-                y_pred = tf.cast(y_pred, tf.float32)
-                
-                # Убеждаемся, что размерности соответствуют ожидаемым
-                if len(y_true.shape) == 3:  # (batch, sequence, classes)
-                    y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-                    y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-                
-                # Применяем порог для получения бинарных предсказаний
-                y_pred = tf.cast(y_pred > 0.5, tf.float32)
-                
-                return super().update_state(y_true, y_pred, sample_weight)
-            
-            def result(self):
-                # Получаем результат от родительского класса
-                result = super().result()
-                # Возвращаем среднее значение по всем классам
-                return tf.reduce_mean(result)
-        
-        # Добавляем F1Score в метрики
-        metrics.append(F1ScoreAdapter(name='f1_score_element', threshold=0.5))
         
         # Компилируем модель с focal loss
         model.compile(

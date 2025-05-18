@@ -164,3 +164,42 @@ class AdaptiveLearningRate(Callback):
                 print(f"  - Уменьшен learning rate до {new_lr}")
                 
                 self.bad_epochs = 0 
+
+class F1ScoreAdapter(tf.keras.metrics.Metric):
+    """
+    Адаптер для вычисления F1-score для конкретного класса
+    """
+    def __init__(self, name='f1_score', class_id=1, threshold=0.5, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.class_id = class_id
+        self.threshold = threshold
+        self.true_positives = self.add_weight(name='tp', initializer='zeros')
+        self.false_positives = self.add_weight(name='fp', initializer='zeros')
+        self.false_negatives = self.add_weight(name='fn', initializer='zeros')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # Получаем предсказания для нужного класса
+        y_pred = y_pred[..., self.class_id]
+        y_true = y_true[..., self.class_id]
+        
+        # Применяем порог
+        y_pred = tf.cast(y_pred > self.threshold, tf.float32)
+        
+        # Вычисляем метрики
+        true_positives = tf.reduce_sum(y_true * y_pred)
+        false_positives = tf.reduce_sum((1 - y_true) * y_pred)
+        false_negatives = tf.reduce_sum(y_true * (1 - y_pred))
+        
+        self.true_positives.assign_add(true_positives)
+        self.false_positives.assign_add(false_positives)
+        self.false_negatives.assign_add(false_negatives)
+
+    def result(self):
+        precision = self.true_positives / (self.true_positives + self.false_positives + tf.keras.backend.epsilon())
+        recall = self.true_positives / (self.true_positives + self.false_negatives + tf.keras.backend.epsilon())
+        return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+
+    def reset_state(self):
+        self.true_positives.assign(0)
+        self.false_positives.assign(0)
+        self.false_negatives.assign(0) 
