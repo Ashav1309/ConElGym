@@ -469,6 +469,12 @@ class VideoDataLoader:
             sequence_labels = []
             
             for start_idx in range(0, total_frames - sequence_length + 1, step):
+                # Проверяем, не выходим ли за пределы видео
+                if start_idx + sequence_length > total_frames:
+                    logger.debug(f"Пропуск последовательности: выход за пределы видео (кадр {start_idx + sequence_length} > {total_frames})")
+                    skipped_sequences += 1
+                    continue
+                    
                 # Создаем последовательность
                 sequence = []
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
@@ -494,16 +500,25 @@ class VideoDataLoader:
                     # Добавляем кадр в кэш успешно прочитанных
                     self.used_frames_cache[video_path].add(frame_idx)
                     sequence.append(frame)
-                    
+                
                 if valid_sequence:
-                    sequences.append(np.stack(sequence))
+                    # Проверяем форму последовательности
+                    sequence_array = np.stack(sequence)
+                    expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
+                    
+                    if sequence_array.shape != expected_shape:
+                        logger.warning(f"Некорректная форма последовательности: {sequence_array.shape}, ожидалось: {expected_shape}")
+                        skipped_sequences += 1
+                        continue
+                    
+                    sequences.append(sequence_array)
                     sequence_labels.append(frame_labels[start_idx:start_idx + sequence_length])
                     valid_sequences += 1
-                    
+                
                 # Ограничиваем количество последовательностей
                 if len(sequences) >= max_sequences:
                     break
-                
+            
             if not sequences:
                 logger.warning(f"Не удалось создать ни одной последовательности для {video_path}")
                 return None, None
@@ -513,7 +528,8 @@ class VideoDataLoader:
             logger.debug(f"  - Пропущено последовательностей: {skipped_sequences}")
             logger.debug(f"  - Процент успешных: {(valid_sequences/(valid_sequences+skipped_sequences))*100:.1f}%")
             
-            return np.stack(sequences), np.stack(sequence_labels)
+            # Возвращаем последовательности и метки
+            return np.array(sequences), np.array(sequence_labels)
             
         except Exception as e:
             logger.error(f"Ошибка при создании последовательностей для {video_path}: {str(e)}")
