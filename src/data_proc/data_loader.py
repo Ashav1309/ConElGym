@@ -495,24 +495,30 @@ class VideoDataLoader:
             attempts = 0
             
             while attempts < max_attempts:
-                # Проверяем, все ли видео обработаны
+                # Проверяем, все ли видео в текущей порции обработаны
                 available_videos = []
                 for video_path in self.video_paths:
                     video_name = os.path.basename(video_path)
                     if video_name not in self.processed_video_names:
                         available_videos.append(video_path)
                 
+                # Если нет доступных видео, переходим к следующей порции
                 if not available_videos:
-                    logger.info("Все видео обработаны, переходим к следующей порции")
+                    logger.info("Все видео в текущей порции обработаны")
                     self.current_video_index += self.max_videos
+                    
+                    # Проверяем, есть ли еще видео для обработки
                     if self.current_video_index >= self.total_videos:
                         logger.info("Все видео обработаны, завершаем")
                         return None
+                        
+                    # Загружаем следующую порцию видео
                     self._load_video_chunk()
+                    # Очищаем только кэши, связанные с текущей порцией
                     self.used_frames_cache.clear()
                     self.used_sequences.clear()
                     self.sequence_counter.clear()
-                    attempts = 0  # Сбрасываем счетчик для новой группы
+                    attempts = 0
                     continue
                 
                 video_path = np.random.choice(available_videos)
@@ -529,14 +535,33 @@ class VideoDataLoader:
                     video_info = self._get_video_info(video_path)
                     if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
                         logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
-                        logger.debug(f"Обработано видео: {len(self.processed_video_names)}/{self.total_videos}")
                         self.processed_video_names.add(os.path.basename(video_path))
+                        # После добавления видео в processed_video_names, проверяем снова available_videos
                         continue
                 
-                # Проверяем, не превышен ли лимит последовательностей для этого видео
+                # Проверяем, не превышен ли лимит последовательностей
                 if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
                     logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
                     self.processed_video_names.add(os.path.basename(video_path))
+                    # После добавления видео в processed_video_names, проверяем снова available_videos
+                    continue
+                
+                # Проверяем, не является ли это последним видео в группе
+                if len(available_videos) == 1 and video_path == available_videos[0]:
+                    # Если это последнее видео в группе, помечаем его как обработанное
+                    self.processed_video_names.add(os.path.basename(video_path))
+                    logger.info("Последнее видео в группе обработано, переходим к следующей порции")
+                    self.current_video_index += self.max_videos
+                    
+                    if self.current_video_index >= self.total_videos:
+                        logger.info("Все видео обработаны, завершаем")
+                        return None
+                        
+                    self._load_video_chunk()
+                    self.used_frames_cache.clear()
+                    self.used_sequences.clear()
+                    self.sequence_counter.clear()
+                    attempts = 0
                     continue
                 
                 return video_path
