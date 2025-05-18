@@ -725,6 +725,7 @@ class VideoDataLoader:
                 return None, None
 
         # Инициализируем счетчик для видео, если его еще нет
+        logger.debug(f"[DEBUG] Инициализируем счетчик для видео: {video_path}")
         if video_path not in self.sequence_counter:
             self.sequence_counter[video_path] = 0
 
@@ -732,6 +733,7 @@ class VideoDataLoader:
         try:
             # Для тренировочного датасета всегда используем force_positive=True
             # для обеспечения баланса 75/25 в create_sequences
+            logger.debug(f"[DEBUG] Создаем последовательность для видео: {video_path}")
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
                 labels=self.annotations_cache[video_path],
