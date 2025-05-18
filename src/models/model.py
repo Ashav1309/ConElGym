@@ -6,7 +6,9 @@ from tensorflow.keras.layers import (
     Multiply, Conv2D, BatchNormalization,
     Activation, Dropout, TimeDistributed,
     GlobalAveragePooling1D, LayerNormalization, Add, DepthwiseConv2D, ReLU,
-    Layer, MultiHeadAttention, GlobalAveragePooling3D
+    Layer, MultiHeadAttention, GlobalAveragePooling3D,
+    Conv3D, MaxPooling3D, Flatten, Permute,
+    Concatenate, Lambda
 )
 from tensorflow.keras.applications import MobileNetV3Small
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
@@ -17,9 +19,11 @@ import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
 from src.config import Config
-from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
+from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate, F1ScoreAdapter
 from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
+import numpy as np
+import json
 
 logger = logging.getLogger(__name__)
 
