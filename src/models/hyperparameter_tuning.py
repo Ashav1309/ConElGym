@@ -157,12 +157,15 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
                     force_positive=force_positive
                 )
                 if X is not None and y is not None:
-                    yield X, y
+                    # Преобразуем метки в one-hot encoding для 2 классов
+                    y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
+                    y_one_hot[np.arange(sequence_length), y.astype(int)] = 1
+                    yield X, y_one_hot
 
         # Создаем dataset напрямую из генератора
         output_signature = (
             tf.TensorSpec(shape=(sequence_length, *input_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(sequence_length, 3), dtype=tf.float32)  # three-hot encoding
+            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)  # two-hot encoding для 2 классов
         )
 
         dataset = tf.data.Dataset.from_generator(
@@ -187,48 +190,47 @@ def create_data_pipeline(data_loader, sequence_length, batch_size, input_size, i
         traceback.print_exc()
         raise
 
-def create_and_compile_model(params, input_shape, num_classes=2, class_weights=None):
+def create_and_compile_model(params, input_shape, num_classes, class_weights):
     """
-    Создает и компилирует модель с заданными параметрами
+    Создание и компиляция модели с заданными параметрами
     """
-    print("\n[DEBUG] Создание модели со следующими параметрами:")
-    print(f"  - Model type: {params['model_type']}")
-    print(f"  - Learning rate: {params['learning_rate']}")
-    print(f"  - Dropout rate: {params['dropout_rate']}")
+    print("\n[DEBUG] Создание модели с параметрами:")
+    print(f"  - Тип модели: {params['model_type']}")
+    print(f"  - Dropout: {params['dropout_rate']}")
     print(f"  - LSTM units: {params['lstm_units']}")
-    print(f"  - Input shape: {input_shape}")
-    print(f"  - Number of classes: {num_classes}")
-    print(f"  - RNN type: {params['rnn_type']}")
-    print(f"  - Temporal block type: {params['temporal_block_type']}")
-    print(f"  - Base class weights: {class_weights}")
+    print(f"  - Веса классов: {class_weights}")
     
-    # Создаем модель
-    model = create_model(
-        input_shape=input_shape,
-        num_classes=num_classes,
-        dropout_rate=params['dropout_rate'],
-        lstm_units=params['lstm_units'],
-        model_type=params['model_type'],
-        class_weights=class_weights,
-        rnn_type=params['rnn_type'],
-        temporal_block_type=params['temporal_block_type']
-    )
+    # Создаем модель в зависимости от типа
+    if params['model_type'] == 'v3':
+        model = create_mobilenetv3_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=params['dropout_rate'],
+            lstm_units=params['lstm_units'],
+            class_weights=class_weights
+        )
+    else:  # v4
+        model = create_mobilenetv4_model(
+            input_shape=input_shape,
+            num_classes=num_classes,
+            dropout_rate=params['dropout_rate'],
+            class_weights=class_weights
+        )
     
-    # Оптимизатор
-    optimizer = tf.keras.optimizers.Adam(
+    # Создаем оптимизатор
+    optimizer = Adam(
         learning_rate=params['learning_rate'],
-        clipnorm=1.0
+        clipnorm=params.get('clipnorm', 1.0)
     )
     
-    # Метрики для двухклассовой модели
+    # Создаем метрики
     metrics = [
-        'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
+        Precision(name='precision'),
+        Recall(name='recall'),
+        F1Score(name='f1_score', num_classes=num_classes, threshold=0.5)
     ]
     
-    # Компилируем модель с focal loss для двух классов
+    # Компилируем модель с focal loss и весами классов
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
@@ -307,13 +309,15 @@ def objective(trial):
         batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
-        # Загружаем базовые веса из конфига
+        # Загружаем базовые веса из config_weights.json
         try:
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
                 base_weights = config['class_weights']
-        except:
-            print("[WARNING] Не удалось загрузить веса классов из конфига. Используем значения по умолчанию.")
+                print(f"[DEBUG] Загружены базовые веса из конфига: {base_weights}")
+        except Exception as e:
+            print(f"[WARNING] Не удалось загрузить веса классов из конфига: {str(e)}")
+            print("[WARNING] Используем значения по умолчанию.")
             base_weights = {
                 'background': 1.0,
                 'action': 4.3
