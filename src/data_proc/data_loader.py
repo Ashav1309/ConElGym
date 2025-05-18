@@ -602,6 +602,8 @@ class VideoDataLoader:
             
             logger.debug(f"Создана последовательность (действие: {len(action_dominant_sequences)}, фон: {len(background_dominant_sequences)})")
             logger.debug(f"Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
+            logger.debug(f"[DEBUG] Попытка создания последовательности {sequence_attempts}/{max_sequence_attempts}")
+            logger.debug(f"[DEBUG] Найдено последовательностей: {len(action_dominant_sequences)} положительных, {len(background_dominant_sequences)} отрицательных")
             return X, y
             
         except Exception as e:
@@ -699,7 +701,18 @@ class VideoDataLoader:
                 
                 logger.debug(f"[DEBUG] Поиск доступного видео (попытка {attempts + 1}/{max_attempts})")
                 logger.debug(f"[DEBUG] Доступно видео: {len(available_videos)}")
-                return video_path
+                last_available_count = len(available_videos)
+                no_progress_count = 0
+                while attempts < max_attempts:
+                    if len(available_videos) == last_available_count:
+                        no_progress_count += 1
+                        if no_progress_count >= 5:
+                            logger.warning("Нет прогресса в поиске доступного видео")
+                            return None
+                    else:
+                        no_progress_count = 0
+                    last_available_count = len(available_videos)
+                    return video_path
             
             logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
             return None
@@ -959,6 +972,9 @@ class VideoDataLoader:
             logger.debug(f"[DEBUG] Батч {self.current_batch}/{self.total_batches} собран успешно")
             logger.debug(f"[DEBUG] Всего собрано последовательностей: {self.total_processed_sequences}")
             logger.debug(f"[DEBUG] Финальная балансировка: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
+            logger.debug(f"[DEBUG] Попытка {attempts + 1}/{max_attempts} получения последовательности")
+            logger.debug(f"[DEBUG] Текущий прогресс: {len(X_batch)}/{batch_size} последовательностей")
+            logger.debug(f"[DEBUG] Баланс: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
             return X_batch_array, y_batch_array
             
         except Exception as e:
