@@ -212,10 +212,37 @@ class VideoDataLoader:
                 
             logger.debug(f"Размер файла: {info.file_size / (1024*1024):.2f} MB")
             
+            # Проверяем минимальную длину видео
+            if info.total_frames < self.sequence_length:
+                raise CorruptedVideoError(f"Видео слишком короткое: {info.total_frames} кадров < {self.sequence_length} (минимальная длина последовательности)")
+            
             # Открываем видео
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 raise CorruptedVideoError(f"Не удалось открыть видео: {video_path}")
+            
+            # Проверяем, что можем читать кадры
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                raise CorruptedVideoError(f"Не удалось прочитать первый кадр видео: {video_path}")
+            
+            # Проверяем, что указатель кадров работает корректно
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Возвращаемся к началу
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    break
+                frame_count += 1
+            
+            if frame_count != info.total_frames:
+                logger.warning(f"Несоответствие количества кадров: заявлено {info.total_frames}, фактически {frame_count}")
+                # Обновляем информацию о количестве кадров
+                info.total_frames = frame_count
+                self.file_info_cache[video_path] = info
+            
+            # Возвращаемся к началу видео
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 
             logger.debug(f"Видео успешно загружено:")
             logger.debug(f"  - Размер: {info.width}x{info.height}")
@@ -479,17 +506,13 @@ class VideoDataLoader:
                 frames = []
                 valid_sequence = True
                 
-                for frame_idx in range(start_idx, start_idx + sequence_length):
-                    # Проверяем, не выходим ли за пределы видео
-                    if frame_idx >= total_frames:
-                        logger.warning(f"Попытка чтения кадра {frame_idx} за пределами видео (всего кадров: {total_frames})")
-                        valid_sequence = False
-                        skipped_sequences += 1
-                        break
-                    
+                # Устанавливаем начальную позицию
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+                
+                for _ in range(sequence_length):
                     ret, frame = cap.read()
                     if not ret:
-                        logger.warning(f"Не удалось прочитать кадр на позиции {frame_idx} (всего кадров: {total_frames})")
+                        logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)} (всего кадров: {total_frames})")
                         valid_sequence = False
                         skipped_sequences += 1
                         break
@@ -498,7 +521,7 @@ class VideoDataLoader:
                         frame = cv2.resize(frame, (self.frame_size, self.frame_size))
                         frames.append(frame)
                     except Exception as e:
-                        logger.error(f"Ошибка при изменении размера кадра {frame_idx}: {str(e)}")
+                        logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
                         valid_sequence = False
                         skipped_sequences += 1
                         break
@@ -511,12 +534,28 @@ class VideoDataLoader:
                     frames_array = np.array(frames)  # Форма: (sequence_length, height, width, channels)
                     logger.debug(f"Форма последовательности после np.array: {frames_array.shape}")
                     
-                    # Проверяем и исправляем форму если нужно
-                    if frames_array.shape != (sequence_length, self.frame_size, self.frame_size, 3):
-                        logger.warning(f"Обнаружена неправильная форма последовательности: {frames_array.shape}")
-                        logger.debug(f"Исправляем форму на {(sequence_length, self.frame_size, self.frame_size, 3)}")
-                        frames_array = frames_array.reshape(sequence_length, self.frame_size, self.frame_size, 3)
-                        logger.debug(f"Форма после исправления: {frames_array.shape}")
+                    # Проверяем форму
+                    expected_shape = (sequence_length, self.frame_size, self.frame_size, 3)
+                    if frames_array.shape != expected_shape:
+                        logger.warning(f"Неправильная форма последовательности: {frames_array.shape}, ожидалось: {expected_shape}")
+                        try:
+                            # Если у нас лишняя размерность, убираем её
+                            if len(frames_array.shape) == 5 and frames_array.shape[0] == 1:
+                                frames_array = frames_array[0]  # Убираем первую размерность
+                            elif len(frames_array.shape) == 5 and frames_array.shape[1] == sequence_length:
+                                frames_array = frames_array[0]  # Берем первую последовательность
+                            elif len(frames_array.shape) == 5 and frames_array.shape[0] == sequence_length:
+                                frames_array = frames_array.transpose(1, 0, 2, 3)  # Меняем порядок размерностей
+                            
+                            # Проверяем, что форма теперь правильная
+                            if frames_array.shape != expected_shape:
+                                logger.error(f"Не удалось исправить форму последовательности: {frames_array.shape} -> {expected_shape}")
+                                skipped_sequences += 1
+                                continue
+                        except Exception as e:
+                            logger.error(f"Ошибка при исправлении формы последовательности: {str(e)}")
+                            skipped_sequences += 1
+                            continue
                     
                     sequences.append(frames_array)
                     sequence_labels.append(sequence_label)
@@ -538,12 +577,6 @@ class VideoDataLoader:
             sequence_labels = np.stack(sequence_labels)  # Форма: (n_sequences, sequence_length, n_classes)
             logger.debug(f"Форма последовательностей после финального stack: {sequences.shape}")
             logger.debug(f"Форма меток после финального stack: {sequence_labels.shape}")
-            
-            # Проверяем форму последовательностей
-            expected_shape = (len(sequences), sequence_length, self.frame_size, self.frame_size, 3)
-            if sequences.shape != expected_shape:
-                logger.warning(f"Неправильная форма последовательностей: ожидалось {expected_shape}, получено {sequences.shape}")
-                return None, None
             
             logger.debug(f"Создано последовательностей: {valid_sequences}, пропущено: {skipped_sequences}")
             logger.debug(f"Финальная форма последовательностей: {sequences.shape}")
