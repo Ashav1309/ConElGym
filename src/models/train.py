@@ -113,8 +113,8 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                                 print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
                             raise
                     
-                    print(f"[DEBUG] Итоговая форма one-hot encoding: {y_one_hot.shape}")
-                    print(f"[DEBUG] Сумма меток в one-hot encoding: {np.sum(y_one_hot)}")
+                    # print(f"[DEBUG] Итоговая форма one-hot encoding: {y_one_hot.shape}")
+                    # print(f"[DEBUG] Сумма меток в one-hot encoding: {np.sum(y_one_hot)}")
                     yield X, y_one_hot
 
         # Создаем dataset напрямую из генератора
@@ -155,6 +155,58 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
+        traceback.print_exc()
+        raise
+
+def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target_size, force_positive=False):
+    """
+    Создание оптимизированного pipeline данных для подбора гиперпараметров
+    
+    Args:
+        data_loader: VideoDataLoader
+        sequence_length: длина последовательности
+        batch_size: размер батча
+        target_size: целевой размер изображения
+        force_positive: принудительно использовать положительные примеры
+        
+    Returns:
+        tf.data.Dataset: оптимизированный dataset
+    """
+    try:
+        # Создаем генератор данных
+        def generator():
+            while True:
+                X_batch, y_batch = data_loader.get_batch(
+                    batch_size=batch_size,
+                    sequence_length=sequence_length,
+                    target_size=target_size,
+                    force_positive=force_positive,
+                    is_validation=True  # Отключаем аугментацию
+                )
+                if X_batch is not None and y_batch is not None:
+                    yield X_batch, y_batch
+                else:
+                    break
+
+        # Создаем dataset из генератора
+        output_signature = (
+            tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(None, sequence_length, 2), dtype=tf.float32)
+        )
+        
+        dataset = tf.data.Dataset.from_generator(
+            generator,
+            output_signature=output_signature
+        )
+        
+        # Оптимизируем производительность
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        
+        return dataset
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при создании pipeline данных: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
         raise
 

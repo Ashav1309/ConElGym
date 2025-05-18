@@ -480,7 +480,7 @@ class TransformerBlock(tf.keras.layers.Layer):
         self.att = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
         self.ffn = tf.keras.Sequential([
             tf.keras.layers.Dense(ff_dim, activation="relu"),
-            tf.keras.layers.Dense(embed_dim),
+            tf.keras.layers.Dense(embed_dim),  # Убеждаемся, что выходная размерность равна embed_dim
         ])
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -494,6 +494,17 @@ class TransformerBlock(tf.keras.layers.Layer):
         ffn_output = self.ffn(out1)
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
+
+    def build(self, input_shape):
+        # Явно строим слои с правильными размерностями
+        self.att.build(input_shape)
+        self.ffn.build(input_shape)
+        self.layernorm1.build(input_shape)
+        self.layernorm2.build(input_shape)
+        super(TransformerBlock, self).build(input_shape)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 class TemporalConvNet(tf.keras.layers.Layer):
     """

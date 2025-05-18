@@ -33,7 +33,7 @@ import cv2
 from optuna.trial import Trial
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
-from src.models.train import create_data_pipeline  # Импортируем общую функцию
+from src.models.train import create_data_pipeline, create_tuning_data_pipeline  # Импортируем общую функцию и новую функцию
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None
@@ -103,23 +103,19 @@ def load_and_prepare_data(batch_size):
         target_size = Config.INPUT_SIZE
         
         # Создание оптимизированных pipeline данных
-        train_dataset = create_data_pipeline(
+        train_dataset = create_tuning_data_pipeline(
             train_loader, 
             Config.SEQUENCE_LENGTH, 
-            Config.BATCH_SIZE, 
+            batch_size, 
             Config.INPUT_SIZE, 
-            is_training=False,  # Отключаем аугментацию для подбора гиперпараметров
-            force_positive=True,
-            cache_dataset=False
+            force_positive=True
         )
-        val_dataset = create_data_pipeline(
+        val_dataset = create_tuning_data_pipeline(
             val_loader, 
             Config.SEQUENCE_LENGTH, 
-            Config.BATCH_SIZE, 
+            batch_size, 
             Config.INPUT_SIZE, 
-            is_training=False,  # Отключаем аугментацию для подбора гиперпараметров
-            force_positive=False,
-            cache_dataset=False
+            force_positive=False
         )
         
         return train_dataset, val_dataset
