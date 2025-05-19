@@ -89,19 +89,13 @@ def load_and_prepare_data(batch_size):
         
         # Создаем загрузчики данных
         train_loader = VideoDataLoader(
-            data_dir=Config.TRAIN_DATA_DIR,
-            batch_size=batch_size,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            target_size=Config.INPUT_SIZE,
-            is_training=True
+            data_path=Config.TRAIN_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
         )
         
         val_loader = VideoDataLoader(
-            data_dir=Config.VALID_DATA_DIR,
-            batch_size=batch_size,
-            sequence_length=Config.SEQUENCE_LENGTH,
-            target_size=Config.INPUT_SIZE,
-            is_training=False
+            data_path=Config.VALID_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
         )
         
         # Кэшируем последовательности для обучения
