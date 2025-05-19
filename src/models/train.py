@@ -606,11 +606,11 @@ def train(model_type: str = None, epochs: int = 10, batch_size: int = None):
             class_weights=class_weights
         )
         
-        # Используем те же метрики, что и при тюнинге
+        # Используем метрики для обучения, чтобы гарантировать наличие f1_action
         model.compile(
             optimizer=model.optimizer,
             loss=model.loss,
-            metrics=get_tuning_metrics()
+            metrics=get_training_metrics()
         )
         
         # Обучаем модель
