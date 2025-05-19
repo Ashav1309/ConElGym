@@ -64,7 +64,7 @@ class VideoDataLoader:
         self.file_info_cache: Dict[str, VideoInfo] = {}
         self.annotations_cache: Dict[str, np.ndarray] = {}  # Кэш для аннотаций
         self.open_videos: Set[str] = set()  # Множество открытых видео
-        self.processed_video_names: Set[str] = set()  # Множество имен обработанных видео
+        self.processed_video_paths: Set[str] = set()  # Множество обработанных видео (полные пути)
         self.sequence_counter: Dict[str, int] = {}    # Счетчик последовательностей для каждого видео
         self.used_sequences: Set[str] = set()         # Множество использованных последовательностей
         
@@ -121,7 +121,7 @@ class VideoDataLoader:
             self.positive_indices_cache.clear()
             self.file_info_cache.clear()
             self.open_videos.clear()
-            # Не очищаем processed_video_names и annotations_cache, так как это постоянные хранилища
+            # Не очищаем processed_video_paths и annotations_cache, так как это постоянные хранилища
             
             # Принудительная очистка памяти
             gc.collect()
@@ -628,7 +628,7 @@ class VideoDataLoader:
             Optional[str]: путь к видео или None, если все видео обработаны
         """
         try:
-            max_attempts = len(self.video_paths)  # Максимальное количество попыток = количество видео в текущей группе
+            max_attempts = len(self.video_paths)
             attempts = 0
             reset_count = 0
             max_resets = 3
@@ -637,8 +637,7 @@ class VideoDataLoader:
                 # Проверяем, все ли видео в текущей порции обработаны
                 available_videos = []
                 for video_path in self.video_paths:
-                    video_name = os.path.basename(video_path)
-                    if video_name not in self.processed_video_names:
+                    if video_path not in self.processed_video_paths:
                         available_videos.append(video_path)
                 
                 # Если нет доступных видео, переходим к следующей порции
@@ -670,7 +669,7 @@ class VideoDataLoader:
                 # Проверяем существование видео
                 if not os.path.exists(video_path):
                     logger.error(f"Видео не найдено: {video_path}")
-                    self.processed_video_names.add(os.path.basename(video_path))
+                    self.processed_video_paths.add(video_path)
                     continue
                 
                 # Проверяем, все ли кадры использованы
@@ -678,21 +677,19 @@ class VideoDataLoader:
                     video_info = self._get_video_info(video_path)
                     if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
                         logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
-                        self.processed_video_names.add(os.path.basename(video_path))
-                        # После добавления видео в processed_video_names, проверяем снова available_videos
+                        self.processed_video_paths.add(video_path)
                         continue
                 
                 # Проверяем, не превышен ли лимит последовательностей
                 if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
                     logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
-                    self.processed_video_names.add(os.path.basename(video_path))
-                    # После добавления видео в processed_video_names, проверяем снова available_videos
+                    self.processed_video_paths.add(video_path)
                     continue
                 
                 # Проверяем, не является ли это последним видео в группе
                 if len(available_videos) == 1 and video_path == available_videos[0]:
                     # Если это последнее видео в группе, помечаем его как обработанное
-                    self.processed_video_names.add(os.path.basename(video_path))
+                    self.processed_video_paths.add(video_path)
                     logger.info("Последнее видео в группе обработано, переходим к следующей порции")
                     self.current_video_index += self.max_videos
                     
@@ -777,8 +774,8 @@ class VideoDataLoader:
                     total_readable_frames = len(self.used_frames_cache.get(video_path, set()))
                     if total_readable_frames >= video_info.total_frames - sequence_length:
                         logger.debug(f"Все прочитанные кадры видео {os.path.basename(video_path)} использованы")
-                        self.processed_video_names.add(os.path.basename(video_path))
-                        logger.debug(f"Обработано видео: {len(self.processed_video_names)}/{self.total_videos}")
+                        self.processed_video_paths.add(video_path)
+                        logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos}")
 
                 return X_seq, y_seq
 
@@ -806,8 +803,8 @@ class VideoDataLoader:
             self.total_processed_frames += len(X_batch) * self.sequence_length
             
             # Если это новое видео, увеличиваем счетчик
-            if video_path not in self.processed_video_names:
-                self.processed_video_names.add(video_path)
+            if video_path not in self.processed_video_paths:
+                self.processed_video_paths.add(video_path)
                 self.total_processed_videos += 1
             
             logger.debug(f"[DEBUG] Статистика батча {batch_number}:")
