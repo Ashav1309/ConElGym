@@ -403,24 +403,35 @@ class VideoDataLoader:
             Tuple[Optional[np.ndarray], Optional[np.ndarray]]: Последовательность и её метки
         """
         try:
+            print(f"\n[DEBUG] Начало создания последовательностей для видео: {os.path.basename(video_path)}")
+            print(f"[DEBUG] Параметры:")
+            print(f"  - sequence_length: {sequence_length}")
+            print(f"  - max_sequences: {max_sequences}")
+            print(f"  - step: {step}")
+            print(f"  - force_positive: {force_positive}")
+            print(f"  - Размер меток: {labels.shape}")
+            
             # Загружаем видео и получаем количество кадров
             cap, total_frames = self.load_video(video_path)
-            logger.debug(f"Видео содержит {total_frames} кадров")
+            print(f"[DEBUG] Видео содержит {total_frames} кадров")
             
             if cap is None:
+                print("[DEBUG] Не удалось загрузить видео")
                 return None, None
                 
             # Проверяем, что у нас достаточно кадров
             if total_frames < sequence_length:
-                logger.warning(f"Видео слишком короткое: {total_frames} кадров < {sequence_length}")
+                print(f"[DEBUG] Видео слишком короткое: {total_frames} кадров < {sequence_length}")
                 return None, None
             
             # Вычисляем оптимальный шаг для равномерного распределения
             n_possible_sequences = (total_frames - sequence_length) // step + 1
+            print(f"[DEBUG] Возможное количество последовательностей: {n_possible_sequences}")
+            
             if n_possible_sequences > max_sequences:
                 step = (total_frames - sequence_length) // (max_sequences - 1)
                 step = max(1, step)  # Убеждаемся, что шаг не меньше 1
-                logger.debug(f"Корректируем шаг до {step} для ограничения количества последовательностей")
+                print(f"[DEBUG] Корректируем шаг до {step} для ограничения количества последовательностей")
             
             # Создаем последовательности
             action_dominant_sequences = []  # Последовательности с преобладанием действия
@@ -430,12 +441,17 @@ class VideoDataLoader:
             
             max_sequence_attempts = 100
             sequence_attempts = 0
+            print(f"[DEBUG] Начинаем создание последовательностей (максимум {max_sequence_attempts} попыток)")
+            
             while len(action_dominant_sequences) + len(background_dominant_sequences) < max_sequences and sequence_attempts < max_sequence_attempts:
                 sequence_attempts += 1
+                print(f"\n[DEBUG] Попытка {sequence_attempts}/{max_sequence_attempts}")
+                print(f"[DEBUG] Текущее количество последовательностей: {len(action_dominant_sequences)} положительных, {len(background_dominant_sequences)} отрицательных")
+                
                 for start_idx in range(0, total_frames - sequence_length + 1, step):
                     # Проверяем, не выходим ли за пределы видео
                     if start_idx + sequence_length > total_frames:
-                        logger.warning(f"Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
+                        print(f"[DEBUG] Пропускаем последовательность: начало {start_idx} + длина {sequence_length} > всего кадров {total_frames}")
                         continue
                     
                     # Проверяем, есть ли хотя бы один кадр с действием в последовательности
@@ -449,14 +465,14 @@ class VideoDataLoader:
                     for _ in range(sequence_length):
                         ret, frame = cap.read()
                         if not ret:
-                            # logger.warning(f"Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
+                            print(f"[DEBUG] Не удалось прочитать кадр на позиции {start_idx + len(frames)}")
                             continue
                         
                         try:
                             frame = cv2.resize(frame, (self.frame_size, self.frame_size))
                             frames.append(frame)
                         except Exception as e:
-                            logger.error(f"Ошибка при изменении размера кадра: {str(e)}")
+                            print(f"[DEBUG] Ошибка при изменении размера кадра: {str(e)}")
                             continue
                     
                     if len(frames) == sequence_length:
@@ -470,41 +486,50 @@ class VideoDataLoader:
                         if action_ratio > 0.5:  # Больше половины кадров - действие
                             action_dominant_sequences.append(frames_array)
                             action_dominant_labels.append(sequence_label)
+                            print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
                         else:  # Больше половины кадров - фон
                             background_dominant_sequences.append(frames_array)
                             background_dominant_labels.append(sequence_label)
+                            print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
                         
                         # Если набрали достаточно последовательностей, выходим
                         if len(action_dominant_sequences) + len(background_dominant_sequences) >= max_sequences:
+                            print(f"[DEBUG] Достигнуто максимальное количество последовательностей: {max_sequences}")
                             break
             
             cap.release()
+            print(f"\n[DEBUG] Завершено создание последовательностей:")
+            print(f"  - Всего попыток: {sequence_attempts}")
+            print(f"  - Положительных последовательностей: {len(action_dominant_sequences)}")
+            print(f"  - Отрицательных последовательностей: {len(background_dominant_sequences)}")
             
             # Адаптивная балансировка
             if force_positive:
+                print("\n[DEBUG] Начало балансировки последовательностей")
                 # Вычисляем фактическое соотношение классов
                 total_sequences = len(action_dominant_sequences) + len(background_dominant_sequences)
                 if total_sequences > 0:
                     actual_ratio = len(action_dominant_sequences) / total_sequences
-                    logger.debug(f"Фактическое соотношение классов: {actual_ratio:.2%} положительных")
+                    print(f"[DEBUG] Фактическое соотношение классов: {actual_ratio:.2%} положительных")
                     
                     # Адаптируем соотношение в зависимости от доступных данных
                     if actual_ratio < 0.3:  # Если положительных примеров меньше 30%
                         positive_ratio = actual_ratio  # Используем фактическое соотношение
-                        logger.debug(f"Используем адаптивное соотношение: {positive_ratio:.2%} положительных")
+                        print(f"[DEBUG] Используем адаптивное соотношение: {positive_ratio:.2%} положительных")
                     else:
                         positive_ratio = 0.75  # Стандартное соотношение
-                        logger.debug(f"Используем стандартное соотношение: {positive_ratio:.2%} положительных")
+                        print(f"[DEBUG] Используем стандартное соотношение: {positive_ratio:.2%} положительных")
                     
                     max_positive = int(max_sequences * positive_ratio)
                     max_negative = max_sequences - max_positive
                     
-                    logger.debug(f"Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
+                    print(f"[DEBUG] Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
                     
                     # Если нет отрицательных примеров, создаем их из кадров с минимальным действием
                     if len(background_dominant_sequences) == 0 and len(action_dominant_sequences) > 0:
-                        logger.debug("Создаем отрицательные примеры из кадров с минимальным действием")
+                        print("[DEBUG] Создаем отрицательные примеры из кадров с минимальным действием")
                         min_action_frames = np.where(labels[:, 1] < 0.3)[0]  # Кадры с менее 30% действия
+                        print(f"[DEBUG] Найдено {len(min_action_frames)} кадров с минимальным действием")
                         
                         if len(min_action_frames) >= sequence_length:
                             # Создаем последовательности из этих кадров
@@ -532,6 +557,7 @@ class VideoDataLoader:
                                     sequence_label = labels[start_idx:start_idx + sequence_length]
                                     background_dominant_sequences.append(frames_array)
                                     background_dominant_labels.append(sequence_label)
+                                    print(f"[DEBUG] Добавлен отрицательный пример из кадров с минимальным действием")
                                     
                                     if len(background_dominant_sequences) >= max_negative:
                                         break
@@ -541,35 +567,38 @@ class VideoDataLoader:
                         indices = np.random.choice(len(action_dominant_sequences), max_positive, replace=False)
                         action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
                         action_dominant_labels = [action_dominant_labels[i] for i in indices]
-                        logger.debug(f"Ограничили количество положительных последовательностей до {max_positive}")
+                        print(f"[DEBUG] Ограничили количество положительных последовательностей до {max_positive}")
                     
                     if len(background_dominant_sequences) > max_negative:
                         indices = np.random.choice(len(background_dominant_sequences), max_negative, replace=False)
                         background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
                         background_dominant_labels = [background_dominant_labels[i] for i in indices]
-                        logger.debug(f"Ограничили количество отрицательных последовательностей до {max_negative}")
+                        print(f"[DEBUG] Ограничили количество отрицательных последовательностей до {max_negative}")
                 else:
-                    logger.warning("Не удалось создать последовательности")
+                    print("[DEBUG] Не удалось создать последовательности")
                     return None, None
             else:
                 # Для валидационного датасета: равное количество
+                print("\n[DEBUG] Балансировка для валидационного датасета")
                 max_per_group = max_sequences // 2
                 if len(action_dominant_sequences) > max_per_group:
                     indices = np.random.choice(len(action_dominant_sequences), max_per_group, replace=False)
                     action_dominant_sequences = [action_dominant_sequences[i] for i in indices]
                     action_dominant_labels = [action_dominant_labels[i] for i in indices]
+                    print(f"[DEBUG] Ограничили количество положительных последовательностей до {max_per_group}")
                 
                 if len(background_dominant_sequences) > max_per_group:
                     indices = np.random.choice(len(background_dominant_sequences), max_per_group, replace=False)
                     background_dominant_sequences = [background_dominant_sequences[i] for i in indices]
                     background_dominant_labels = [background_dominant_labels[i] for i in indices]
+                    print(f"[DEBUG] Ограничили количество отрицательных последовательностей до {max_per_group}")
             
             # Объединяем последовательности
             all_sequences = action_dominant_sequences + background_dominant_sequences
             all_labels = action_dominant_labels + background_dominant_labels
             
             if not all_sequences:
-                logger.warning("Не удалось создать последовательности")
+                print("[DEBUG] Не удалось создать последовательности")
                 return None, None
             
             # Перемешиваем
@@ -582,14 +611,19 @@ class VideoDataLoader:
             X = all_sequences[idx]
             y = all_labels[idx]
             
-            logger.debug(f"Создана последовательность (действие: {len(action_dominant_sequences)}, фон: {len(background_dominant_sequences)})")
-            logger.debug(f"Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
-            logger.debug(f"[DEBUG] Попытка создания последовательности {sequence_attempts}/{max_sequence_attempts}")
-            logger.debug(f"[DEBUG] Найдено последовательностей: {len(action_dominant_sequences)} положительных, {len(background_dominant_sequences)} отрицательных")
+            print(f"\n[DEBUG] Итоговые результаты:")
+            print(f"  - Всего последовательностей: {len(all_sequences)}")
+            print(f"  - Положительных: {len(action_dominant_sequences)}")
+            print(f"  - Отрицательных: {len(background_dominant_sequences)}")
+            print(f"  - Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
+            
             return X, y
             
         except Exception as e:
-            logger.error(f"Ошибка при создании последовательности: {str(e)}")
+            print(f"[ERROR] Ошибка при создании последовательности: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            import traceback
+            traceback.print_exc()
             if cap is not None:
                 cap.release()
             return None, None
