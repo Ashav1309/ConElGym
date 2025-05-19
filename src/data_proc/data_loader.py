@@ -520,11 +520,17 @@ class VideoDataLoader:
                 max_negative_attempts = min(max_sequences - len(action_dominant_sequences), 50)
                 negative_attempts = 0
                 
+                # Создаем отрицательные последовательности
                 for frame_idx in min_action_frames[::step]:  # Используем step
                     if sequence_attempts >= max_sequence_attempts or negative_attempts >= max_negative_attempts:
                         break
                         
                     if frame_idx + sequence_length > total_frames:
+                        continue
+                    
+                    # Проверяем, что все кадры в последовательности имеют минимальное действие
+                    sequence_label = labels[frame_idx:frame_idx + sequence_length]
+                    if np.any(sequence_label[:, 1] > 0.1):  # Пропускаем, если есть кадры с действием
                         continue
                     
                     # Читаем кадры
@@ -544,7 +550,6 @@ class VideoDataLoader:
                     
                     if len(frames) == sequence_length:
                         frames_array = np.array(frames)
-                        sequence_label = labels[frame_idx:frame_idx + sequence_length]
                         action_ratio = np.mean(sequence_label[:, 1])
                         
                         if action_ratio < 0.1:  # Проверяем, что последовательность действительно отрицательная
