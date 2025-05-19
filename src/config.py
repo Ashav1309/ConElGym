@@ -33,7 +33,7 @@ class Config:
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
     BATCH_SIZE = 16
-    EPOCHS = 30
+    EPOCHS = 10
     LEARNING_RATE = 0.002
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
@@ -137,10 +137,10 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 20,  
+        'n_trials': 2,  
         'timeout': 7200,
         'n_jobs': 1,
-        'epochs': 30, 
+        'epochs': 10, 
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,
