@@ -299,10 +299,10 @@ class VideoDataLoader:
             start_idx = self.current_video_index
             end_idx = min(start_idx + self.max_videos, self.total_videos)
             
-            # Проверяем существование файлов
+            # Проверяем существование файлов и что они еще не обработаны
             valid_videos = []
             for video_path in self.all_video_paths[start_idx:end_idx]:
-                if os.path.exists(video_path):
+                if os.path.exists(video_path) and video_path not in self.processed_video_paths:
                     # Проверяем, что видео можно открыть
                     cap = cv2.VideoCapture(video_path)
                     if cap.isOpened():
@@ -310,18 +310,24 @@ class VideoDataLoader:
                         cap.release()
                     else:
                         logger.warning(f"[WARNING] Видео повреждено или недоступно: {video_path}")
+                        self.processed_video_paths.add(video_path)  # Помечаем как обработанное
                 else:
-                    logger.warning(f"[WARNING] Видео не найдено: {video_path}")
+                    if video_path in self.processed_video_paths:
+                        logger.debug(f"[DEBUG] Видео уже обработано: {video_path}")
+                    else:
+                        logger.warning(f"[WARNING] Видео не найдено: {video_path}")
+                        self.processed_video_paths.add(video_path)  # Помечаем как обработанное
             
             self.video_paths = valid_videos
             self.video_count = len(self.video_paths)
             self.labels = [None] * self.video_count
             
             logger.debug(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
+            logger.debug(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
             
-            # Если все видео в текущей порции невалидны, пробуем следующую порцию
+            # Если все видео в текущей порции невалидны или уже обработаны, пробуем следующую порцию
             if not valid_videos and start_idx < self.total_videos:
-                logger.debug("[DEBUG] Все видео в текущей порции невалидны, пробуем следующую порцию")
+                logger.debug("[DEBUG] Все видео в текущей порции невалидны или обработаны, пробуем следующую порцию")
                 self.current_video_index = end_idx
                 self._load_video_chunk()
             
@@ -805,6 +811,11 @@ class VideoDataLoader:
                         logger.debug(f"Все прочитанные кадры видео {os.path.basename(video_path)} использованы")
                         self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
                         logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+
+                # Помечаем видео как обработанное после успешного создания последовательности
+                self.processed_video_paths.add(video_path)
+                logger.debug(f"Видео успешно обработано: {os.path.basename(video_path)}")
+                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
                 return X_seq, y_seq
             else:
