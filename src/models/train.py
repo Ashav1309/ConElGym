@@ -473,7 +473,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         # Создаем модель
         model = create_model_with_params(
             model_type=model_type,
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             params=best_params
         )
@@ -486,7 +486,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             ),
             Config.SEQUENCE_LENGTH,
             batch_size,
-            Config.TARGET_SIZE,
+            Config.INPUT_SIZE,
             is_training=True,
             force_positive=True,
             cache_dataset=True
@@ -497,7 +497,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             ),
             Config.SEQUENCE_LENGTH,
             batch_size,
-            Config.TARGET_SIZE,
+            Config.INPUT_SIZE,
             is_training=False,
             force_positive=False,
             cache_dataset=True
