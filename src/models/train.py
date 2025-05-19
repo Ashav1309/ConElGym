@@ -497,6 +497,13 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             print(f"[WARNING] Не удалось загрузить веса классов: {str(e)}")
             class_weights = {'background': 1.0, 'action': 10.0}
 
+        # Преобразуем ключи class_weights к int, если они строки
+        if isinstance(list(class_weights.keys())[0], str):
+            class_weights = {
+                0: class_weights.get('background', 1.0),
+                1: class_weights.get('action', 1.0)
+            }
+
         # Создаем модель
         model = create_model_with_params(
             model_type=model_type,
