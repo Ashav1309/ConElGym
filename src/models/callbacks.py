@@ -58,11 +58,21 @@ class AdaptiveThresholdCallback(Callback):
         
         for threshold in thresholds:
             val_pred_binary = (val_pred >= threshold).astype(int)
-            # Приводим к 2D, как в тюнинге
             val_true_2d = val_true.reshape(-1, val_true.shape[-1])
             val_pred_binary_2d = val_pred_binary.reshape(-1, val_pred_binary.shape[-1])
-            f1 = tf.keras.metrics.F1Score()(val_true_2d, val_pred_binary_2d)
-            f1_scores.append(f1)
+            if val_true_2d.shape[0] == 0 or val_pred_binary_2d.shape[0] == 0:
+                print(f"[WARNING] Пустые данные для F1 при threshold={threshold}")
+                continue
+            try:
+                f1 = tf.keras.metrics.F1Score()(val_true_2d, val_pred_binary_2d)
+                f1_scores.append(f1)
+            except Exception as e:
+                print(f"[WARNING] Ошибка при вычислении F1 для threshold={threshold}: {e}")
+                continue
+        
+        if not f1_scores:
+            print("[WARNING] f1_scores пустой, пропускаем обновление порога")
+            return
         
         best_idx = np.argmax(f1_scores)
         current_f1 = f1_scores[best_idx]

@@ -6,6 +6,8 @@ from src.config import Config
 from src.models.inference_utils import get_element_intervals
 import json
 import sys
+import pickle
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 def test_model(model_path, test_data_path, model_type=None, batch_size=1):
     """
@@ -43,8 +45,13 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
         # Загрузка модели
         print("\n[DEBUG] Загрузка модели...")
         try:
-            model = load_model(model_path)
-            print(f"[DEBUG] ✓ Модель успешно загружена")
+            if model_path.endswith('.pkl'):
+                with open(model_path, 'rb') as f:
+                    model = pickle.load(f)['model']
+                print(f"[DEBUG] ✓ Модель успешно загружена из pickle")
+            else:
+                model = load_model(model_path)
+                print(f"[DEBUG] ✓ Модель успешно загружена из h5")
             print(f"[DEBUG] Архитектура модели: {model.summary()}")
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке модели: {str(e)}")
@@ -76,6 +83,8 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
         print("\n[DEBUG] Начало тестирования...")
         video_idx = 0
         results = []
+        all_y_true = []
+        all_y_pred = []
         
         try:
             for X_batch, y_true in generator:
@@ -91,6 +100,9 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
                         'predicted_intervals': result,
                         'true_labels': true.tolist()
                     })
+                    # Для метрик: flatten по всем кадрам, класс "action" (индекс 1)
+                    all_y_true.extend(np.argmax(true, axis=-1).flatten())
+                    all_y_pred.extend(np.argmax(pred, axis=-1).flatten())
                     video_idx += 1
         except Exception as e:
             print(f"[ERROR] Ошибка при тестировании: {str(e)}")
@@ -98,6 +110,15 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
             import traceback
             traceback.print_exc()
             raise
+        
+        # Считаем метрики по классу "action"
+        print("\n[DEBUG] Расчёт метрик по классу 'action'...")
+        f1 = f1_score(all_y_true, all_y_pred, pos_label=1, average='binary')
+        precision = precision_score(all_y_true, all_y_pred, pos_label=1, average='binary')
+        recall = recall_score(all_y_true, all_y_pred, pos_label=1, average='binary')
+        print(f"F1-score (action): {f1:.4f}")
+        print(f"Precision (action): {precision:.4f}")
+        print(f"Recall (action): {recall:.4f}")
         
         # Сохраняем результаты
         print("\n[DEBUG] Сохранение результатов...")
@@ -110,6 +131,9 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
                 json.dump({
                     'model_type': model_type,
                     'model_path': model_path,
+                    'f1_action': f1,
+                    'precision_action': precision,
+                    'recall_action': recall,
                     'results': results
                 }, f, indent=4)
             
