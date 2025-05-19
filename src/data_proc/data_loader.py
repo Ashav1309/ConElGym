@@ -445,7 +445,7 @@ class VideoDataLoader:
             background_dominant_sequences = []  # Последовательности с преобладанием фона
             background_dominant_labels = []
             
-            max_sequence_attempts = 100
+            max_sequence_attempts = min(max_sequences * 2, 100)  # Ограничиваем количество попыток
             sequence_attempts = 0
             print(f"[DEBUG] Начинаем создание последовательностей (максимум {max_sequence_attempts} попыток)")
             
@@ -456,7 +456,7 @@ class VideoDataLoader:
                 
                 # Вычисляем возможные начальные позиции для последовательностей
                 possible_starts = []
-                for i in range(start_frame, end_frame - sequence_length + 2):
+                for i in range(start_frame, end_frame - sequence_length + 2, step):  # Используем step
                     sequence_label = labels[i:i + sequence_length]
                     if np.any(sequence_label[:, 1] == 1):  # Есть хотя бы один кадр с действием
                         possible_starts.append(i)
@@ -491,23 +491,23 @@ class VideoDataLoader:
                         if action_ratio > 0.3:  # Уменьшаем порог для положительных последовательностей
                             action_dominant_sequences.append(frames_array)
                             action_dominant_labels.append(sequence_label)
-                            # print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
+                            print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
                         else:
                             background_dominant_sequences.append(frames_array)
                             background_dominant_labels.append(sequence_label)
-                            # print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
+                            print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
                     
                     sequence_attempts += 1
             
-            # Если не набрали достаточно положительных последовательностей, создаем дополнительные
-            if len(action_dominant_sequences) < max_sequences // 2:
-                print(f"[DEBUG] Недостаточно положительных последовательностей ({len(action_dominant_sequences)}), создаем дополнительные")
+            # Если не набрали достаточно последовательностей, создаем дополнительные
+            if len(action_dominant_sequences) + len(background_dominant_sequences) < max_sequences:
+                print(f"[DEBUG] Недостаточно последовательностей ({len(action_dominant_sequences) + len(background_dominant_sequences)}), создаем дополнительные")
                 
                 # Находим кадры с минимальным действием для создания отрицательных последовательностей
                 min_action_frames = np.where(labels[:, 1] < 0.1)[0]  # Уменьшаем порог для отрицательных последовательностей
                 print(f"[DEBUG] Найдено {len(min_action_frames)} кадров с минимальным действием")
                 
-                for frame_idx in min_action_frames:
+                for frame_idx in min_action_frames[::step]:  # Используем step
                     if sequence_attempts >= max_sequence_attempts:
                         break
                         
@@ -559,9 +559,16 @@ class VideoDataLoader:
             all_labels = [all_labels[i] for i in indices]
             
             # Выбираем случайную последовательность
-            idx = np.random.randint(len(all_sequences))
-            X = all_sequences[idx]
-            y = all_labels[idx]
+            if force_positive and action_dominant_sequences:
+                # Если требуется положительная последовательность и она есть
+                idx = np.random.randint(len(action_dominant_sequences))
+                X = action_dominant_sequences[idx]
+                y = action_dominant_labels[idx]
+            else:
+                # Иначе выбираем случайную последовательность
+                idx = np.random.randint(len(all_sequences))
+                X = all_sequences[idx]
+                y = all_labels[idx]
             
             print(f"\n[DEBUG] Итоговые результаты:")
             print(f"  - Всего последовательностей: {len(all_sequences)}")
