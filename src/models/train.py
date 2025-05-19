@@ -493,7 +493,7 @@ def cache_all_data(data_loader, sequence_length, target_size, force_positive, is
             labels.append(y_one_hot)
     return np.array(sequences), np.array(labels)
 
-def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
+def train(model_type: str = None, epochs: int = 10, batch_size: int = None):
     if model_type is None:
         model_type = Config.MODEL_TYPE
     if batch_size is None:

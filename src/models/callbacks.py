@@ -67,6 +67,8 @@ class AdaptiveThresholdCallback(Callback):
         best_idx = np.argmax(f1_scores)
         current_f1 = f1_scores[best_idx]
         current_threshold = thresholds[best_idx]
+        # Приводим к скаляру, если вдруг массив
+        current_f1 = float(np.mean(current_f1))
         
         # Обновляем лучший порог, если нашли лучше
         if current_f1 > self.best_f1:
