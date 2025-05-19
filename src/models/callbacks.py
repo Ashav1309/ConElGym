@@ -6,6 +6,7 @@ from src.config import Config
 import pickle
 import os
 import time
+from tensorflow.keras.metrics import F1Score
 
 class ScalarF1Score(tf.keras.metrics.Metric):
     """
@@ -57,7 +58,10 @@ class AdaptiveThresholdCallback(Callback):
         
         for threshold in thresholds:
             val_pred_binary = (val_pred >= threshold).astype(int)
-            f1 = tf.keras.metrics.F1Score()(val_true, val_pred_binary)
+            # Приводим к 2D, как в тюнинге
+            val_true_2d = val_true.reshape(-1, val_true.shape[-1])
+            val_pred_binary_2d = val_pred_binary.reshape(-1, val_pred_binary.shape[-1])
+            f1 = tf.keras.metrics.F1Score()(val_true_2d, val_pred_binary_2d)
             f1_scores.append(f1)
         
         best_idx = np.argmax(f1_scores)
@@ -129,13 +133,13 @@ def get_training_callbacks(val_data, config=None):
     
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             patience=config['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             factor=config['reduce_lr_factor'],
             patience=config['reduce_lr_patience'],
             min_lr=config['min_lr'],
@@ -144,7 +148,7 @@ def get_training_callbacks(val_data, config=None):
         AdaptiveThresholdCallback(validation_data=val_data),
         PickleModelCheckpoint(
             os.path.join(model_dir, 'model.pkl'),
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             save_best_only=True,
             mode='max'
         )
@@ -174,4 +178,15 @@ def get_tuning_callbacks(trial_number):
             mode='max'
         ),
         tf.keras.callbacks.CSVLogger(os.path.join(tuning_dir, f'trial_{trial_number}_history.csv'))
+    ]
+
+def get_training_metrics():
+    """
+    Получение метрик для обучения модели
+    """
+    return [
+        'accuracy',
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        F1Score(name='f1_action', class_id=1, threshold=0.5)
     ] 
