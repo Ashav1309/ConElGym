@@ -752,6 +752,7 @@ class VideoDataLoader:
                     empty_labels = np.zeros((total_frames, 2))
                     self.annotations_cache[video_path] = empty_labels
                     self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
+                    logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     return None, None
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
@@ -760,6 +761,7 @@ class VideoDataLoader:
                 empty_labels = np.zeros((total_frames, 2))
                 self.annotations_cache[video_path] = empty_labels
                 self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
+                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                 return None, None
 
         # Инициализируем счетчик для видео, если его еще нет
@@ -788,6 +790,8 @@ class VideoDataLoader:
                 seq_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
                 if seq_id in self.used_sequences:
                     logger.debug(f"Последовательность {seq_id} уже использована")
+                    self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
+                    logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     return None, None
 
                 self.used_sequences.add(seq_id)
@@ -812,6 +816,7 @@ class VideoDataLoader:
         except Exception as e:
             logger.error(f"Ошибка при создании последовательности: {str(e)}")
             self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные при ошибке
+            logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
             return None, None
 
         return None, None
