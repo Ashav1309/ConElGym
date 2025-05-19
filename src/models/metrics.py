@@ -1,5 +1,6 @@
 import tensorflow as tf
 from src.models.losses import F1ScoreAdapter
+from src.models.callbacks import ScalarF1Score
 
 def f1_score_element(y_true, y_pred):
     """
@@ -76,5 +77,6 @@ def get_tuning_metrics():
     
     return [
         'accuracy',
-        SequenceMetrics(name='sequence_metrics')
+        SequenceMetrics(name='sequence_metrics'),
+        ScalarF1Score(name='scalar_f1_score')
     ] 
