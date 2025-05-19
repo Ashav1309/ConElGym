@@ -4,11 +4,17 @@ import cv2
 from typing import Tuple, List
 from src.config import Config
 from sklearn.neighbors import NearestNeighbors
+import logging
 
 def apply_augmentations(image):
     """
     Применяет аугментации к изображению на основе настроек из конфига
     """
+    if image is None:
+        raise ValueError("Входное изображение не может быть None")
+    if not isinstance(image, (tf.Tensor, np.ndarray)):
+        raise TypeError("Входное изображение должно быть tf.Tensor или np.ndarray")
+        
     if not Config.AUGMENTATION['enabled']:
         return image
         
@@ -34,7 +40,7 @@ def apply_augmentations(image):
             -Config.AUGMENTATION['rotation_range'],
             Config.AUGMENTATION['rotation_range']
         )
-        image = tf.image.rot90(image, k=int(angle/90))
+        image = tf.image.rot90(image, k=int(angle/90) % 4)  # Ограничиваем k от 0 до 3
     
     # Отражение
     if np.random.random() < Config.AUGMENTATION['flip_prob']:
@@ -46,10 +52,10 @@ def apply_augmentations(image):
             1.0 - Config.AUGMENTATION['scale_range'],
             1.0 + Config.AUGMENTATION['scale_range']
         )
-        size = tf.cast(tf.shape(image)[:2], tf.float32)
-        new_size = tf.cast(size * scale, tf.int32)
+        original_size = tf.shape(image)[:2]
+        new_size = tf.cast(tf.cast(original_size, tf.float32) * scale, tf.int32)
         image = tf.image.resize(image, new_size)
-        image = tf.image.resize_with_crop_or_pad(image, tf.shape(image)[0], tf.shape(image)[1])
+        image = tf.image.resize_with_crop_or_pad(image, original_size[0], original_size[1])
     
     # Сдвиг
     if np.random.random() < Config.AUGMENTATION['shift_prob']:
@@ -67,7 +73,7 @@ def apply_augmentations(image):
     # Размытие
     if np.random.random() < Config.AUGMENTATION['blur_prob']:
         kernel_size = np.random.choice([3, 5])
-        image = tf.image.gaussian_filter2d(image, kernel_size, Config.AUGMENTATION['blur_sigma'])
+        image = tf.image.gaussian_filter(image, kernel_size, Config.AUGMENTATION['blur_sigma'])
     
     return image
 
@@ -77,6 +83,9 @@ def augment_sequence(frames: np.ndarray, labels: np.ndarray) -> Tuple[np.ndarray
     """
     if not Config.AUGMENTATION['enabled']:
         return frames, labels
+        
+    if len(frames) != len(labels):
+        raise ValueError("Количество кадров не совпадает с количеством меток")
         
     augmented_frames = []
     for frame in frames:
@@ -133,7 +142,7 @@ def apply_smote(images, labels, k_neighbors=5):
     if len(positive_indices) < 2:
         return images, labels
         
-    print(f"[DEBUG] SMOTE: найдено {len(positive_indices)} положительных примеров")
+    logging.debug(f"SMOTE: найдено {len(positive_indices)} положительных примеров")
     
     # Подготавливаем данные для SMOTE
     positive_images = images[positive_indices]
@@ -141,6 +150,11 @@ def apply_smote(images, labels, k_neighbors=5):
     
     # Вычисляем количество синтетических примеров
     n_samples = int(len(positive_images) * (Config.DATA_BALANCING['oversample_factor'] - 1))
+    
+    # Ограничиваем количество синтетических примеров для экономии памяти
+    if len(positive_images) * n_samples > 10000:
+        n_samples = 10000 // len(positive_images)
+        logging.warning(f"SMOTE: ограничено количество синтетических примеров до {n_samples}")
     
     # Находим k ближайших соседей
     nbrs = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(positive_images.reshape(len(positive_images), -1))
@@ -154,7 +168,7 @@ def apply_smote(images, labels, k_neighbors=5):
         idx = np.random.randint(0, len(positive_images))
         neighbor_idx = np.random.choice(indices[idx][1:])
         alpha = np.random.random()
-        synthetic_image = alpha * positive_images[idx] + (1 - alpha) * positive_images[neighbor_idx]
+        synthetic_image = tf.cast(alpha * positive_images[idx] + (1 - alpha) * positive_images[neighbor_idx], tf.float32)
         synthetic_images.append(synthetic_image)
         synthetic_labels.append(positive_labels[idx])
     
@@ -187,12 +201,17 @@ def create_balanced_batches(dataset, batch_size):
     while True:
         batch_indices = []
         for class_idx in class_indices:
+            if not class_indices[class_idx]:  # Пропускаем пустые классы
+                continue
             # Берем равное количество примеров каждого класса
             samples = np.random.choice(class_indices[class_idx], 
                                      size=int(batch_size * Config.DATA_BALANCING['class_ratio']), 
                                      replace=True)
             batch_indices.extend(samples)
         
+        if not batch_indices:  # Если все классы пустые
+            break
+            
         np.random.shuffle(batch_indices)
         batches.append(batch_indices)
         
