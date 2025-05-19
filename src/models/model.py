@@ -459,25 +459,40 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         return out
 
 class TransformerBlock(tf.keras.layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1):
+    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, rnn_type='lstm'):
         super(TransformerBlock, self).__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.ff_dim = ff_dim
         self.rate = rate
+        self.rnn_type = rnn_type
         
     def build(self, input_shape):
+        # Определяем размерность в зависимости от типа RNN
+        if self.rnn_type == 'bigru':
+            # Для BiGRU размерность в 2 раза больше
+            key_dim = input_shape[-1] // (2 * self.num_heads)
+            value_dim = input_shape[-1] // (2 * self.num_heads)
+            output_dim = input_shape[-1] // 2
+        else:
+            # Для LSTM используем стандартные размерности
+            key_dim = self.embed_dim // self.num_heads
+            value_dim = self.embed_dim // self.num_heads
+            output_dim = self.embed_dim
+            
         # Создаем слои с правильными размерностями
         self.att = tf.keras.layers.MultiHeadAttention(
             num_heads=self.num_heads,
-            key_dim=self.embed_dim // self.num_heads,
-            value_dim=self.embed_dim // self.num_heads,
-            output_shape=self.embed_dim  # Добавляем output_shape
+            key_dim=key_dim,
+            value_dim=value_dim,
+            output_shape=output_dim
         )
+        
         self.ffn = tf.keras.Sequential([
             tf.keras.layers.Dense(self.ff_dim, activation="relu"),
             tf.keras.layers.Dense(input_shape[-1])  # Используем размерность входных данных
         ])
+        
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = tf.keras.layers.Dropout(self.rate)
@@ -669,12 +684,13 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         x = Reshape((sequence_length, -1))(x)
     elif temporal_block_type == 'transformer':
-        # Используем трансформерный блок с меньшим количеством голов
+        # Используем трансформерный блок с учетом типа RNN
         x = TransformerBlock(
             embed_dim=lstm_units,
             num_heads=2,  # Уменьшаем количество голов
             ff_dim=lstm_units,  # Уменьшаем размер FF слоя
-            rate=dropout_rate
+            rate=dropout_rate,
+            rnn_type=rnn_type  # Передаем тип RNN
         )(x)
     else:
         raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
