@@ -137,10 +137,10 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 2,  
+        'n_trials': 10,  
         'timeout': 7200,
         'n_jobs': 1,
-        'epochs': 10, 
+        'epochs': 20, 
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,
