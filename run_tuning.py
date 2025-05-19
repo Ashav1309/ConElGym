@@ -78,22 +78,22 @@ def objective(trial):
 
 def main():
     try:
-        result = tune_hyperparameters()
-        if result is not None:
-            print("\nBest parameters:", result['best_params'])
-            print("Best validation accuracy:", result['best_value'])
+        best_params, best_value = tune_hyperparameters()
+        
+        print("\n[INFO] Лучшие параметры:")
+        for param, value in best_params.items():
+            print(f"  {param}: {value}")
+        print(f"[INFO] Лучшее значение метрики: {best_value:.4f}")
+        
+        # Сохраняем лучшие параметры в файл
+        with open('best_params.txt', 'w') as f:
+            f.write("Best parameters:\n")
+            for param, value in best_params.items():
+                f.write(f"{param}: {value}\n")
+            f.write(f"\nBest validation accuracy: {best_value:.4f}\n")
             
-            # Сохраняем лучшие параметры в файл
-            with open('best_params.txt', 'w') as f:
-                f.write("Best parameters:\n")
-                for param, value in result['best_params'].items():
-                    f.write(f"{param}: {value}\n")
-                f.write(f"\nBest validation accuracy: {result['best_value']:.4f}\n")
-        else:
-            print("\nFailed to find best parameters. Check the error messages above.")
-            sys.exit(1)
     except Exception as e:
-        print(f"\nError during hyperparameter tuning: {str(e)}")
+        print(f"\n[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

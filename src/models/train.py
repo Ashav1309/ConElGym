@@ -396,14 +396,14 @@ def plot_confusion_matrix(y_true, y_pred, save_path):
 
 def load_best_params(model_type=None):
     """
-    Загрузка лучших параметров из файла optuna_results.txt и весов из config_weights.json
+    Загрузка лучших параметров из файла best_params.json
     Args:
         model_type: тип модели ('v3' или 'v4'). Если None, используется Config.MODEL_TYPE
     """
     try:
         model_type = model_type or Config.MODEL_TYPE
         results_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
-        results_path = os.path.join(results_dir, 'optuna_results.txt')
+        params_path = os.path.join(results_dir, 'best_params.json')
         
         # Проверяем существование директории
         if not os.path.exists(results_dir):
@@ -421,53 +421,38 @@ def load_best_params(model_type=None):
             print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
             positive_class_weight = None
         
-        if not os.path.exists(results_path):
-            print(f"[DEBUG] Файл с результатами подбора гиперпараметров не найден. Используем параметры по умолчанию для {model_type}.")
+        if not os.path.exists(params_path):
+            print(f"[DEBUG] Файл с параметрами не найден. Используем параметры по умолчанию для {model_type}.")
             default_params = {
                 'learning_rate': 1e-4,
                 'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
+                'batch_size': Config.BATCH_SIZE,
                 'positive_class_weight': positive_class_weight
             }
             if model_type == 'v3':
                 default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
             return default_params
         
-        print(f"[DEBUG] Загрузка параметров из {results_path}")
-        with open(results_path, 'r') as f:
-            content = f.read()
+        print(f"[DEBUG] Загрузка параметров из {params_path}")
+        with open(params_path, 'r') as f:
+            params = json.load(f)
             
-            # Ищем лучшие результаты для каждого типа модели
-            v3_best = None
-            v4_best = None
-            
-            # Ищем все trials
-            trials = re.finditer(r"Trial \d+:\s+Value: ([\d.-]+)\s+Params: ({[^}]+})", content)
-            for trial in trials:
-                value = float(trial.group(1))
-                params_str = trial.group(2).replace("'", '"')
-                params = json.loads(params_str)
-                
-                if params.get('model_type') == 'v3' and (v3_best is None or value > v3_best[0]):
-                    v3_best = (value, params)
-                elif params.get('model_type') == 'v4' and (v4_best is None or value > v4_best[0]):
-                    v4_best = (value, params)
-            
-            # Выбираем лучшие параметры для запрошенного типа модели
-            if model_type == 'v3' and v3_best:
-                best_params = v3_best[1]
-            elif model_type == 'v4' and v4_best:
-                best_params = v4_best[1]
-            else:
-                print(f"[DEBUG] Не найдены результаты для модели {model_type}. Используем параметры по умолчанию.")
-                best_params = {
+            # Проверяем, что параметры соответствуют запрошенному типу модели
+            if params.get('model_type') != model_type:
+                print(f"[WARNING] Параметры в файле соответствуют модели {params.get('model_type')}, а запрошена {model_type}")
+                print("[DEBUG] Используем параметры по умолчанию")
+                default_params = {
                     'learning_rate': 1e-4,
                     'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                    'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
+                    'batch_size': Config.BATCH_SIZE,
                     'positive_class_weight': positive_class_weight
                 }
                 if model_type == 'v3':
-                    best_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+                    default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+                return default_params
+            
+            # Объединяем параметры модели и аугментации
+            best_params = {**params['model_params'], **params['augmentation_params']}
             
             # Добавляем вес положительного класса из конфигурации
             best_params['positive_class_weight'] = positive_class_weight
@@ -485,7 +470,7 @@ def load_best_params(model_type=None):
     default_params = {
         'learning_rate': 1e-4,
         'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-        'batch_size': Config.BATCH_SIZE,  # Используем значение из конфига
+        'batch_size': Config.BATCH_SIZE,
         'positive_class_weight': positive_class_weight
     }
     if model_type == 'v3':

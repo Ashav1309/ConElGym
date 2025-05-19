@@ -3,6 +3,8 @@ import numpy as np
 from tensorflow.keras.callbacks import Callback
 from typing import Tuple
 from src.config import Config
+import pickle
+import os
 
 class ScalarF1Score(tf.keras.metrics.Metric):
     """
@@ -71,6 +73,44 @@ class AdaptiveThresholdCallback(Callback):
         logs['val_threshold'] = self.best_threshold
         logs['val_f1'] = self.best_f1
 
+class PickleModelCheckpoint(Callback):
+    """
+    Callback для сохранения модели в формате pickle
+    """
+    def __init__(self, filepath, monitor='val_scalar_f1_score', save_best_only=True, mode='max'):
+        super().__init__()
+        self.filepath = filepath
+        self.monitor = monitor
+        self.save_best_only = save_best_only
+        self.mode = mode
+        self.best = -np.Inf if mode == 'max' else np.Inf
+        
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        current = logs.get(self.monitor)
+        if current is None:
+            return
+            
+        if self.mode == 'min':
+            improved = current < self.best
+        else:
+            improved = current > self.best
+            
+        if improved or not self.save_best_only:
+            self.best = current
+            # Сохраняем модель и метаданные
+            model_data = {
+                'model': self.model,
+                'epoch': epoch,
+                'best_metric': self.best,
+                'monitor': self.monitor,
+                'mode': self.mode,
+                'logs': logs
+            }
+            with open(self.filepath, 'wb') as f:
+                pickle.dump(model_data, f)
+            print(f'\n[INFO] Сохранена модель в {self.filepath} (метрика: {self.best:.4f})')
+
 def get_training_callbacks(val_data, config=None):
     """
     Получение callbacks для обучения модели
@@ -96,7 +136,13 @@ def get_training_callbacks(val_data, config=None):
             min_lr=config['min_lr'],
             mode='max'
         ),
-        AdaptiveThresholdCallback(validation_data=val_data)
+        AdaptiveThresholdCallback(validation_data=val_data),
+        PickleModelCheckpoint(
+            os.path.join(Config.MODEL_SAVE_PATH, 'best_model.pkl'),
+            monitor='val_f1_score',
+            save_best_only=True,
+            mode='max'
+        )
     ]
 
 def get_tuning_callbacks(trial_number):
@@ -118,12 +164,6 @@ def get_tuning_callbacks(trial_number):
             factor=0.5,
             patience=3,
             min_lr=1e-6,
-            mode='max'
-        ),
-        tf.keras.callbacks.ModelCheckpoint(
-            f'best_model_trial_{trial_number}.h5',
-            monitor='val_scalar_f1_score',
-            save_best_only=True,
             mode='max'
         ),
         tf.keras.callbacks.CSVLogger(f'trial_{trial_number}_history.csv')

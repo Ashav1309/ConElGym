@@ -393,28 +393,39 @@ def save_tuning_results(study, total_time, n_trials):
             f.write("\nЛучшие параметры:\n")
             for key, value in study.best_params.items():
                 f.write(f"{key}: {value}\n")
-            
-            # Добавляем информацию о настройках модели
-            f.write("\nНастройки модели:\n")
-            f.write(f"  - sequence_length: {Config.SEQUENCE_LENGTH}\n")
-            f.write(f"  - input_size: {Config.INPUT_SIZE}\n")
-            f.write(f"  - batch_size: {Config.BATCH_SIZE}\n")
-            f.write(f"  - epochs: {Config.EPOCHS}\n")
-            f.write(f"  - class_weights: {Config.MODEL_PARAMS[Config.MODEL_TYPE]['class_weights']}\n")
-            
-            # Добавляем информацию о параметрах аугментации
-            f.write("\nПараметры аугментации:\n")
-            for key, value in Config.AUGMENTATION.items():
-                f.write(f"  - {key}: {value}\n")
-            
-            # Добавляем информацию о лучших параметрах аугментации
-            f.write("\nЛучшие параметры аугментации:\n")
-            augmentation_params = {k: v for k, v in study.best_params.items() 
-                                if k in ['brightness_range', 'contrast_range', 'rotation_range', 
-                                       'noise_std', 'blur_sigma', 'brightness_prob', 'contrast_prob',
-                                       'rotation_prob', 'noise_prob', 'blur_prob']}
-            for key, value in augmentation_params.items():
-                f.write(f"  - {key}: {value}\n")
+        
+        # Сохраняем все параметры в JSON файл
+        params_file = os.path.join(tuning_dir, 'best_params.json')
+        params = {
+            'model_params': {
+                'learning_rate': study.best_params['learning_rate'],
+                'dropout_rate': study.best_params['dropout_rate'],
+                'lstm_units': study.best_params['lstm_units'],
+                'rnn_type': study.best_params['rnn_type'],
+                'temporal_block_type': study.best_params['temporal_block_type'],
+                'clipnorm': study.best_params['clipnorm'],
+                'batch_size': study.best_params['batch_size']
+            },
+            'augmentation_params': {
+                'brightness_range': study.best_params['brightness_range'],
+                'contrast_range': study.best_params['contrast_range'],
+                'rotation_range': study.best_params['rotation_range'],
+                'noise_std': study.best_params['noise_std'],
+                'blur_sigma': study.best_params['blur_sigma'],
+                'brightness_prob': study.best_params['brightness_prob'],
+                'contrast_prob': study.best_params['contrast_prob'],
+                'rotation_prob': study.best_params['rotation_prob'],
+                'noise_prob': study.best_params['noise_prob'],
+                'blur_prob': study.best_params['blur_prob']
+            },
+            'model_type': Config.MODEL_TYPE,
+            'best_value': study.best_value,
+            'total_time': total_time,
+            'n_trials': n_trials
+        }
+        
+        with open(params_file, 'w') as f:
+            json.dump(params, f, indent=4)
         
         # Создаем визуализации
         try:
@@ -476,7 +487,16 @@ def tune_hyperparameters(n_trials=None):
         # Сохраняем результаты
         save_tuning_results(study, total_time, n_trials or Config.HYPERPARAM_TUNING['n_trials'])
         
-        return study
+        # Извлекаем лучшие параметры и значение
+        best_params = study.best_params
+        best_value = study.best_value
+        
+        print("\n[INFO] Лучшие параметры:")
+        for param, value in best_params.items():
+            print(f"  {param}: {value}")
+        print(f"[INFO] Лучшее значение метрики: {best_value:.4f}")
+        
+        return best_params, best_value
         
     except Exception as e:
         print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")

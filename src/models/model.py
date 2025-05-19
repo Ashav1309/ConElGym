@@ -24,6 +24,7 @@ from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
 import numpy as np
 import json
+import pickle
 from src.models.metrics import get_training_metrics
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ __all__ = [
     'create_mobilenetv4_model',
     'postprocess_predictions',
     'indices_to_seconds',
-    'merge_classes'
+    'merge_classes',
+    'load_model_from_pickle'
 ]
 
 def merge_classes(y):
@@ -848,6 +850,39 @@ def indices_to_seconds(indices, fps):
     Возвращает: список секунд (float)
     """
     return [round(idx / fps, 3) for idx in indices]
+
+def load_model_from_pickle(filepath):
+    """
+    Загружает модель и метаданные из pickle файла
+    
+    Args:
+        filepath: путь к pickle файлу с моделью
+        
+    Returns:
+        tuple: (model, metadata) где metadata - словарь с метаданными модели
+    """
+    try:
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+            
+        model = model_data['model']
+        metadata = {
+            'epoch': model_data['epoch'],
+            'best_metric': model_data['best_metric'],
+            'monitor': model_data['monitor'],
+            'mode': model_data['mode'],
+            'logs': model_data['logs']
+        }
+        
+        logger.info(f"Модель успешно загружена из {filepath}")
+        logger.info(f"Лучшая метрика: {metadata['best_metric']:.4f}")
+        logger.info(f"Эпоха: {metadata['epoch']}")
+        
+        return model, metadata
+        
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке модели из {filepath}: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     try:
