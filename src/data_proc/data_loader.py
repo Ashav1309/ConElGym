@@ -423,6 +423,7 @@ class VideoDataLoader:
             action_segments = []
             in_action = False
             start_frame = 0
+            processed_frames = 0  # Счетчик обработанных кадров
             
             for i in range(total_frames):
                 if labels[i, 1] == 1 and not in_action:
@@ -431,11 +432,13 @@ class VideoDataLoader:
                 elif labels[i, 1] == 0 and in_action:
                     in_action = False
                     action_segments.append((start_frame, i - 1))
+                processed_frames += 1
             
             if in_action:
                 action_segments.append((start_frame, total_frames - 1))
             
             print(f"[DEBUG] Найдено {len(action_segments)} сегментов с действиями")
+            print(f"[DEBUG] Обработано кадров при поиске сегментов: {processed_frames}")
             for i, (start, end) in enumerate(action_segments):
                 print(f"[DEBUG] Сегмент {i+1}: кадры {start}-{end} (длина: {end-start+1})")
             
@@ -447,6 +450,7 @@ class VideoDataLoader:
             
             max_sequence_attempts = min(max_sequences * 2, 100)  # Ограничиваем количество попыток
             sequence_attempts = 0
+            processed_frames = 0  # Сбрасываем счетчик для подсчета кадров при создании последовательностей
             print(f"[DEBUG] Начинаем создание последовательностей (максимум {max_sequence_attempts} попыток)")
             
             # Сначала создаем последовательности из сегментов с действиями
@@ -460,8 +464,10 @@ class VideoDataLoader:
                     sequence_label = labels[i:i + sequence_length]
                     if np.any(sequence_label[:, 1] == 1):  # Есть хотя бы один кадр с действием
                         possible_starts.append(i)
+                    processed_frames += sequence_length
                 
                 print(f"[DEBUG] В сегменте {start_frame}-{end_frame} найдено {len(possible_starts)} возможных начальных позиций")
+                print(f"[DEBUG] Обработано кадров в сегменте: {processed_frames}")
                 
                 # Создаем последовательности из этого сегмента
                 for start_idx in possible_starts:
@@ -510,8 +516,12 @@ class VideoDataLoader:
                 # Перемешиваем индексы для случайного выбора
                 np.random.shuffle(min_action_frames)
                 
+                # Ограничиваем количество попыток создания отрицательных последовательностей
+                max_negative_attempts = min(max_sequences - len(action_dominant_sequences), 50)
+                negative_attempts = 0
+                
                 for frame_idx in min_action_frames[::step]:  # Используем step
-                    if sequence_attempts >= max_sequence_attempts:
+                    if sequence_attempts >= max_sequence_attempts or negative_attempts >= max_negative_attempts:
                         break
                         
                     if frame_idx + sequence_length > total_frames:
@@ -535,17 +545,23 @@ class VideoDataLoader:
                     if len(frames) == sequence_length:
                         frames_array = np.array(frames)
                         sequence_label = labels[frame_idx:frame_idx + sequence_length]
-                        background_dominant_sequences.append(frames_array)
-                        background_dominant_labels.append(sequence_label)
-                        print(f"[DEBUG] Добавлена отрицательная последовательность из кадров с минимальным действием")
+                        action_ratio = np.mean(sequence_label[:, 1])
+                        
+                        if action_ratio < 0.1:  # Проверяем, что последовательность действительно отрицательная
+                            background_dominant_sequences.append(frames_array)
+                            background_dominant_labels.append(sequence_label)
+                            print(f"[DEBUG] Добавлена отрицательная последовательность из кадров с минимальным действием (доля действия: {action_ratio:.2%})")
+                            negative_attempts += 1
                     
                     sequence_attempts += 1
+                    processed_frames += sequence_length
             
             cap.release()
             print(f"\n[DEBUG] Завершено создание последовательностей:")
             print(f"  - Всего попыток: {sequence_attempts}")
             print(f"  - Положительных последовательностей: {len(action_dominant_sequences)}")
             print(f"  - Отрицательных последовательностей: {len(background_dominant_sequences)}")
+            print(f"  - Всего обработано кадров: {processed_frames}")
             
             # Если нет последовательностей, возвращаем None
             if not action_dominant_sequences and not background_dominant_sequences:
@@ -590,6 +606,7 @@ class VideoDataLoader:
             print(f"  - Положительных: {len(action_dominant_sequences)}")
             print(f"  - Отрицательных: {len(background_dominant_sequences)}")
             print(f"  - Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
+            print(f"  - Всего обработано кадров: {processed_frames}")
             
             return X, y
             
