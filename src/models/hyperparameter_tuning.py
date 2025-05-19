@@ -226,8 +226,10 @@ def count_total_sequences(video_paths, sequence_length, step):
 
 def objective(trial):
     try:
+        print(f"=======================================")
         print(f"\n[DEBUG] Начало триала #{trial.number}")
         print(f"[DEBUG] Время начала: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"=======================================")
         
         # Очищаем память перед началом триала
         clear_memory()
