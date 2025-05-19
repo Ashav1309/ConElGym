@@ -89,6 +89,7 @@ class AdaptiveThresholdCallback(Callback):
         # Добавляем метрики в логи
         logs['val_threshold'] = self.best_threshold
         logs['val_f1'] = self.best_f1
+        logs['val_f1_action'] = self.best_f1  # Добавляем val_f1_action для совместимости с колбэками
 
 class PickleModelCheckpoint(Callback):
     """
@@ -177,13 +178,13 @@ def get_tuning_callbacks(trial_number):
     os.makedirs(tuning_dir, exist_ok=True)
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             patience=5,
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             factor=0.5,
             patience=3,
             min_lr=1e-6,

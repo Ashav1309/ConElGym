@@ -11,7 +11,7 @@ def get_training_metrics():
         tf.keras.metrics.Precision(name='precision_element', class_id=1, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_element', class_id=1, thresholds=0.5),
         tf.keras.metrics.AUC(name='auc'),
-        ScalarF1Score(name='scalar_f1_score')
+        ScalarF1Score(name='f1_action')
     ]
 
 def get_tuning_metrics():
