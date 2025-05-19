@@ -1,6 +1,8 @@
 import os
 import sys
+import argparse
 from src.models.hyperparameter_tuning import tune_hyperparameters
+from src.config import Config
 
 # Настройка переменных окружения для GPU
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Уменьшаем уровень логирования
@@ -78,6 +80,13 @@ def objective(trial):
 
 def main():
     try:
+        parser = argparse.ArgumentParser(description="Подбор гиперпараметров для модели (v3 или v4)")
+        parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3 или v4')
+        args = parser.parse_args()
+
+        if args.model_type is not None:
+            Config.MODEL_TYPE = args.model_type
+        print(f"Подбор гиперпараметров для модели: {Config.MODEL_TYPE}")
         best_params, best_value = tune_hyperparameters()
         
         print("\n[INFO] Лучшие параметры:")

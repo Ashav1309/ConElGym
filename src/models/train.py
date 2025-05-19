@@ -25,6 +25,7 @@ from src.models.metrics import get_training_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
 from src.utils.gpu_config import setup_gpu
 import time
+import argparse
 
 # Настройка GPU
 setup_gpu()
@@ -642,9 +643,10 @@ def plot_training_results(history, save_dir):
     plt.close()
 
 if __name__ == "__main__":
-    # Обучаем обе модели
-    print("Обучение MobileNetV3...")
-    model_v3, history_v3 = train('v3')
-    
-    print("\nОбучение MobileNetV4...")
-    model_v4, history_v4 = train('v4') 
+    parser = argparse.ArgumentParser(description="Обучение модели (v3 или v4)")
+    parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3 или v4')
+    args = parser.parse_args()
+
+    model_type = args.model_type if args.model_type is not None else Config.MODEL_TYPE
+    print(f"Обучение основной модели: {model_type}")
+    model, history = train(model_type) 
