@@ -380,6 +380,19 @@ def save_tuning_results(study, total_time, n_trials):
     try:
         print("\n[DEBUG] Сохранение результатов подбора гиперпараметров...")
         tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        
+        # Очищаем старые результаты
+        if os.path.exists(tuning_dir):
+            print("[DEBUG] Удаление старых результатов...")
+            for file in os.listdir(tuning_dir):
+                file_path = os.path.join(tuning_dir, file)
+                try:
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    print(f"[WARNING] Ошибка при удалении файла {file_path}: {str(e)}")
+        
+        # Создаем директорию заново
         os.makedirs(tuning_dir, exist_ok=True)
         
         # Сохраняем результаты в текстовый файл
