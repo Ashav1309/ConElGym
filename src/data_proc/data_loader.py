@@ -561,17 +561,29 @@ class VideoDataLoader:
             all_sequences = [all_sequences[i] for i in indices]
             all_labels = [all_labels[i] for i in indices]
             
-            # Выбираем случайную последовательность
+            # Выбираем последовательность с учетом баланса 75/25
             if force_positive and action_dominant_sequences:
                 # Если требуется положительная последовательность и она есть
                 idx = np.random.randint(len(action_dominant_sequences))
                 X = action_dominant_sequences[idx]
                 y = action_dominant_labels[idx]
             else:
-                # Иначе выбираем случайную последовательность
-                idx = np.random.randint(len(all_sequences))
-                X = all_sequences[idx]
-                y = all_labels[idx]
+                # Иначе выбираем последовательность с учетом баланса
+                if len(action_dominant_sequences) > 0 and len(background_dominant_sequences) > 0:
+                    # Если есть оба типа последовательностей, выбираем с вероятностью 75/25
+                    if np.random.random() < 0.75:
+                        idx = np.random.randint(len(action_dominant_sequences))
+                        X = action_dominant_sequences[idx]
+                        y = action_dominant_labels[idx]
+                    else:
+                        idx = np.random.randint(len(background_dominant_sequences))
+                        X = background_dominant_sequences[idx]
+                        y = background_dominant_labels[idx]
+                else:
+                    # Если есть только один тип, выбираем из него
+                    idx = np.random.randint(len(all_sequences))
+                    X = all_sequences[idx]
+                    y = all_labels[idx]
             
             print(f"\n[DEBUG] Итоговые результаты:")
             print(f"  - Всего последовательностей: {len(all_sequences)}")
