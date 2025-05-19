@@ -103,7 +103,7 @@ def load_and_prepare_data(batch_size):
         train_sequences = []
         train_labels = []
         
-        while len(train_loader.processed_videos) < len(train_loader.video_paths):
+        while len(train_loader.processed_video_paths) < len(train_loader.video_paths):
             X, y = train_loader._get_sequence(
                 sequence_length=Config.SEQUENCE_LENGTH,
                 target_size=Config.INPUT_SIZE,
@@ -131,7 +131,7 @@ def load_and_prepare_data(batch_size):
         val_sequences = []
         val_labels = []
         
-        while len(val_loader.processed_videos) < len(val_loader.video_paths):
+        while len(val_loader.processed_video_paths) < len(val_loader.video_paths):
             X, y = val_loader._get_sequence(
                 sequence_length=Config.SEQUENCE_LENGTH,
                 target_size=Config.INPUT_SIZE,
