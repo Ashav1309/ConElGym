@@ -636,32 +636,37 @@ class VideoDataLoader:
             Optional[str]: путь к видео или None, если все видео обработаны
         """
         try:
-            max_attempts = len(self.video_paths)
+            max_attempts = len(self.video_paths) * 2  # Увеличиваем количество попыток
             attempts = 0
             reset_count = 0
-            max_resets = 3
+            max_resets = 5  # Увеличиваем количество сбросов
             
-            logger.debug(f"[DEBUG] Начало поиска случайного видео")
+            print(f"\n[DEBUG] Начало поиска случайного видео")
+            print(f"[DEBUG] Всего видео: {len(self.video_paths)}")
+            print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}")
+            
             while attempts < max_attempts:
-                logger.debug(f"[DEBUG] Попытка {attempts + 1}/{max_attempts}")
+                print(f"\n[DEBUG] Попытка {attempts + 1}/{max_attempts}")
                 # Проверяем, все ли видео в текущей порции обработаны
                 available_videos = []
                 for video_path in self.video_paths:
                     if video_path not in self.processed_video_paths:
                         available_videos.append(video_path)
                 
+                print(f"[DEBUG] Доступные видео: {len(available_videos)}")
+                
                 # Если нет доступных видео, переходим к следующей порции
                 if not available_videos:
                     reset_count += 1
                     if reset_count >= max_resets:
-                        logger.warning("Слишком много сбросов счетчика попыток")
+                        print("[DEBUG] Слишком много сбросов счетчика попыток")
                         return None
-                    logger.info("Все видео в текущей порции обработаны")
+                    print("[DEBUG] Все видео в текущей порции обработаны")
                     self.current_video_index += self.max_videos
                     
                     # Проверяем, есть ли еще видео для обработки
                     if self.current_video_index >= self.total_videos:
-                        logger.info("Все видео обработаны, завершаем")
+                        print("[DEBUG] Все видео обработаны, завершаем")
                         return None
                         
                     # Загружаем следующую порцию видео
@@ -673,13 +678,13 @@ class VideoDataLoader:
                     attempts = 0
                     continue
                 
-                logger.debug(f"[DEBUG] Доступные видео: {available_videos}")
+                print(f"[DEBUG] Выбираем случайное видео из {len(available_videos)} доступных")
                 video_path = np.random.choice(available_videos)
                 attempts += 1
                 
                 # Проверяем существование видео
                 if not os.path.exists(video_path):
-                    logger.error(f"Видео не найдено: {video_path}")
+                    print(f"[DEBUG] Видео не найдено: {video_path}")
                     self.processed_video_paths.add(video_path)
                     continue
                 
@@ -687,42 +692,26 @@ class VideoDataLoader:
                 if video_path in self.used_frames_cache:
                     video_info = self._get_video_info(video_path)
                     if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
-                        logger.debug(f"Все кадры видео {os.path.basename(video_path)} уже использованы")
+                        print(f"[DEBUG] Все кадры видео {os.path.basename(video_path)} уже использованы")
                         self.processed_video_paths.add(video_path)
                         continue
                 
                 # Проверяем, не превышен ли лимит последовательностей
                 if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
-                    logger.debug(f"Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
+                    print(f"[DEBUG] Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
                     self.processed_video_paths.add(video_path)
                     continue
                 
-                # Проверяем, не является ли это последним видео в группе
-                if len(available_videos) == 1 and video_path == available_videos[0]:
-                    # Если это последнее видео в группе, помечаем его как обработанное
-                    self.processed_video_paths.add(video_path)
-                    logger.info("Последнее видео в группе обработано, переходим к следующей порции")
-                    self.current_video_index += self.max_videos
-                    
-                    if self.current_video_index >= self.total_videos:
-                        logger.info("Все видео обработаны, завершаем")
-                        return None
-                        
-                    self._load_video_chunk()
-                    self.used_frames_cache.clear()
-                    self.used_sequences.clear()
-                    self.sequence_counter.clear()
-                    attempts = 0
-                    continue
-                
-                logger.debug(f"[DEBUG] Поиск доступного видео (попытка {attempts + 1}/{max_attempts})")
-                logger.debug(f"[DEBUG] Доступно видео: {len(available_videos)}")
+                print(f"[DEBUG] Выбрано видео: {os.path.basename(video_path)}")
+                return video_path
             
-            logger.warning(f"Превышено максимальное количество попыток ({max_attempts})")
+            print(f"[DEBUG] Превышено максимальное количество попыток ({max_attempts})")
             return None
             
         except Exception as e:
-            logger.error(f"Ошибка при выборе случайного видео: {str(e)}")
+            print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _get_sequence(self, sequence_length, target_size, force_positive=False, is_validation=False):
@@ -837,8 +826,8 @@ class VideoDataLoader:
         X_batch = []
         y_batch = []
         attempts = 0
-        max_attempts = batch_size * 5  # Увеличиваем количество попыток
-        max_empty_sequences = 10  # Увеличиваем допустимое количество пустых последовательностей
+        max_attempts = batch_size * 10  # Увеличиваем количество попыток
+        max_empty_sequences = 20  # Увеличиваем допустимое количество пустых последовательностей
         empty_sequence_count = 0
         
         # Счетчики для балансировки классов
@@ -850,10 +839,14 @@ class VideoDataLoader:
         # Ожидаемая форма последовательности
         expected_shape = (sequence_length, *target_size, 3) if target_size else (sequence_length,)
         
-        logger.debug(f"[DEBUG] Начало сбора батча {self.current_batch + 1}/{self.total_batches}")
-        logger.debug(f"[DEBUG] Всего батчей: {self.total_batches}")
-        logger.debug(f"[DEBUG] Собрано последовательностей: {self.total_processed_sequences}")
-        logger.debug(f"[DEBUG] Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
+        print(f"\n[DEBUG] Начало сбора батча {self.current_batch + 1}/{self.total_batches}")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - target_size: {target_size}")
+        print(f"  - force_positive: {force_positive}")
+        print(f"  - is_validation: {is_validation}")
+        print(f"[DEBUG] Целевые значения: {max_positive} положительных, {max_negative} отрицательных")
         
         last_positive_count = 0
         last_negative_count = 0
@@ -872,7 +865,7 @@ class VideoDataLoader:
                 if X_seq is not None and y_seq is not None:
                     # Проверяем форму последовательности
                     if X_seq.shape != expected_shape:
-                        logger.warning(f"Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
+                        print(f"[DEBUG] Некорректная форма последовательности: {X_seq.shape}, ожидалось: {expected_shape}")
                         # Исправляем форму последовательности
                         try:
                             # Если у нас лишняя размерность, убираем её
@@ -885,14 +878,14 @@ class VideoDataLoader:
                             
                             # Проверяем, что форма теперь правильная
                             if X_seq.shape != expected_shape:
-                                logger.error(f"Не удалось исправить форму последовательности: {X_seq.shape} -> {expected_shape}")
+                                print(f"[DEBUG] Не удалось исправить форму последовательности: {X_seq.shape} -> {expected_shape}")
                                 empty_sequence_count += 1
                                 attempts += 1
                                 continue
                                 
-                            logger.debug(f"Форма после исправления: {X_seq.shape}")
+                            print(f"[DEBUG] Форма после исправления: {X_seq.shape}")
                         except Exception as e:
-                            logger.error(f"Не удалось исправить форму последовательности: {str(e)}")
+                            print(f"[DEBUG] Не удалось исправить форму последовательности: {str(e)}")
                             empty_sequence_count += 1
                             attempts += 1
                             continue
@@ -904,15 +897,15 @@ class VideoDataLoader:
                         y_batch.append(y_seq)
                         positive_count += 1
                         empty_sequence_count = 0
-                        logger.debug(f"[DEBUG] Добавлена положительная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
-                        logger.debug(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
+                        print(f"[DEBUG] Добавлена положительная последовательность {len(X_batch)}/{batch_size}")
+                        print(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
                     elif not is_positive and negative_count < max_negative:
                         X_batch.append(X_seq)
                         y_batch.append(y_seq)
                         negative_count += 1
                         empty_sequence_count = 0
-                        logger.debug(f"[DEBUG] Добавлена отрицательная последовательность {len(X_batch)}/{batch_size} в батч {self.current_batch + 1}")
-                        logger.debug(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
+                        print(f"[DEBUG] Добавлена отрицательная последовательность {len(X_batch)}/{batch_size}")
+                        print(f"[DEBUG] Прогресс балансировки: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
                     else:
                         # Пропускаем пример, если достигли лимита для его класса
                         attempts += 1
@@ -920,22 +913,22 @@ class VideoDataLoader:
                 else:
                     empty_sequence_count += 1
                     attempts += 1
-                    logger.debug(f"[DEBUG] Пустая последовательность (попытка {attempts}/{max_attempts})")
+                    print(f"[DEBUG] Пустая последовательность (попытка {attempts}/{max_attempts})")
                     
                     if empty_sequence_count >= max_empty_sequences:
-                        logger.warning(f"Слишком много пустых последовательностей подряд ({empty_sequence_count})")
+                        print(f"[DEBUG] Слишком много пустых последовательностей подряд ({empty_sequence_count})")
                         if len(X_batch) > 0:
-                            logger.debug("Возвращаем неполный батч")
+                            print("[DEBUG] Возвращаем неполный батч")
                             break
                         else:
-                            logger.debug("Не удалось собрать батч")
+                            print("[DEBUG] Не удалось собрать батч")
                             return None, None
                     continue
                 
                 if positive_count == last_positive_count and negative_count == last_negative_count:
                     no_progress_count += 1
-                    if no_progress_count >= 10:  # Если нет прогресса 10 попыток подряд
-                        logger.warning("Нет прогресса в сборе батча")
+                    if no_progress_count >= 20:  # Увеличиваем количество попыток без прогресса
+                        print("[DEBUG] Нет прогресса в сборе батча")
                         break
                 else:
                     no_progress_count = 0
@@ -943,11 +936,13 @@ class VideoDataLoader:
                 last_negative_count = negative_count
                 
             except Exception as e:
-                logger.error(f"Ошибка при получении последовательности: {str(e)}")
+                print(f"[ERROR] Ошибка при получении последовательности: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 attempts += 1
                 empty_sequence_count += 1
                 if empty_sequence_count >= max_empty_sequences:
-                    logger.warning("Слишком много ошибок подряд")
+                    print("[DEBUG] Слишком много ошибок подряд")
                     if len(X_batch) > 0:
                         break
                     else:
@@ -955,6 +950,7 @@ class VideoDataLoader:
                 continue
         
         if len(X_batch) == 0:
+            print("[DEBUG] Не удалось собрать ни одной последовательности")
             return None, None
         
         try:
@@ -973,16 +969,18 @@ class VideoDataLoader:
             )
             
             self.current_batch += 1
-            logger.debug(f"[DEBUG] Батч {self.current_batch}/{self.total_batches} собран успешно")
-            logger.debug(f"[DEBUG] Всего собрано последовательностей: {self.total_processed_sequences}")
-            logger.debug(f"[DEBUG] Финальная балансировка: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
-            logger.debug(f"[DEBUG] Попытка {attempts + 1}/{max_attempts} получения последовательности")
-            logger.debug(f"[DEBUG] Текущий прогресс: {len(X_batch)}/{batch_size} последовательностей")
-            logger.debug(f"[DEBUG] Баланс: {positive_count}/{max_positive} положительных, {negative_count}/{max_negative} отрицательных")
+            print(f"\n[DEBUG] Батч {self.current_batch}/{self.total_batches} собран успешно")
+            print(f"[DEBUG] Итоговая статистика:")
+            print(f"  - Всего последовательностей: {len(X_batch)}")
+            print(f"  - Положительных: {positive_count}")
+            print(f"  - Отрицательных: {negative_count}")
+            print(f"  - Попыток: {attempts}")
             return X_batch_array, y_batch_array
             
         except Exception as e:
-            logger.error(f"Ошибка при формировании батча: {str(e)}")
+            print(f"[ERROR] Ошибка при формировании батча: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None, None
 
     def data_generator(self, force_positive: bool = True, is_validation: bool = False):
