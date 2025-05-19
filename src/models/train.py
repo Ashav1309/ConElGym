@@ -69,46 +69,53 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
 
         def generator():
             while True:
-                X_batch, y_batch = loader.get_batch(
-                    batch_size=1,
+                # Если все видео обработаны, загружаем новую порцию
+                if len(loader.processed_videos) >= len(loader.video_paths):
+                    print("[DEBUG] Все видео обработаны, загружаем новую порцию")
+                    loader.current_batch_videos = []
+                    loader.video_paths = loader._get_video_paths()
+                    loader.processed_videos = set()
+                    continue
+
+                X, y = loader._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
                     force_positive=force_positive,
                     is_validation=not is_training
                 )
-                if X_batch is not None and y_batch is not None:
-                    X = X_batch[0]
-                    y = y_batch[0]
-                    y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
-                    for i in range(sequence_length):
-                        try:
-                            if isinstance(y[i], np.ndarray):
-                                if y[i].size == 2:
-                                    label = np.argmax(y[i])
-                                    y_one_hot[i, label] = 1
-                                else:
-                                    label = int(y[i].item())
-                                    y_one_hot[i, label] = 1
+                
+                if X is None or y is None:
+                    print("[DEBUG] Получена пустая последовательность, пропускаем")
+                    continue
+                    
+                if len(X) == 0 or len(y) == 0:
+                    print("[DEBUG] Получена последовательность нулевой длины, пропускаем")
+                    continue
+                    
+                if not np.any(y):  # Проверка на пустые метки
+                    print("[DEBUG] Получены пустые метки, пропускаем")
+                    continue
+
+                y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
+                for i in range(sequence_length):
+                    try:
+                        if isinstance(y[i], np.ndarray):
+                            if y[i].size == 2:
+                                label = np.argmax(y[i])
                             else:
-                                label = int(y[i])
-                                y_one_hot[i, label] = 1
-                        except Exception as e:
-                            print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
-                            print(f"[DEBUG] Значение y[{i}]: {y[i]}")
-                            print(f"[DEBUG] Тип y[{i}]: {type(y[i])}")
-                            if isinstance(y[i], np.ndarray):
-                                print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
-                            raise
-                    yield X, y_one_hot
-                else:
-                    # Для обучения: сбрасываем обработанные видео и продолжаем
-                    if is_training:
-                        print("[DEBUG] Все видео обработаны, сбрасываем processed_video_paths и продолжаем обучение...")
-                        loader.processed_video_paths.clear()
-                        continue
-                    else:
-                        print("[DEBUG] Нет больше подходящих данных для генератора — завершаем работу.")
-                        break
+                                label = int(y[i].item())
+                        else:
+                            label = int(y[i])
+                        y_one_hot[i, label] = 1
+                    except Exception as e:
+                        print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
+                        print(f"[DEBUG] Значение y[{i}]: {y[i]}")
+                        print(f"[DEBUG] Тип y[{i}]: {type(y[i])}")
+                        if isinstance(y[i], np.ndarray):
+                            print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
+                        continue  # Пропускаем проблемную метку вместо прерывания
+
+                yield X, y_one_hot
 
         output_signature = (
             tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),
@@ -127,14 +134,14 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
 
-        if is_training:
+        if is_training and Config.AUGMENTATION['enabled']:
             dataset = dataset.map(
                 lambda x, y: tf.py_function(
                     lambda x, y: augment_rare_classes(x, y, is_training=True),
                     [x, y],
                     [tf.float32, tf.float32]
                 ),
-                num_parallel_calls=tf.data.AUTOTUNE
+                num_parallel_calls=Config.MEMORY_OPTIMIZATION['num_parallel_calls']
             )
 
         print(f"[DEBUG] RAM после создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
@@ -173,6 +180,14 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         def generator():
             while True:  # Бесконечный цикл для повторного использования данных
                 try:
+                    # Если все видео обработаны, загружаем новую порцию
+                    if len(data_loader.processed_videos) >= len(data_loader.video_paths):
+                        print("[DEBUG] Все видео обработаны, загружаем новую порцию")
+                        data_loader.current_batch_videos = []
+                        data_loader.video_paths = data_loader._get_video_paths()
+                        data_loader.processed_videos = set()
+                        continue
+
                     X, y = data_loader._get_sequence(
                         sequence_length=sequence_length,
                         target_size=target_size,

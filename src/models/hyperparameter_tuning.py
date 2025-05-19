@@ -80,49 +80,100 @@ def clear_memory():
 
 def load_and_prepare_data(batch_size):
     """
-    Загрузка и подготовка данных для обучения
+    Загрузка и подготовка данных для подбора гиперпараметров
     """
-    print("[DEBUG] Начало загрузки данных...")
-    clear_memory()  # Очищаем память перед загрузкой данных
+    global train_loader, val_loader, train_data, val_data
     
     try:
-        # Проверяем существование директорий
-        if not os.path.exists(Config.TRAIN_DATA_PATH):
-            raise FileNotFoundError(f"Директория с обучающими данными не найдена: {Config.TRAIN_DATA_PATH}")
-        if not os.path.exists(Config.VALID_DATA_PATH):
-            raise FileNotFoundError(f"Директория с валидационными данными не найдена: {Config.VALID_DATA_PATH}")
+        print("\n[DEBUG] Загрузка данных для подбора гиперпараметров...")
+        
+        # Создаем загрузчики данных
+        train_loader = VideoDataLoader(
+            data_dir=Config.TRAIN_DATA_DIR,
+            batch_size=batch_size,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            target_size=Config.INPUT_SIZE,
+            is_training=True
+        )
+        
+        val_loader = VideoDataLoader(
+            data_dir=Config.VALID_DATA_DIR,
+            batch_size=batch_size,
+            sequence_length=Config.SEQUENCE_LENGTH,
+            target_size=Config.INPUT_SIZE,
+            is_training=False
+        )
+        
+        # Кэшируем последовательности для обучения
+        print("[DEBUG] Кэширование обучающих последовательностей...")
+        train_sequences = []
+        train_labels = []
+        
+        while len(train_loader.processed_videos) < len(train_loader.video_paths):
+            X, y = train_loader._get_sequence(
+                sequence_length=Config.SEQUENCE_LENGTH,
+                target_size=Config.INPUT_SIZE,
+                force_positive=True,
+                is_validation=False
+            )
             
-        print(f"[DEBUG] Проверка директорий успешна:")
-        print(f"  - TRAIN_DATA_PATH: {Config.TRAIN_DATA_PATH}")
-        print(f"  - VALID_DATA_PATH: {Config.VALID_DATA_PATH}")
+            if X is not None and y is not None and len(X) > 0 and len(y) > 0 and np.any(y):
+                y_one_hot = np.zeros((Config.SEQUENCE_LENGTH, 2), dtype=np.float32)
+                for i in range(Config.SEQUENCE_LENGTH):
+                    if isinstance(y[i], np.ndarray):
+                        if y[i].size == 2:
+                            label = np.argmax(y[i])
+                        else:
+                            label = int(y[i].item())
+                    else:
+                        label = int(y[i])
+                    y_one_hot[i, label] = 1
+                
+                train_sequences.append(X)
+                train_labels.append(y_one_hot)
         
-        # Уменьшаем max_videos для более частой смены видео
-        max_videos = min(Config.MAX_VIDEOS, 3)  # Ограничиваем количество видео для лучшего баланса
-        print(f"[DEBUG] Используем max_videos={max_videos} для лучшего баланса классов")
+        # Кэшируем последовательности для валидации
+        print("[DEBUG] Кэширование валидационных последовательностей...")
+        val_sequences = []
+        val_labels = []
         
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH, max_videos=max_videos)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH, max_videos=max_videos)
-        print("[DEBUG] VideoDataLoader создан успешно")
+        while len(val_loader.processed_videos) < len(val_loader.video_paths):
+            X, y = val_loader._get_sequence(
+                sequence_length=Config.SEQUENCE_LENGTH,
+                target_size=Config.INPUT_SIZE,
+                force_positive=False,
+                is_validation=True
+            )
+            
+            if X is not None and y is not None and len(X) > 0 and len(y) > 0 and np.any(y):
+                y_one_hot = np.zeros((Config.SEQUENCE_LENGTH, 2), dtype=np.float32)
+                for i in range(Config.SEQUENCE_LENGTH):
+                    if isinstance(y[i], np.ndarray):
+                        if y[i].size == 2:
+                            label = np.argmax(y[i])
+                        else:
+                            label = int(y[i].item())
+                    else:
+                        label = int(y[i])
+                    y_one_hot[i, label] = 1
+                
+                val_sequences.append(X)
+                val_labels.append(y_one_hot)
         
-        target_size = Config.INPUT_SIZE
+        # Создаем датасеты из кэшированных данных
+        print("[DEBUG] Создание датасетов из кэшированных данных...")
+        train_data = tf.data.Dataset.from_tensor_slices((train_sequences, train_labels))
+        train_data = train_data.shuffle(len(train_sequences))
+        train_data = train_data.batch(batch_size)
+        train_data = train_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
-        # Создание оптимизированных pipeline данных с балансировкой классов
-        train_dataset = create_tuning_data_pipeline(
-            train_loader, 
-            Config.SEQUENCE_LENGTH, 
-            batch_size, 
-            Config.INPUT_SIZE, 
-            force_positive=True  # Включаем принудительное использование положительных примеров для обучения
-        )
-        val_dataset = create_tuning_data_pipeline(
-            val_loader, 
-            Config.SEQUENCE_LENGTH, 
-            batch_size, 
-            Config.INPUT_SIZE, 
-            force_positive=False  # Оставляем отключенным для валидации
-        )
+        val_data = tf.data.Dataset.from_tensor_slices((val_sequences, val_labels))
+        val_data = val_data.batch(batch_size)
+        val_data = val_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
-        return train_dataset, val_dataset
+        print(f"[DEBUG] Загружено {len(train_sequences)} обучающих и {len(val_sequences)} валидационных последовательностей")
+        return train_data, val_data
+        
     except Exception as e:
         print(f"[ERROR] Ошибка при загрузке данных: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
