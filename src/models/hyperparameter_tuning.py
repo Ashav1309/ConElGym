@@ -183,10 +183,25 @@ def objective(trial):
         }
         
         # Рассчитываем веса классов
-        base_weights = Config.MODEL_PARAMS[model_type]['class_weights']
+        try:
+            base_weights = Config.MODEL_PARAMS[model_type]['class_weights']
+            if base_weights is None or 'action' not in base_weights:
+                print("[WARNING] Веса классов не найдены в конфигурации, используем значения по умолчанию")
+                base_weights = {
+                    'background': 1.0,
+                    'action': 10.0  # Значение по умолчанию для положительного класса
+                }
+        except Exception as e:
+            print(f"[WARNING] Ошибка при получении весов классов: {str(e)}")
+            print("[WARNING] Используем значения по умолчанию")
+            base_weights = {
+                'background': 1.0,
+                'action': 10.0  # Значение по умолчанию для положительного класса
+            }
+
         weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.2)
         action_weight = base_weights['action'] * (1 + weight_deviation)
-        
+
         class_weights = {
             'background': 1.0,  # Фон всегда 1.0
             'action': action_weight
