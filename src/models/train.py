@@ -496,7 +496,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         )
         
         # Загружаем данные
-        train_data, val_data, class_weights = create_data_pipeline(
+        train_data = create_data_pipeline(
             VideoDataLoader(
                 Config.TRAIN_DATA_PATH,
                 max_videos=None  # Убираем ограничение
@@ -507,7 +507,8 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             is_training=True,
             force_positive=True,
             cache_dataset=True
-        ), create_data_pipeline(
+        )
+        val_data = create_data_pipeline(
             VideoDataLoader(
                 Config.VALID_DATA_PATH,
                 max_videos=None  # Убираем ограничение
@@ -518,10 +519,8 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             is_training=False,
             force_positive=False,
             cache_dataset=True
-        ), class_weights
-        
-        # Преобразуем веса классов в формат TensorFlow
-        tf_class_weights = {i: w for i, w in enumerate(class_weights)}
+        )
+        print(f"[DEBUG] Используемые веса классов для модели: {class_weights}")
         
         # Получаем callbacks
         callbacks = get_training_callbacks(val_data)
@@ -532,7 +531,7 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             epochs=epochs,
             validation_data=val_data,
             callbacks=callbacks,
-            class_weight=tf_class_weights,
+            class_weight=class_weights,
             verbose=1
         )
         

@@ -230,6 +230,10 @@ class UniversalInvertedBottleneck(tf.keras.layers.Layer):
         })
         return config
 
+    def compute_output_shape(self, input_shape):
+        # input_shape: (batch, height, width, channels)
+        return (input_shape[0], input_shape[1], input_shape[2], self.filters)
+
 class MemoryClearCallback(Callback):
     def on_epoch_begin(self, epoch, logs=None):
         gc.collect()
