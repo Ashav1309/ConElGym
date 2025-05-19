@@ -41,9 +41,15 @@ train_loader = None
 val_loader = None
 train_data = None
 val_data = None
+# Добавляем глобальные переменные для кэширования данных
+cached_train_sequences = None
+cached_train_labels = None
+cached_val_sequences = None
+cached_val_labels = None
 
 def clear_memory():
     """Очистка памяти"""
+    global train_loader, val_loader, train_data, val_data
     print("\n[DEBUG] ===== Начало очистки памяти =====")
     
     try:
@@ -72,6 +78,12 @@ def clear_memory():
             except Exception as e:
                 print(f"[DEBUG] ✗ Ошибка при очистке GPU: {str(e)}")
         
+        # Очищаем загрузчики и датасеты, но сохраняем кэшированные данные
+        train_loader = None
+        val_loader = None
+        train_data = None
+        val_data = None
+        
     except Exception as e:
         print(f"[DEBUG] ✗ Критическая ошибка при очистке памяти: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
@@ -84,9 +96,31 @@ def load_and_prepare_data(batch_size):
     Загрузка и подготовка данных для подбора гиперпараметров
     """
     global train_loader, val_loader, train_data, val_data
+    global cached_train_sequences, cached_train_labels, cached_val_sequences, cached_val_labels
     
     try:
         print("\n[DEBUG] Загрузка данных для подбора гиперпараметров...")
+        
+        # Если данные уже закэшированы, используем их
+        if (cached_train_sequences is not None and cached_train_labels is not None and
+            cached_val_sequences is not None and cached_val_labels is not None):
+            print("[DEBUG] Используем кэшированные данные...")
+            
+            # Создаем датасеты из кэшированных данных
+            train_data = tf.data.Dataset.from_tensor_slices((cached_train_sequences, cached_train_labels))
+            train_data = train_data.shuffle(len(cached_train_sequences))
+            train_data = train_data.batch(batch_size)
+            train_data = train_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+            
+            val_data = tf.data.Dataset.from_tensor_slices((cached_val_sequences, cached_val_labels))
+            val_data = val_data.batch(batch_size)
+            val_data = val_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+            
+            print(f"[DEBUG] Использовано {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей из кэша")
+            return train_data, val_data
+        
+        # Если данных нет в кэше, загружаем их
+        print("[DEBUG] Загрузка новых данных...")
         
         # Создаем загрузчики данных
         train_loader = VideoDataLoader(
@@ -101,8 +135,8 @@ def load_and_prepare_data(batch_size):
         
         # Кэшируем последовательности для обучения
         print("[DEBUG] Кэширование обучающих последовательностей...")
-        train_sequences = []
-        train_labels = []
+        cached_train_sequences = []
+        cached_train_labels = []
         
         while len(train_loader.processed_video_paths) < len(train_loader.video_paths):
             X, y = train_loader._get_sequence(
@@ -124,13 +158,13 @@ def load_and_prepare_data(batch_size):
                         label = int(y[i])
                     y_one_hot[i, label] = 1
                 
-                train_sequences.append(X)
-                train_labels.append(y_one_hot)
+                cached_train_sequences.append(X)
+                cached_train_labels.append(y_one_hot)
         
         # Кэшируем последовательности для валидации
         print("[DEBUG] Кэширование валидационных последовательностей...")
-        val_sequences = []
-        val_labels = []
+        cached_val_sequences = []
+        cached_val_labels = []
         
         while len(val_loader.processed_video_paths) < len(val_loader.video_paths):
             X, y = val_loader._get_sequence(
@@ -152,21 +186,21 @@ def load_and_prepare_data(batch_size):
                         label = int(y[i])
                     y_one_hot[i, label] = 1
                 
-                val_sequences.append(X)
-                val_labels.append(y_one_hot)
+                cached_val_sequences.append(X)
+                cached_val_labels.append(y_one_hot)
         
         # Создаем датасеты из кэшированных данных
         print("[DEBUG] Создание датасетов из кэшированных данных...")
-        train_data = tf.data.Dataset.from_tensor_slices((train_sequences, train_labels))
-        train_data = train_data.shuffle(len(train_sequences))
+        train_data = tf.data.Dataset.from_tensor_slices((cached_train_sequences, cached_train_labels))
+        train_data = train_data.shuffle(len(cached_train_sequences))
         train_data = train_data.batch(batch_size)
         train_data = train_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
-        val_data = tf.data.Dataset.from_tensor_slices((val_sequences, val_labels))
+        val_data = tf.data.Dataset.from_tensor_slices((cached_val_sequences, cached_val_labels))
         val_data = val_data.batch(batch_size)
         val_data = val_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
-        print(f"[DEBUG] Загружено {len(train_sequences)} обучающих и {len(val_sequences)} валидационных последовательностей")
+        print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей")
         return train_data, val_data
         
     except Exception as e:
