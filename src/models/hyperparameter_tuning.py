@@ -449,10 +449,10 @@ def save_tuning_results(study, total_time, n_trials):
             plt.close()
             
             # График важности параметров
-            fig = optuna.visualization.matplotlib.plot_param_importances(study)
-            fig.suptitle('Важность гиперпараметров', fontsize=18, y=1.02)
-            fig.savefig(os.path.join(tuning_dir, 'param_importances.png'), bbox_inches='tight')
-            plt.close(fig)
+            ax = optuna.visualization.matplotlib.plot_param_importances(study)
+            ax.set_title('Важность гиперпараметров', fontsize=18, pad=20)
+            ax.figure.savefig(os.path.join(tuning_dir, 'param_importances.png'), bbox_inches='tight')
+            plt.close(ax.figure)
             
             # График параллельных координат
             plt.figure(figsize=(15, 10))
