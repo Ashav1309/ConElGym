@@ -171,14 +171,27 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         print(f"  - force_positive: {force_positive}")
         
         def generator():
-            while True:
-                X, y = data_loader._get_sequence(
-                    sequence_length=sequence_length,
-                    target_size=target_size,
-                    force_positive=force_positive,
-                    is_validation=True
-                )
-                if X is not None and y is not None:
+            while True:  # Бесконечный цикл для повторного использования данных
+                try:
+                    X, y = data_loader._get_sequence(
+                        sequence_length=sequence_length,
+                        target_size=target_size,
+                        force_positive=force_positive,
+                        is_validation=True
+                    )
+                    
+                    if X is None or y is None:
+                        print("[DEBUG] Получена пустая последовательность, пропускаем")
+                        continue
+                        
+                    if len(X) == 0 or len(y) == 0:
+                        print("[DEBUG] Получена последовательность нулевой длины, пропускаем")
+                        continue
+                        
+                    if not np.any(y):  # Проверка на пустые метки
+                        print("[DEBUG] Получены пустые метки, пропускаем")
+                        continue
+                    
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
                     for i in range(sequence_length):
                         try:
@@ -198,11 +211,13 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                             print(f"[DEBUG] Тип y[{i}]: {type(y[i])}")
                             if isinstance(y[i], np.ndarray):
                                 print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
-                            raise
+                            continue  # Пропускаем проблемную метку вместо прерывания
+                    
                     yield X, y_one_hot
-                else:
-                    print("[DEBUG] Нет больше подходящих данных для генератора — завершаем работу.")
-                    break
+                    
+                except Exception as e:
+                    print(f"[ERROR] Ошибка в генераторе: {str(e)}")
+                    continue
 
         output_signature = (
             tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),

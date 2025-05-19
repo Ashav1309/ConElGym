@@ -147,6 +147,7 @@ def count_total_sequences(video_paths, sequence_length, step):
 def objective(trial):
     try:
         print(f"\n[DEBUG] Начало триала #{trial.number}")
+        print(f"[DEBUG] Время начала: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Очищаем память перед началом триала
         clear_memory()
@@ -182,6 +183,18 @@ def objective(trial):
             'blur_prob': trial.suggest_float('blur_prob', 0.1, 0.3)
         }
         
+        print(f"[DEBUG] Параметры триала #{trial.number}:")
+        print(f"  - learning_rate: {learning_rate}")
+        print(f"  - dropout_rate: {dropout_rate}")
+        print(f"  - lstm_units: {lstm_units}")
+        print(f"  - model_type: {model_type}")
+        print(f"  - rnn_type: {rnn_type}")
+        print(f"  - temporal_block_type: {temporal_block_type}")
+        print(f"  - clipnorm: {clipnorm}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - augmentation_params: {augmentation_params}")
+        print(f"  - augmentation_probs: {augmentation_probs}")
+        
         # Рассчитываем веса классов
         print(f"[DEBUG] Тип модели: {model_type}")
         print(f"[DEBUG] MODEL_PARAMS: {Config.MODEL_PARAMS}")
@@ -198,88 +211,82 @@ def objective(trial):
                     })
                     print(f"[DEBUG] Загружены веса из файла: {base_weights}")
             else:
-                print(f"[WARNING] Файл конфигурации не найден: {Config.CONFIG_PATH}")
+                print("[WARNING] Файл конфигурации не найден, используем веса по умолчанию")
                 base_weights = {
                     'background': 1.0,
                     'action': 10.0
                 }
-                
-            # Проверяем на None значения
-            if (not isinstance(base_weights, dict) or 
-                'action' not in base_weights or 
-                base_weights['action'] is None or 
-                base_weights['background'] is None):
-                print("[WARNING] Некорректные веса классов в конфигурации")
-                base_weights = {
-                    'background': 1.0,
-                    'action': 10.0
-                }
-                
+            
+            # Создаем и компилируем модель
+            print("[DEBUG] Создание и компиляция модели...")
+            model = create_model_with_params(
+                model_type=model_type,
+                input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+                num_classes=2,
+                params={
+                    'dropout_rate': dropout_rate,
+                    'lstm_units': lstm_units,
+                    'rnn_type': rnn_type,
+                    'temporal_block_type': temporal_block_type
+                },
+                class_weights=base_weights
+            )
+            
+            optimizer = Adam(
+                learning_rate=learning_rate,
+                clipnorm=clipnorm
+            )
+            
+            model.compile(
+                optimizer=optimizer,
+                loss=focal_loss(gamma=2.0, alpha=[base_weights['background'], base_weights['action']]),
+                metrics=get_tuning_metrics()
+            )
+            
+            print("[DEBUG] Модель успешно создана и скомпилирована")
+            
+            # Загружаем данные
+            print("[DEBUG] Загрузка данных...")
+            train_data, val_data = load_and_prepare_data(batch_size)
+            print("[DEBUG] Данные успешно загружены")
+            
+            # Создаем колбэки
+            print("[DEBUG] Создание колбэков...")
+            callbacks = get_tuning_callbacks(trial.number)
+            print("[DEBUG] Колбэки успешно созданы")
+            
+            # Обучаем модель
+            print("[DEBUG] Начало обучения модели...")
+            history = model.fit(
+                train_data,
+                epochs=Config.HYPERPARAM_TUNING['epochs'],
+                validation_data=val_data,
+                callbacks=callbacks,
+                verbose=1
+            )
+            print("[DEBUG] Обучение модели завершено")
+            
+            # Получаем лучший F1-score
+            best_f1 = max(history.history['val_f1_score'])
+            print(f"[DEBUG] Лучший F1-score: {best_f1}")
+            
+            # Очищаем память
+            clear_memory()
+            
+            return best_f1
+            
         except Exception as e:
-            print(f"[WARNING] Ошибка при получении весов классов: {str(e)}")
-            print("[WARNING] Используем значения по умолчанию")
-            base_weights = {
-                'background': 1.0,
-                'action': 10.0
-            }
-
-        print(f"[DEBUG] Используемые базовые веса: {base_weights}")
-        weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.2)
-        action_weight = float(base_weights['action']) * (1 + weight_deviation)
-
-        class_weights = {
-            'background': 1.0,  # Фон всегда 1.0
-            'action': action_weight
-        }
-        
-        print(f"[DEBUG] Подобранные веса классов:")
-        print(f"  - Базовые веса: {base_weights}")
-        print(f"  - Отклонение: {weight_deviation:.2%}")
-        print(f"  - Итоговые веса: {class_weights}")
-        
-        # Загружаем данные для текущего триала
-        train_data, val_data = load_and_prepare_data(batch_size)
-        
-        # Создаем и компилируем модель
-        model = create_and_compile_model(
-            params={
-                'learning_rate': learning_rate,
-                'dropout_rate': dropout_rate,
-                'lstm_units': lstm_units,
-                'model_type': model_type,
-                'rnn_type': rnn_type,
-                'temporal_block_type': temporal_block_type,
-                'clipnorm': clipnorm,
-                'augmentation_params': augmentation_params,
-                'augmentation_probs': augmentation_probs
-            },
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-            num_classes=Config.NUM_CLASSES,
-            class_weights=class_weights
-        )
-        
-        # Создаем callbacks
-        callbacks = get_tuning_callbacks(trial.number)
-        
-        # Обучаем модель
-        history = model.fit(
-            train_data,
-            epochs=Config.HYPERPARAM_TUNING['epochs'],
-            validation_data=val_data,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # Очищаем память после обучения
-        clear_memory()
-        
-        # Возвращаем лучший F1-score на валидации
-        return max(history.history['val_f1_score'])
-        
+            print(f"[ERROR] Ошибка в процессе обучения: {str(e)}")
+            print("[DEBUG] Stack trace:", flush=True)
+            traceback.print_exc()
+            clear_memory()
+            raise
+            
     except Exception as e:
-        print(f"[ERROR] Ошибка при выполнении триала: {str(e)}")
+        print(f"[ERROR] Критическая ошибка в триале #{trial.number}: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
+        clear_memory()
         raise
 
 def save_tuning_results(study, total_time, n_trials):

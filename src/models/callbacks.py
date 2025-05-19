@@ -72,13 +72,13 @@ def get_training_callbacks(val_data, config=None):
     
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_f1',
+            monitor='val_f1_score',
             patience=config['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_f1',
+            monitor='val_f1_score',
             factor=config['reduce_lr_factor'],
             patience=config['reduce_lr_patience'],
             min_lr=config['min_lr'],
@@ -96,13 +96,13 @@ def get_tuning_callbacks(trial_number):
     """
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_f1',
+            monitor='val_f1_score',
             patience=5,
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_f1',
+            monitor='val_f1_score',
             factor=0.5,
             patience=3,
             min_lr=1e-6,
@@ -110,7 +110,7 @@ def get_tuning_callbacks(trial_number):
         ),
         tf.keras.callbacks.ModelCheckpoint(
             f'best_model_trial_{trial_number}.h5',
-            monitor='val_f1',
+            monitor='val_f1_score',
             save_best_only=True,
             mode='max'
         ),
