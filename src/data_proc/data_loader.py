@@ -638,8 +638,9 @@ class VideoDataLoader:
             max_resets = 5  # Увеличиваем количество сбросов
             
             print(f"\n[DEBUG] Начало поиска случайного видео")
-            print(f"[DEBUG] Всего видео: {len(self.video_paths)}")
-            print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}")
+            print(f"[DEBUG] Всего видео в датасете: {self.total_videos}")
+            print(f"[DEBUG] Видео в текущей порции: {len(self.video_paths)}")
+            print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
             
             while attempts < max_attempts:
                 print(f"\n[DEBUG] Попытка {attempts + 1}/{max_attempts}")
@@ -681,6 +682,9 @@ class VideoDataLoader:
                     for video_path in list(self.annotations_cache.keys()):
                         if video_path not in self.video_paths:
                             del self.annotations_cache[video_path]
+                    
+                    print(f"[DEBUG] Загружена новая порция видео: {len(self.video_paths)} видео")
+                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     
                     attempts = 0
                     continue
