@@ -471,11 +471,12 @@ class TransformerBlock(tf.keras.layers.Layer):
         self.att = tf.keras.layers.MultiHeadAttention(
             num_heads=self.num_heads,
             key_dim=self.embed_dim // self.num_heads,
-            value_dim=self.embed_dim // self.num_heads
+            value_dim=self.embed_dim // self.num_heads,
+            output_shape=self.embed_dim  # Добавляем output_shape
         )
         self.ffn = tf.keras.Sequential([
             tf.keras.layers.Dense(self.ff_dim, activation="relu"),
-            tf.keras.layers.Dense(self.embed_dim)
+            tf.keras.layers.Dense(input_shape[-1])  # Используем размерность входных данных
         ])
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -590,7 +591,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     if class_weights is None:
         class_weights = {
             'background': 1.0,
-            'action': 4.3
+            'action': 10
         }
     
     tf_class_weights = {
@@ -722,7 +723,7 @@ def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class
         print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
         class_weights = {
             'background': 1.0,
-            'action': 4.3
+            'action': 10
         }
     
     # Преобразуем веса в формат для TensorFlow

@@ -140,7 +140,7 @@ class Config:
         'n_trials': 10,  
         'timeout': 7200,
         'n_jobs': 1,
-        'epochs': 20, 
+        'epochs': 10, 
         'early_stopping_patience': 5,
         'min_epochs': 20,
         'validation_split': 0.2,
