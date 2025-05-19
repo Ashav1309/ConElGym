@@ -565,58 +565,78 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
 
 def plot_training_results(history, save_dir):
     """
-    Сохранение графиков процесса обучения
+    Сохранение графиков процесса обучения с улучшенной читаемостью
     
     Args:
         history: история обучения модели
         save_dir: директория для сохранения графиков
     """
+    import matplotlib.ticker as mticker
     # Создаем директорию для графиков
     plots_dir = os.path.join(save_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
+    font = {'size': 14}
+    plt.rc('font', **font)
     
-    # График функции потерь
-    plt.figure(figsize=(12, 4))
+    # График функции потерь и F1
+    plt.figure(figsize=(14, 6))
     plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='train')
-    plt.plot(history.history['val_loss'], label='validation')
-    plt.title('Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
+    plt.plot(history.history['loss'], label='Train', linewidth=2, marker='o')
+    plt.plot(history.history['val_loss'], label='Validation', linewidth=2, marker='s')
+    plt.title('Loss', fontsize=16)
+    plt.xlabel('Epoch', fontsize=14)
+    plt.ylabel('Loss', fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(fontsize=12, rotation=45)
+    plt.yticks(fontsize=12)
     
-    # График метрик
     plt.subplot(1, 2, 2)
-    plt.plot(history.history['f1_score'], label='train')
-    plt.plot(history.history['val_f1_score'], label='validation')
-    plt.title('F1 Score')
-    plt.xlabel('Epoch')
-    plt.ylabel('F1 Score')
-    plt.legend()
-    
+    if 'f1_score' in history.history and 'val_f1_score' in history.history:
+        plt.plot(history.history['f1_score'], label='Train', linewidth=2, marker='o')
+        plt.plot(history.history['val_f1_score'], label='Validation', linewidth=2, marker='s')
+        plt.title('F1 Score', fontsize=16)
+        plt.xlabel('Epoch', fontsize=14)
+        plt.ylabel('F1 Score', fontsize=14)
+        plt.legend(fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(fontsize=12, rotation=45)
+        plt.yticks(fontsize=12)
+    else:
+        plt.text(0.5, 0.5, 'Нет данных F1-score', fontsize=16, ha='center')
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, 'training_history.png'))
     plt.close()
     
-    # График точности
-    plt.figure(figsize=(12, 4))
+    # График точности и AUC
+    plt.figure(figsize=(14, 6))
     plt.subplot(1, 2, 1)
-    plt.plot(history.history['accuracy'], label='train')
-    plt.plot(history.history['val_accuracy'], label='validation')
-    plt.title('Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
+    if 'accuracy' in history.history and 'val_accuracy' in history.history:
+        plt.plot(history.history['accuracy'], label='Train', linewidth=2, marker='o')
+        plt.plot(history.history['val_accuracy'], label='Validation', linewidth=2, marker='s')
+        plt.title('Accuracy', fontsize=16)
+        plt.xlabel('Epoch', fontsize=14)
+        plt.ylabel('Accuracy', fontsize=14)
+        plt.legend(fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(fontsize=12, rotation=45)
+        plt.yticks(fontsize=12)
+    else:
+        plt.text(0.5, 0.5, 'Нет данных Accuracy', fontsize=16, ha='center')
     
-    # График AUC
     plt.subplot(1, 2, 2)
-    plt.plot(history.history['auc'], label='train')
-    plt.plot(history.history['val_auc'], label='validation')
-    plt.title('AUC')
-    plt.xlabel('Epoch')
-    plt.ylabel('AUC')
-    plt.legend()
-    
+    if 'auc' in history.history and 'val_auc' in history.history:
+        plt.plot(history.history['auc'], label='Train', linewidth=2, marker='o')
+        plt.plot(history.history['val_auc'], label='Validation', linewidth=2, marker='s')
+        plt.title('AUC', fontsize=16)
+        plt.xlabel('Epoch', fontsize=14)
+        plt.ylabel('AUC', fontsize=14)
+        plt.legend(fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(fontsize=12, rotation=45)
+        plt.yticks(fontsize=12)
+    else:
+        plt.text(0.5, 0.5, 'Нет данных AUC', fontsize=16, ha='center')
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, 'metrics.png'))
     plt.close()
