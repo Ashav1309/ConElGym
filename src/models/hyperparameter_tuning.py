@@ -152,18 +152,16 @@ def objective(trial):
         clear_memory()
         
         # Получаем гиперпараметры
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)  # Уменьшаем диапазон learning rate
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 64, 256)
         model_type = Config.MODEL_TYPE
-        # rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
-        # temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'tcn', '3d_attention', 'transformer'])
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['tcn', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 16 для лучшей стабильности
-        batch_size = trial.suggest_int('batch_size', 8, 64, step=8)
+        batch_size = trial.suggest_int('batch_size', 8, 64, step=16)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
         # Подбираем параметры аугментации
@@ -180,34 +178,13 @@ def objective(trial):
             'brightness_prob': trial.suggest_float('brightness_prob', 0.3, 0.7),
             'contrast_prob': trial.suggest_float('contrast_prob', 0.3, 0.7),
             'rotation_prob': trial.suggest_float('rotation_prob', 0.3, 0.7),
-            'noise_prob': trial.suggest_float('noise_prob', 0.2, 0.4),
+            'noise_prob': trial.suggest_float('noise_prob', 0.2, 0.5),
             'blur_prob': trial.suggest_float('blur_prob', 0.1, 0.3)
         }
         
-        # Обновляем параметры аугментации в конфиге
-        Config.AUGMENTATION.update(augmentation_params)
-        Config.AUGMENTATION.update(augmentation_probs)
-        
-        print(f"[DEBUG] Подобранные параметры аугментации:")
-        print(f"  - Параметры: {augmentation_params}")
-        print(f"  - Вероятности: {augmentation_probs}")
-        
-        # Загружаем базовые веса из config_weights.json
-        try:
-            with open(Config.CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                base_weights = config['class_weights']
-                print(f"[DEBUG] Загружены базовые веса из конфига: {base_weights}")
-        except Exception as e:
-            print(f"[WARNING] Не удалось загрузить веса классов из конфига: {str(e)}")
-            print("[WARNING] Используем значения по умолчанию.")
-            base_weights = {
-                'background': 1.0,
-                'action': 10 
-            }
-        
-        # Подбираем веса с меньшим отклонением для более стабильного обучения
-        weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.0)
+        # Рассчитываем веса классов
+        base_weights = Config.MODEL_PARAMS[model_type]['class_weights']
+        weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.2)
         action_weight = base_weights['action'] * (1 + weight_deviation)
         
         class_weights = {
@@ -260,10 +237,9 @@ def objective(trial):
         return max(history.history['val_f1_score'])
         
     except Exception as e:
-        print(f"[ERROR] Ошибка в триале #{trial.number}: {str(e)}")
+        print(f"[ERROR] Ошибка при выполнении триала: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         traceback.print_exc()
-        clear_memory()
         raise
 
 def save_tuning_results(study, total_time, n_trials):

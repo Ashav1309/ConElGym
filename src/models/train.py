@@ -168,6 +168,13 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         tf.data.Dataset: оптимизированный dataset
     """
     try:
+        print("\n[DEBUG] Создание pipeline данных для подбора гиперпараметров...")
+        print(f"[DEBUG] Параметры:")
+        print(f"  - sequence_length: {sequence_length}")
+        print(f"  - batch_size: {batch_size}")
+        print(f"  - target_size: {target_size}")
+        print(f"  - force_positive: {force_positive}")
+        
         # Создаем генератор данных
         def generator():
             while True:
@@ -175,7 +182,8 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                 X, y = data_loader._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
-                    force_positive=force_positive
+                    force_positive=force_positive,
+                    is_validation=True  # Для подбора гиперпараметров используем валидационный режим
                 )
                 if X is not None and y is not None:
                     # Преобразуем метки в one-hot encoding для 2 классов
@@ -221,10 +229,22 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
             output_signature=output_signature
         )
         
-        # Оптимизируем производительность
+        # Оптимизируем производительность согласно конфигурации
         dataset = dataset.batch(batch_size)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
+        # Применяем аугментацию только если она включена в конфигурации
+        if Config.AUGMENTATION['enabled']:
+            dataset = dataset.map(
+                lambda x, y: tf.py_function(
+                    lambda x, y: augment_rare_classes(x, y, is_training=True),
+                    [x, y],
+                    [tf.float32, tf.float32]
+                ),
+                num_parallel_calls=Config.MEMORY_OPTIMIZATION['num_parallel_calls']
+            )
+        
+        print("[DEBUG] Pipeline данных для подбора гиперпараметров успешно создан")
         return dataset
         
     except Exception as e:
