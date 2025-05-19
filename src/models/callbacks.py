@@ -115,7 +115,6 @@ class PickleModelCheckpoint(Callback):
 def get_training_callbacks(val_data, config=None):
     """
     Получение callbacks для обучения модели
-    
     Args:
         val_data: валидационные данные
         config: конфигурация с параметрами callbacks
@@ -130,13 +129,13 @@ def get_training_callbacks(val_data, config=None):
     
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_f1_score',
+            monitor='val_scalar_f1_score',
             patience=config['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_f1_score',
+            monitor='val_scalar_f1_score',
             factor=config['reduce_lr_factor'],
             patience=config['reduce_lr_patience'],
             min_lr=config['min_lr'],
@@ -145,7 +144,7 @@ def get_training_callbacks(val_data, config=None):
         AdaptiveThresholdCallback(validation_data=val_data),
         PickleModelCheckpoint(
             os.path.join(model_dir, 'model.pkl'),
-            monitor='val_f1_score',
+            monitor='val_scalar_f1_score',
             save_best_only=True,
             mode='max'
         )
