@@ -4,6 +4,23 @@ from tensorflow.keras.callbacks import Callback
 from typing import Tuple
 from src.config import Config
 
+class ScalarF1Score(tf.keras.metrics.Metric):
+    """
+    Метрика F1-score, которая возвращает скалярное значение
+    """
+    def __init__(self, name='scalar_f1_score', **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.f1 = tf.keras.metrics.F1Score(threshold=0.5)
+        
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        self.f1.update_state(y_true, y_pred, sample_weight)
+        
+    def result(self):
+        return tf.reduce_mean(self.f1.result())
+        
+    def reset_states(self):
+        self.f1.reset_states()
+
 class AdaptiveThresholdCallback(Callback):
     """
     Callback для поиска оптимального порога классификации
@@ -55,13 +72,13 @@ def get_training_callbacks(val_data, config=None):
     
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_f1_score_element',
+            monitor='val_f1',
             patience=config['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_f1_score_element',
+            monitor='val_f1',
             factor=config['reduce_lr_factor'],
             patience=config['reduce_lr_patience'],
             min_lr=config['min_lr'],
@@ -79,13 +96,13 @@ def get_tuning_callbacks(trial_number):
     """
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_f1_score',
+            monitor='val_f1',
             patience=5,
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_f1_score',
+            monitor='val_f1',
             factor=0.5,
             patience=3,
             min_lr=1e-6,
@@ -93,7 +110,7 @@ def get_tuning_callbacks(trial_number):
         ),
         tf.keras.callbacks.ModelCheckpoint(
             f'best_model_trial_{trial_number}.h5',
-            monitor='val_f1_score',
+            monitor='val_f1',
             save_best_only=True,
             mode='max'
         ),

@@ -220,7 +220,7 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         if Config.AUGMENTATION['enabled']:
             dataset = dataset.map(
                 lambda x, y: tf.py_function(
-                    lambda x, y: augment_rare_classes(x, y, is_training=True),
+                    lambda x, y: augment_rare_classes(x, y, is_training=False),  # Меняем на False для валидации
                     [x, y],
                     [tf.float32, tf.float32]
                 ),

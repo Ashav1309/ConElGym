@@ -117,11 +117,11 @@ class Config:
         'flip_prob': 0.5,
         'scale_prob': 0.5,
         'scale_range': 0.1,
-        'shift_prob': 0.5,
+        'shift_prob': 0,
         'shift_range': 0.1,
         'noise_prob': 0.3,
         'noise_std': 0.05,
-        'blur_prob': 0.2,
+        'blur_prob': 0,
         'blur_sigma': 1.0
     }
     
