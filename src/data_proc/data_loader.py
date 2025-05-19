@@ -491,11 +491,11 @@ class VideoDataLoader:
                         if action_ratio > 0.3:  # Уменьшаем порог для положительных последовательностей
                             action_dominant_sequences.append(frames_array)
                             action_dominant_labels.append(sequence_label)
-                            print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
+                            # print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
                         else:
                             background_dominant_sequences.append(frames_array)
                             background_dominant_labels.append(sequence_label)
-                            print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
+                            # print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
                     
                     sequence_attempts += 1
             
