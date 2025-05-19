@@ -103,11 +103,11 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
             
             while True:
                 # Если все видео обработаны, загружаем новую порцию
-                if len(loader.processed_videos) >= len(loader.video_paths):
+                if len(loader.processed_video_paths) >= len(loader.video_paths):
                     print("[DEBUG] Все видео обработаны, загружаем новую порцию")
                     loader.current_batch_videos = []
                     loader.video_paths = loader._get_video_paths()
-                    loader.processed_videos = set()
+                    loader.processed_video_paths = set()
                     continue
 
                 X, y = loader._get_sequence(
@@ -120,11 +120,11 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                 if X is None or y is None:
                     print("[DEBUG] Получена пустая последовательность, пропускаем")
                     continue
-                    
+                
                 if len(X) == 0 or len(y) == 0:
                     print("[DEBUG] Получена последовательность нулевой длины, пропускаем")
                     continue
-                    
+                
                 if not np.any(y):  # Проверка на пустые метки
                     print("[DEBUG] Получены пустые метки, пропускаем")
                     continue
@@ -468,6 +468,31 @@ def load_best_params(model_type=None):
         default_params['lstm_units'] = 128
     return default_params
 
+def cache_all_data(data_loader, sequence_length, target_size, force_positive, is_validation):
+    sequences = []
+    labels = []
+    while len(data_loader.processed_video_paths) < len(data_loader.video_paths):
+        X, y = data_loader._get_sequence(
+            sequence_length=sequence_length,
+            target_size=target_size,
+            force_positive=force_positive,
+            is_validation=is_validation
+        )
+        if X is not None and y is not None and len(X) > 0 and len(y) > 0 and np.any(y):
+            y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
+            for i in range(sequence_length):
+                if isinstance(y[i], np.ndarray):
+                    if y[i].size == 2:
+                        label = np.argmax(y[i])
+                    else:
+                        label = int(y[i].item())
+                else:
+                    label = int(y[i])
+                y_one_hot[i, label] = 1
+            sequences.append(X)
+            labels.append(y_one_hot)
+    return np.array(sequences), np.array(labels)
+
 def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
     if model_type is None:
         model_type = Config.MODEL_TYPE
@@ -493,53 +518,46 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         else:
             class_weights = {'background': 1.0, 'action': 1.0}
 
-        # Для передачи в модель нужны строковые ключи
-        if isinstance(list(class_weights.keys())[0], int):
-            class_weights_for_model = {
-                'background': class_weights.get(0, 1.0),
-                'action': class_weights.get(1, 1.0)
-            }
-        else:
-            class_weights_for_model = class_weights
+        # Используем create_tuning_data_pipeline для генерации данных (как при тюнинге)
+        print("[DEBUG] Создание обучающего pipeline данных...")
+        train_loader = VideoDataLoader(
+            Config.TRAIN_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS if hasattr(Config, 'MAX_VIDEOS') else None
+        )
+        train_data = create_tuning_data_pipeline(
+            train_loader,
+            Config.SEQUENCE_LENGTH,
+            batch_size,
+            Config.INPUT_SIZE,
+            force_positive=True
+        )
 
+        print("[DEBUG] Создание валидационного pipeline данных...")
+        val_loader = VideoDataLoader(
+            Config.VALID_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS if hasattr(Config, 'MAX_VIDEOS') else None
+        )
+        val_data = create_tuning_data_pipeline(
+            val_loader,
+            Config.SEQUENCE_LENGTH,
+            batch_size,
+            Config.INPUT_SIZE,
+            force_positive=False
+        )
+
+        print(f"[DEBUG] Используемые веса классов для модели: {class_weights}")
+        
+        # Получаем callbacks
+        callbacks = get_training_callbacks(val_data)
+        
         # Создаем модель
         model = create_model_with_params(
             model_type=model_type,
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             params=best_params,
-            class_weights=class_weights_for_model
+            class_weights=class_weights
         )
-        
-        # Загружаем данные
-        train_data = create_data_pipeline(
-            VideoDataLoader(
-                Config.TRAIN_DATA_PATH,
-                max_videos=None  # Убираем ограничение
-            ),
-            Config.SEQUENCE_LENGTH,
-            batch_size,
-            Config.INPUT_SIZE,
-            is_training=True,
-            force_positive=True,
-            cache_dataset=True
-        )
-        val_data = create_data_pipeline(
-            VideoDataLoader(
-                Config.VALID_DATA_PATH,
-                max_videos=None  # Убираем ограничение
-            ),
-            Config.SEQUENCE_LENGTH,
-            batch_size,
-            Config.INPUT_SIZE,
-            is_training=False,
-            force_positive=False,
-            cache_dataset=True
-        )
-        print(f"[DEBUG] Используемые веса классов для модели: {class_weights}")
-        
-        # Получаем callbacks
-        callbacks = get_training_callbacks(val_data)
         
         # Обучаем модель (без class_weight)
         history = model.fit(
