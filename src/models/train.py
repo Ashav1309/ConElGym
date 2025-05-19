@@ -468,8 +468,24 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         best_params = load_best_params()
         if best_params is None:
             print("[WARNING] Не удалось загрузить лучшие параметры, используем значения по умолчанию")
-            best_params = Config.MODEL_PARAMS
-        
+            best_params = {
+                'learning_rate': 1e-4,
+                'dropout_rate': 0.3,
+                'batch_size': Config.BATCH_SIZE,
+                'positive_class_weight': 1.0
+            }
+        # Загружаем веса классов из config_weights.json
+        try:
+            if os.path.exists(Config.CONFIG_PATH):
+                with open(Config.CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                    class_weights = config.get('class_weights', {'background': 1.0, 'action': 10.0})
+            else:
+                class_weights = {'background': 1.0, 'action': 10.0}
+        except Exception as e:
+            print(f"[WARNING] Не удалось загрузить веса классов: {str(e)}")
+            class_weights = {'background': 1.0, 'action': 10.0}
+
         # Создаем модель
         model = create_model_with_params(
             model_type=model_type,
