@@ -27,6 +27,7 @@ from src.utils.gpu_config import setup_gpu
 import time
 import argparse
 import pickle
+from src.models.metrics import get_tuning_metrics
 
 # Настройка GPU
 setup_gpu()
@@ -545,6 +546,13 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             num_classes=Config.NUM_CLASSES,
             params=best_params,
             class_weights=class_weights
+        )
+        
+        # Используем те же метрики, что и при тюнинге
+        model.compile(
+            optimizer=model.optimizer,
+            loss=model.loss,
+            metrics=get_tuning_metrics()
         )
         
         # Обучаем модель
