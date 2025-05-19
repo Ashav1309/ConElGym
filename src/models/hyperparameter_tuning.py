@@ -471,6 +471,7 @@ def save_tuning_results(study, total_time, n_trials):
             
         except Exception as e:
             print(f"[WARNING] Ошибка при создании визуализаций: {str(e)}")
+            traceback.print_exc()
         
         print(f"[DEBUG] Результаты сохранены в {tuning_dir}")
         
