@@ -453,23 +453,25 @@ def plot_tuning_results(study):
 
 def plot_training_results(history, save_path):
     """
-    Визуализация результатов обучения и сохранение графиков в PNG
+    Визуализация результатов обучения
     """
     try:
         print("\n[DEBUG] Визуализация результатов обучения...")
-
+        
+        # Валидация входных параметров
         if not isinstance(history, tf.keras.callbacks.History):
             raise ValueError("history должен быть экземпляром tf.keras.callbacks.History")
-
+            
         if not os.path.exists(save_path):
             raise ValueError(f"Директория не существует: {save_path}")
-
+        
         # Создаем директорию для графиков
         plot_path = os.path.join(save_path, 'plots')
         os.makedirs(plot_path, exist_ok=True)
-
-        # 1. Графики потерь и точности
+        
+        # Графики потерь и точности
         plt.figure(figsize=(12, 5))
+        
         plt.subplot(1, 2, 1)
         plt.plot(history.history['loss'], label='Training Loss')
         plt.plot(history.history['val_loss'], label='Validation Loss')
@@ -478,7 +480,7 @@ def plot_training_results(history, save_path):
         plt.ylabel('Loss')
         plt.legend()
         plt.grid(True)
-
+        
         plt.subplot(1, 2, 2)
         plt.plot(history.history['accuracy'], label='Training Accuracy')
         plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
@@ -487,16 +489,16 @@ def plot_training_results(history, save_path):
         plt.ylabel('Accuracy')
         plt.legend()
         plt.grid(True)
-
+        
         plt.tight_layout()
         plt.savefig(os.path.join(plot_path, 'training_metrics.png'))
         plt.close()
-
-        # 2. График F1-score
-        if 'f1_score_element' in history.history and 'val_f1_score_element' in history.history:
+        
+        # График F1-score
+        if 'scalar_f1_score' in history.history and 'val_scalar_f1_score' in history.history:
             plt.figure(figsize=(6, 4))
-            plt.plot(history.history['f1_score_element'], label='Training F1-score')
-            plt.plot(history.history['val_f1_score_element'], label='Validation F1-score')
+            plt.plot(history.history['scalar_f1_score'], label='Training F1-score')
+            plt.plot(history.history['val_scalar_f1_score'], label='Validation F1-score')
             plt.title('F1-score')
             plt.xlabel('Epoch')
             plt.ylabel('F1-score')
@@ -505,38 +507,12 @@ def plot_training_results(history, save_path):
             plt.tight_layout()
             plt.savefig(os.path.join(plot_path, 'f1_score.png'))
             plt.close()
-
-        # 3. Precision и Recall (если есть)
-        if 'precision_element' in history.history and 'val_precision_element' in history.history:
-            plt.figure(figsize=(6, 4))
-            plt.plot(history.history['precision_element'], label='Training Precision')
-            plt.plot(history.history['val_precision_element'], label='Validation Precision')
-            plt.title('Precision')
-            plt.xlabel('Epoch')
-            plt.ylabel('Precision')
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
-            plt.savefig(os.path.join(plot_path, 'precision.png'))
-            plt.close()
-
-        if 'recall_element' in history.history and 'val_recall_element' in history.history:
-            plt.figure(figsize=(6, 4))
-            plt.plot(history.history['recall_element'], label='Training Recall')
-            plt.plot(history.history['val_recall_element'], label='Validation Recall')
-            plt.title('Recall')
-            plt.xlabel('Epoch')
-            plt.ylabel('Recall')
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
-            plt.savefig(os.path.join(plot_path, 'recall.png'))
-            plt.close()
-
-        print("[DEBUG] Результаты обучения успешно визуализированы и сохранены в PNG.")
-
+        
+        print("[DEBUG] Результаты обучения успешно визуализированы")
+        
     except Exception as e:
         print(f"[ERROR] Ошибка при визуализации результатов: {str(e)}")
+        print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
         raise 

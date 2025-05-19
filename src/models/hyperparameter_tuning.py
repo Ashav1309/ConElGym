@@ -11,7 +11,9 @@ from src.models.model import (
     create_model_with_params,
     create_mobilenetv3_model,
     create_mobilenetv4_model,
-    f1_score_element
+    postprocess_predictions,
+    indices_to_seconds,
+    merge_classes
 )
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
@@ -19,10 +21,7 @@ from src.models.losses import focal_loss
 from src.models.metrics import get_tuning_metrics
 from src.models.callbacks import get_tuning_callbacks
 from src.utils.gpu_config import setup_gpu
-
-# Настройка GPU
-setup_gpu()
-
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -31,9 +30,11 @@ import subprocess
 import sys
 import cv2
 from optuna.trial import Trial
-from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
-from src.models.train import create_data_pipeline, create_tuning_data_pipeline  # Импортируем общую функцию и новую функцию
+from src.models.train import create_data_pipeline, create_tuning_data_pipeline
+
+# Настройка GPU
+setup_gpu()
 
 # Объявляем глобальные переменные в начале файла
 train_loader = None

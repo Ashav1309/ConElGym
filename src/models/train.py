@@ -1,14 +1,15 @@
 import tensorflow as tf
 from src.models.model import create_model_with_params
 from src.data_proc.data_loader import VideoDataLoader
-from src.config import Config
+from src.config import Config, plot_training_results
 import os
 import matplotlib.pyplot as plt
 from tensorflow.keras.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
     ReduceLROnPlateau,
-    Callback
+    Callback,
+    CSVLogger
 )
 import numpy as np
 import gc
@@ -592,8 +593,8 @@ def plot_training_results(history, save_path):
         
         # График F1-score
         plt.figure(figsize=(6, 4))
-        plt.plot(history.history['f1_score_element'], label='Training F1-score')
-        plt.plot(history.history['val_f1_score_element'], label='Validation F1-score')
+        plt.plot(history.history['scalar_f1_score'], label='Training F1-score')
+        plt.plot(history.history['val_scalar_f1_score'], label='Validation F1-score')
         plt.title('F1-score')
         plt.xlabel('Epoch')
         plt.ylabel('F1-score')

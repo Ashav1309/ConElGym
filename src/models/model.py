@@ -24,6 +24,7 @@ from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
 import numpy as np
 import json
+from src.models.metrics import get_training_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,6 @@ __all__ = [
     'create_mobilenetv4_model',
     'postprocess_predictions',
     'indices_to_seconds',
-    'f1_score_element',
     'merge_classes'
 ]
 
@@ -45,30 +45,6 @@ def merge_classes(y):
     """
     # Берем второй элемент (индекс 1) как класс действия
     return tf.cast(y[..., 1], tf.int32)
-
-def f1_score_element(y_true, y_pred):
-    """
-    Вычисление F1-score для элемента с учетом временной размерности и one-hot encoded меток
-    """
-    # Объединяем классы
-    y_true_bin = merge_classes(y_true)
-    y_pred_bin = merge_classes(y_pred)
-    
-    true_positives = tf.reduce_sum(tf.cast((y_true_bin == 1) & (y_pred_bin == 1), tf.float32))
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred_bin == 1, tf.float32))
-    possible_positives = tf.reduce_sum(tf.cast(y_true_bin == 1, tf.float32))
-    
-    # Добавляем epsilon для предотвращения деления на ноль
-    epsilon = tf.keras.backend.epsilon()
-    
-    # Вычисляем precision и recall
-    precision = true_positives / (predicted_positives + epsilon)
-    recall = true_positives / (possible_positives + epsilon)
-    
-    # Вычисляем F1-score
-    f1 = 2 * (precision * recall) / (precision + recall + epsilon)
-    
-    return f1
 
 class SpatialAttention(tf.keras.layers.Layer):
     def __init__(self, kernel_size=7):
