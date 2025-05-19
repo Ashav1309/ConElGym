@@ -187,20 +187,28 @@ def objective(trial):
         print(f"[DEBUG] MODEL_PARAMS: {Config.MODEL_PARAMS}")
 
         try:
-            if model_type not in Config.MODEL_PARAMS:
-                print(f"[WARNING] Тип модели {model_type} не найден в конфигурации")
+            # Загружаем веса из файла конфигурации
+            if os.path.exists(Config.CONFIG_PATH):
+                print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
+                with open(Config.CONFIG_PATH, 'r') as f:
+                    config = json.load(f)
+                    base_weights = config.get('class_weights', {
+                        'background': 1.0,
+                        'action': 10.0
+                    })
+                    print(f"[DEBUG] Загружены веса из файла: {base_weights}")
+            else:
+                print(f"[WARNING] Файл конфигурации не найден: {Config.CONFIG_PATH}")
                 base_weights = {
                     'background': 1.0,
                     'action': 10.0
                 }
-            else:
-                base_weights = Config.MODEL_PARAMS[model_type].get('class_weights', {
-                    'background': 1.0,
-                    'action': 10.0
-                })
-                print(f"[DEBUG] Получены веса из конфигурации: {base_weights}")
                 
-            if not isinstance(base_weights, dict) or 'action' not in base_weights:
+            # Проверяем на None значения
+            if (not isinstance(base_weights, dict) or 
+                'action' not in base_weights or 
+                base_weights['action'] is None or 
+                base_weights['background'] is None):
                 print("[WARNING] Некорректные веса классов в конфигурации")
                 base_weights = {
                     'background': 1.0,
