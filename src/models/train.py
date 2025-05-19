@@ -230,11 +230,11 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
             while True:  # Бесконечный цикл для повторного использования данных
                 try:
                     # Если все видео обработаны, загружаем новую порцию
-                    if len(data_loader.processed_videos) >= len(data_loader.video_paths):
+                    if len(data_loader.processed_video_paths) >= len(data_loader.video_paths):
                         print("[DEBUG] Все видео обработаны, загружаем новую порцию")
                         data_loader.current_batch_videos = []
                         data_loader.video_paths = data_loader._get_video_paths()
-                        data_loader.processed_videos = set()
+                        data_loader.processed_video_paths = set()
                         continue
 
                     X, y = data_loader._get_sequence(
