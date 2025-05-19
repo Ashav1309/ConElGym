@@ -742,6 +742,7 @@ class VideoDataLoader:
                     total_frames = self._get_video_info(video_path).total_frames
                     empty_labels = np.zeros((total_frames, 2))
                     self.annotations_cache[video_path] = empty_labels
+                    self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
                     return None, None
             except Exception as e:
                 logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
@@ -749,6 +750,7 @@ class VideoDataLoader:
                 total_frames = self._get_video_info(video_path).total_frames
                 empty_labels = np.zeros((total_frames, 2))
                 self.annotations_cache[video_path] = empty_labels
+                self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
                 return None, None
 
         # Инициализируем счетчик для видео, если его еще нет
@@ -788,13 +790,19 @@ class VideoDataLoader:
                     total_readable_frames = len(self.used_frames_cache.get(video_path, set()))
                     if total_readable_frames >= video_info.total_frames - sequence_length:
                         logger.debug(f"Все прочитанные кадры видео {os.path.basename(video_path)} использованы")
-                        self.processed_video_paths.add(video_path)
-                        logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos}")
+                        self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
+                        logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
                 return X_seq, y_seq
+            else:
+                # Если не удалось создать последовательность, помечаем видео как обработанное
+                self.processed_video_paths.add(video_path)
+                logger.debug(f"Не удалось создать последовательность для видео {os.path.basename(video_path)}")
+                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
         except Exception as e:
             logger.error(f"Ошибка при создании последовательности: {str(e)}")
+            self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные при ошибке
             return None, None
 
         return None, None
