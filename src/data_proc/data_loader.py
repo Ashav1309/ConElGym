@@ -634,6 +634,7 @@ class VideoDataLoader:
             max_resets = 3
             
             while attempts < max_attempts:
+                logger.debug(f"[DEBUG] Попытка {attempts + 1}/{max_attempts}")
                 # Проверяем, все ли видео в текущей порции обработаны
                 available_videos = []
                 for video_path in self.video_paths:
