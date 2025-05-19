@@ -694,7 +694,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         'accuracy',
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        SequenceFBetaScore(name='f1_score_action', beta=1.0, threshold=0.5)
+        ScalarF1Score(name='scalar_f1_score')
     ]
     
     model.compile(
@@ -780,7 +780,7 @@ def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class
         'accuracy',
         tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
         tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
-        F1ScoreAdapter(name='f1_score_action', class_id=1, threshold=0.5)                 # F1-score для класса "действие"
+        ScalarF1Score(name='scalar_f1_score')                                             # F1-score для класса "действие"
     ]
     
     model.compile(
