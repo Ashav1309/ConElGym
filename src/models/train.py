@@ -493,6 +493,17 @@ def cache_all_data(data_loader, sequence_length, target_size, force_positive, is
             labels.append(y_one_hot)
     return np.array(sequences), np.array(labels)
 
+def to_serializable(val):
+    if isinstance(val, (np.ndarray,)):
+        return val.tolist()
+    if isinstance(val, (tf.Tensor,)):
+        return val.numpy().tolist()
+    if isinstance(val, dict):
+        return {k: to_serializable(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [to_serializable(v) for v in val]
+    return val
+
 def train(model_type: str = None, epochs: int = 10, batch_size: int = None):
     if model_type is None:
         model_type = Config.MODEL_TYPE
@@ -641,7 +652,7 @@ def train(model_type: str = None, epochs: int = 10, batch_size: int = None):
             'history': history.history
         }
         with open(os.path.join(model_dir, 'metadata.json'), 'w') as f:
-            json.dump(metadata, f, indent=4)
+            json.dump(to_serializable(metadata), f, indent=4)
         
         plot_training_results(history, model_dir)
         
