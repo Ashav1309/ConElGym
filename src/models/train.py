@@ -69,19 +69,18 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
 
         def generator():
             while True:
-                # Получаем следующую последовательность
-                X, y = loader._get_sequence(
+                # Получаем следующий батч
+                X_batch, y_batch = loader.get_batch(
+                    batch_size=1,  # Получаем один пример за раз
                     sequence_length=sequence_length,
                     target_size=target_size,
-                    force_positive=force_positive
+                    force_positive=force_positive,
+                    is_validation=not is_training
                 )
-                if X is not None and y is not None:
-                    # print(f"[DEBUG] Форма входных данных X: {X.shape}")
-                    # print(f"[DEBUG] Форма меток y: {y.shape}")
-                    # print(f"[DEBUG] Тип меток y: {type(y)}")
-                    # print(f"[DEBUG] Тип первого элемента y: {type(y[0])}")
-                    # if isinstance(y[0], np.ndarray):
-                        # print(f"[DEBUG] Форма первого элемента y: {y[0].shape}")
+                if X_batch is not None and y_batch is not None:
+                    # Берем первый (и единственный) пример из батча
+                    X = X_batch[0]
+                    y = y_batch[0]
                     
                     # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
@@ -103,8 +102,6 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                             else:
                                 label = int(y[i])
                                 y_one_hot[i, label] = 1
-                            
-                            # print(f"[DEBUG] Обработка метки {i}: исходное значение = {y[i]}, преобразованное = {label}")
                         except Exception as e:
                             print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
                             print(f"[DEBUG] Значение y[{i}]: {y[i]}")
@@ -113,8 +110,6 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                                 print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
                             raise
                     
-                    # print(f"[DEBUG] Итоговая форма one-hot encoding: {y_one_hot.shape}")
-                    # print(f"[DEBUG] Сумма меток в one-hot encoding: {np.sum(y_one_hot)}")
                     yield X, y_one_hot
 
         # Создаем dataset напрямую из генератора
@@ -176,22 +171,49 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         # Создаем генератор данных
         def generator():
             while True:
-                X_batch, y_batch = data_loader.get_batch(
-                    batch_size=batch_size,
+                # Получаем следующую последовательность
+                X, y = data_loader._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
-                    force_positive=force_positive,
-                    is_validation=True  # Отключаем аугментацию
+                    force_positive=force_positive
                 )
-                if X_batch is not None and y_batch is not None:
-                    yield X_batch, y_batch
+                if X is not None and y is not None:
+                    # Преобразуем метки в one-hot encoding для 2 классов
+                    y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
+                    
+                    # Используем правильную индексацию для создания one-hot encoding
+                    for i in range(sequence_length):
+                        try:
+                            # Проверяем, является ли y[i] массивом
+                            if isinstance(y[i], np.ndarray):
+                                if y[i].size == 2:  # Если это one-hot encoding
+                                    # Находим индекс максимального значения (класс)
+                                    label = np.argmax(y[i])
+                                    # Создаем one-hot encoding
+                                    y_one_hot[i, label] = 1
+                                else:
+                                    # Если это скалярное значение
+                                    label = int(y[i].item())
+                                    y_one_hot[i, label] = 1
+                            else:
+                                label = int(y[i])
+                                y_one_hot[i, label] = 1
+                        except Exception as e:
+                            print(f"[ERROR] Ошибка при обработке метки {i}: {str(e)}")
+                            print(f"[DEBUG] Значение y[{i}]: {y[i]}")
+                            print(f"[DEBUG] Тип y[{i}]: {type(y[i])}")
+                            if isinstance(y[i], np.ndarray):
+                                print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
+                            raise
+                    
+                    yield X, y_one_hot
                 else:
                     break
 
         # Создаем dataset из генератора
         output_signature = (
-            tf.TensorSpec(shape=(None, sequence_length, *target_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(None, sequence_length, 2), dtype=tf.float32)
+            tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)
         )
         
         dataset = tf.data.Dataset.from_generator(
@@ -200,6 +222,7 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         )
         
         # Оптимизируем производительность
+        dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         
         return dataset
