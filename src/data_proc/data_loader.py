@@ -404,13 +404,7 @@ class VideoDataLoader:
         Создает последовательности кадров из видео.
         """
         try:
-            print(f"\n[DEBUG] Начало создания последовательностей для видео: {os.path.basename(video_path)}")
-            print(f"[DEBUG] Параметры:")
-            print(f"  - sequence_length: {sequence_length}")
-            print(f"  - max_sequences: {max_sequences}")
-            print(f"  - step: {step}")
-            print(f"  - force_positive: {force_positive}")
-            print(f"  - Размер меток: {labels.shape}")
+            print(f"\n[DEBUG] Обработка видео: {os.path.basename(video_path)}")
             
             # Проверяем наличие действий в видео
             has_actions = np.any(labels[:, 1] == 1)
@@ -420,7 +414,6 @@ class VideoDataLoader:
             
             # Загружаем видео и получаем количество кадров
             cap, total_frames = self.load_video(video_path)
-            print(f"[DEBUG] Видео содержит {total_frames} кадров")
             
             if cap is None:
                 print("[DEBUG] Не удалось загрузить видео")
@@ -449,11 +442,6 @@ class VideoDataLoader:
             if in_action:
                 action_segments.append((start_frame, total_frames - 1))
             
-            print(f"[DEBUG] Найдено {len(action_segments)} сегментов с действиями")
-            print(f"[DEBUG] Обработано кадров при поиске сегментов: {processed_frames}")
-            for i, (start, end) in enumerate(action_segments):
-                print(f"[DEBUG] Сегмент {i+1}: кадры {start}-{end} (длина: {end-start+1})")
-            
             # Создаем последовательности
             action_dominant_sequences = []  # Последовательности с преобладанием действия
             action_dominant_labels = []
@@ -463,7 +451,6 @@ class VideoDataLoader:
             max_sequence_attempts = min(max_sequences * 2, 100)  # Ограничиваем количество попыток
             sequence_attempts = 0
             processed_frames = 0  # Сбрасываем счетчик для подсчета кадров при создании последовательностей
-            print(f"[DEBUG] Начинаем создание последовательностей (максимум {max_sequence_attempts} попыток)")
             
             # Сначала создаем последовательности из сегментов с действиями
             for start_frame, end_frame in action_segments:
@@ -477,9 +464,6 @@ class VideoDataLoader:
                     if np.any(sequence_label[:, 1] == 1):  # Есть хотя бы один кадр с действием
                         possible_starts.append(i)
                     processed_frames += sequence_length
-                
-                print(f"[DEBUG] В сегменте {start_frame}-{end_frame} найдено {len(possible_starts)} возможных начальных позиций")
-                print(f"[DEBUG] Обработано кадров в сегменте: {processed_frames}")
                 
                 # Создаем последовательности из этого сегмента
                 for start_idx in possible_starts:
@@ -498,7 +482,6 @@ class VideoDataLoader:
                             frame = cv2.resize(frame, (self.frame_size, self.frame_size))
                             frames.append(frame)
                         except Exception as e:
-                            print(f"[DEBUG] Ошибка при изменении размера кадра: {str(e)}")
                             break
                     
                     if len(frames) == sequence_length:
@@ -509,21 +492,16 @@ class VideoDataLoader:
                         if action_ratio > 0.3:  # Уменьшаем порог для положительных последовательностей
                             action_dominant_sequences.append(frames_array)
                             action_dominant_labels.append(sequence_label)
-                            # print(f"[DEBUG] Добавлена положительная последовательность (доля действия: {action_ratio:.2%})")
                         else:
                             background_dominant_sequences.append(frames_array)
                             background_dominant_labels.append(sequence_label)
-                            # print(f"[DEBUG] Добавлена отрицательная последовательность (доля действия: {action_ratio:.2%})")
                     
                     sequence_attempts += 1
             
             # Если не набрали достаточно последовательностей, создаем дополнительные
             if len(action_dominant_sequences) + len(background_dominant_sequences) < max_sequences:
-                print(f"[DEBUG] Недостаточно последовательностей ({len(action_dominant_sequences) + len(background_dominant_sequences)}), создаем дополнительные")
-                
                 # Находим кадры с минимальным действием для создания отрицательных последовательностей
                 min_action_frames = np.where(labels[:, 1] < 0.1)[0]  # Уменьшаем порог для отрицательных последовательностей
-                print(f"[DEBUG] Найдено {len(min_action_frames)} кадров с минимальным действием")
                 
                 # Перемешиваем индексы для случайного выбора
                 np.random.shuffle(min_action_frames)
@@ -557,7 +535,6 @@ class VideoDataLoader:
                             frame = cv2.resize(frame, (self.frame_size, self.frame_size))
                             frames.append(frame)
                         except Exception as e:
-                            print(f"[DEBUG] Ошибка при изменении размера кадра: {str(e)}")
                             break
                     
                     if len(frames) == sequence_length:
@@ -567,18 +544,16 @@ class VideoDataLoader:
                         if action_ratio < 0.1:  # Проверяем, что последовательность действительно отрицательная
                             background_dominant_sequences.append(frames_array)
                             background_dominant_labels.append(sequence_label)
-                            print(f"[DEBUG] Добавлена отрицательная последовательность из кадров с минимальным действием (доля действия: {action_ratio:.2%})")
                             negative_attempts += 1
                     
                     sequence_attempts += 1
                     processed_frames += sequence_length
             
             cap.release()
-            print(f"\n[DEBUG] Завершено создание последовательностей:")
-            print(f"  - Всего попыток: {sequence_attempts}")
+            
+            print(f"[DEBUG] Результаты обработки видео {os.path.basename(video_path)}:")
             print(f"  - Положительных последовательностей: {len(action_dominant_sequences)}")
             print(f"  - Отрицательных последовательностей: {len(background_dominant_sequences)}")
-            print(f"  - Всего обработано кадров: {processed_frames}")
             
             # Если нет последовательностей, возвращаем None
             if not action_dominant_sequences and not background_dominant_sequences:
@@ -618,20 +593,10 @@ class VideoDataLoader:
                     X = all_sequences[idx]
                     y = all_labels[idx]
             
-            print(f"\n[DEBUG] Итоговые результаты:")
-            print(f"  - Всего последовательностей: {len(all_sequences)}")
-            print(f"  - Положительных: {len(action_dominant_sequences)}")
-            print(f"  - Отрицательных: {len(background_dominant_sequences)}")
-            print(f"  - Выбрана последовательность типа: {'действие' if np.any(y[:, 1] == 1) else 'фон'}")
-            print(f"  - Всего обработано кадров: {processed_frames}")
-            
             return X, y
             
         except Exception as e:
             print(f"[ERROR] Ошибка при создании последовательности: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            import traceback
-            traceback.print_exc()
             if cap is not None:
                 cap.release()
             return None, None
@@ -758,30 +723,23 @@ class VideoDataLoader:
                     empty_labels = np.zeros((total_frames, 2))
                     self.annotations_cache[video_path] = empty_labels
                     self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
-                    logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                    print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     return None, None
             except Exception as e:
-                logger.error(f"Ошибка при загрузке аннотаций: {str(e)}")
                 # Создаем пустые аннотации и добавляем в кэш
                 total_frames = self._get_video_info(video_path).total_frames
                 empty_labels = np.zeros((total_frames, 2))
                 self.annotations_cache[video_path] = empty_labels
                 self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
-                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                 return None, None
 
         # Инициализируем счетчик для видео, если его еще нет
-        logger.debug(f"[DEBUG] Инициализируем счетчик для видео: {video_path}")
         if video_path not in self.sequence_counter:
             self.sequence_counter[video_path] = 0
 
         # Получаем последовательность
         try:
-            logger.debug(f"[DEBUG] Создаем последовательность для видео: {video_path}")
-            logger.debug(f"[DEBUG] Параметры:")
-            logger.debug(f"  - force_positive: {force_positive}")
-            logger.debug(f"  - is_validation: {is_validation}")
-            
             X_seq, y_seq = self.create_sequences(
                 video_path=video_path,
                 labels=self.annotations_cache[video_path],
@@ -795,9 +753,8 @@ class VideoDataLoader:
                 # Создаём уникальный идентификатор только для одной последовательности
                 seq_id = f"{os.path.basename(video_path)}_{self.sequence_counter[video_path]}"
                 if seq_id in self.used_sequences:
-                    logger.debug(f"Последовательность {seq_id} уже использована")
                     self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
-                    logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                    print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     return None, None
 
                 self.used_sequences.add(seq_id)
@@ -808,26 +765,22 @@ class VideoDataLoader:
                 if video_info:
                     total_readable_frames = len(self.used_frames_cache.get(video_path, set()))
                     if total_readable_frames >= video_info.total_frames - sequence_length:
-                        logger.debug(f"Все прочитанные кадры видео {os.path.basename(video_path)} использованы")
                         self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные
-                        logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                        print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
                 # Помечаем видео как обработанное после успешного создания последовательности
                 self.processed_video_paths.add(video_path)
-                logger.debug(f"Видео успешно обработано: {os.path.basename(video_path)}")
-                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
                 return X_seq, y_seq
             else:
                 # Если не удалось создать последовательность, помечаем видео как обработанное
                 self.processed_video_paths.add(video_path)
-                logger.debug(f"Не удалось создать последовательность для видео {os.path.basename(video_path)}")
-                logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+                print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
 
         except Exception as e:
-            logger.error(f"Ошибка при создании последовательности: {str(e)}")
             self.processed_video_paths.add(video_path)  # Добавляем видео в обработанные при ошибке
-            logger.debug(f"Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+            print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
             return None, None
 
         return None, None
