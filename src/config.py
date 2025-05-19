@@ -10,14 +10,14 @@ import glob
 
 class Config:
     # Пути
-    BASE_DIR = Path(__file__).parent
-    CONFIG_PATH = os.path.join(BASE_DIR, 'config_weights.json')
-    MODEL_PATH = os.path.join(BASE_DIR, 'models', 'best_model.h5')
+    PROJECT_ROOT = Path(__file__).parent.parent  # Поднимаемся на уровень выше src/
+    CONFIG_PATH = os.path.join(PROJECT_ROOT, 'src', 'config_weights.json')
+    MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'best_model.h5')
     
     # Базовые пути
-    DATA_DIR = os.path.abspath(os.path.join(BASE_DIR.parent, 'data'))
-    MODEL_SAVE_PATH = os.path.abspath(os.path.join(BASE_DIR.parent, 'models'))
-    LOG_DIR = os.path.abspath(os.path.join(BASE_DIR.parent, 'logs'))
+    DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+    MODEL_SAVE_PATH = os.path.join(PROJECT_ROOT, 'models')
+    LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
