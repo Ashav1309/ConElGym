@@ -83,7 +83,8 @@ class Config:
         'cache_dataset': False,  # Отключаем кэширование для экономии памяти
         'shuffle_buffer_size': 64,  # Размер буфера для перемешивания
         'prefetch_buffer_size': tf.data.AUTOTUNE,  # Размер буфера для предзагрузки
-        'num_parallel_calls': tf.data.AUTOTUNE  # Количество параллельных вызовов
+        'num_parallel_calls': tf.data.AUTOTUNE,  # Количество параллельных вызовов
+        'cache_size': 100  # Размер кэша для последовательностей
     }
     
     # Параметры устройства

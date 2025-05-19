@@ -28,8 +28,16 @@ from src.utils.gpu_config import setup_gpu
 # Настройка GPU
 setup_gpu()
 
+# Глобальные переменные для кэширования данных
+cached_train_sequences = None
+cached_train_labels = None
+cached_val_sequences = None
+cached_val_labels = None
+
 def clear_memory():
     """Очистка памяти"""
+    global cached_train_sequences, cached_train_labels, cached_val_sequences, cached_val_labels
+    
     # Очищаем все сессии TensorFlow
     tf.keras.backend.clear_session()
     
@@ -57,6 +65,8 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         force_positive: принудительно использовать положительные примеры
         cache_dataset: кэшировать датасет (используется только для небольших наборов данных)
     """
+    global cached_train_sequences, cached_train_labels, cached_val_sequences, cached_val_labels
+    
     try:
         print("\n[DEBUG] Создание pipeline данных...")
         print(f"[DEBUG] Параметры:")
@@ -68,7 +78,26 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         print(f"  - cache_dataset: {cache_dataset}")
         print(f"[DEBUG] RAM до создания датасета: {psutil.virtual_memory().used / 1024**3:.2f} GB")
 
+        # Проверяем наличие кэшированных данных
+        if is_training and cached_train_sequences is not None and cached_train_labels is not None:
+            print("[DEBUG] Используем кэшированные обучающие данные...")
+            dataset = tf.data.Dataset.from_tensor_slices((cached_train_sequences, cached_train_labels))
+            dataset = dataset.shuffle(len(cached_train_sequences))
+            dataset = dataset.batch(batch_size)
+            dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+            return dataset
+            
+        if not is_training and cached_val_sequences is not None and cached_val_labels is not None:
+            print("[DEBUG] Используем кэшированные валидационные данные...")
+            dataset = tf.data.Dataset.from_tensor_slices((cached_val_sequences, cached_val_labels))
+            dataset = dataset.batch(batch_size)
+            dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+            return dataset
+
         def generator():
+            sequences = []
+            labels = []
+            
             while True:
                 # Если все видео обработаны, загружаем новую порцию
                 if len(loader.processed_videos) >= len(loader.video_paths):
@@ -115,6 +144,22 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                         if isinstance(y[i], np.ndarray):
                             print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
                         continue  # Пропускаем проблемную метку вместо прерывания
+
+                # Сохраняем последовательности для кэширования
+                if cache_dataset:
+                    sequences.append(X)
+                    labels.append(y_one_hot)
+                    
+                    # Если накопили достаточно последовательностей, кэшируем их
+                    if len(sequences) >= Config.MEMORY_OPTIMIZATION['cache_size']:
+                        if is_training:
+                            cached_train_sequences = np.array(sequences)
+                            cached_train_labels = np.array(labels)
+                        else:
+                            cached_val_sequences = np.array(sequences)
+                            cached_val_labels = np.array(labels)
+                        sequences = []
+                        labels = []
 
                 yield X, y_one_hot
 
