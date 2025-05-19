@@ -15,11 +15,17 @@ def get_training_metrics():
             self.f1 = tf.keras.metrics.F1Score(threshold=0.5)
             
         def update_state(self, y_true, y_pred, sample_weight=None):
+             # Преобразуем входные данные в 2D
+            batch_size = tf.shape(y_true)[0]
             y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
             y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
+            # Добавить бинаризацию
             y_pred = tf.cast(y_pred > 0.5, tf.float32)
+            
             if sample_weight is not None:
                 sample_weight = tf.reshape(sample_weight, [-1])
+            
+            # Обновляем метрики
             self.precision.update_state(y_true, y_pred, sample_weight)
             self.recall.update_state(y_true, y_pred, sample_weight)
             self.f1.update_state(y_true, y_pred, sample_weight)
