@@ -514,26 +514,84 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             raise ValueError(f"Файл конфигурации не найден: {Config.CONFIG_PATH}")
 
         # Создаем загрузчики данных
-        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
-        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
-
-        # Создаем датасеты
-        train_data = create_tuning_data_pipeline(
-            train_loader,
-            Config.SEQUENCE_LENGTH,
-            batch_size,
-            Config.INPUT_SIZE,
-            force_positive=True
+        train_loader = VideoDataLoader(
+            data_path=Config.TRAIN_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
+        )
+        
+        val_loader = VideoDataLoader(
+            data_path=Config.VALID_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
         )
 
-        val_data = create_tuning_data_pipeline(
-            val_loader,
-            Config.SEQUENCE_LENGTH,
-            batch_size,
-            Config.INPUT_SIZE,
-            force_positive=False
-        )
-
+        # Кэшируем последовательности для обучения
+        print("[DEBUG] Кэширование обучающих последовательностей...")
+        cached_train_sequences = []
+        cached_train_labels = []
+        
+        while len(train_loader.processed_video_paths) < len(train_loader.video_paths):
+            X, y = train_loader._get_sequence(
+                sequence_length=Config.SEQUENCE_LENGTH,
+                target_size=Config.INPUT_SIZE,
+                force_positive=True,
+                is_validation=False
+            )
+            
+            if X is not None and y is not None and len(X) > 0 and len(y) > 0 and np.any(y):
+                y_one_hot = np.zeros((Config.SEQUENCE_LENGTH, 2), dtype=np.float32)
+                for i in range(Config.SEQUENCE_LENGTH):
+                    if isinstance(y[i], np.ndarray):
+                        if y[i].size == 2:
+                            label = np.argmax(y[i])
+                        else:
+                            label = int(y[i].item())
+                    else:
+                        label = int(y[i])
+                    y_one_hot[i, label] = 1
+                
+                cached_train_sequences.append(X)
+                cached_train_labels.append(y_one_hot)
+        
+        # Кэшируем последовательности для валидации
+        print("[DEBUG] Кэширование валидационных последовательностей...")
+        cached_val_sequences = []
+        cached_val_labels = []
+        
+        while len(val_loader.processed_video_paths) < len(val_loader.video_paths):
+            X, y = val_loader._get_sequence(
+                sequence_length=Config.SEQUENCE_LENGTH,
+                target_size=Config.INPUT_SIZE,
+                force_positive=False,
+                is_validation=True
+            )
+            
+            if X is not None and y is not None and len(X) > 0 and len(y) > 0 and np.any(y):
+                y_one_hot = np.zeros((Config.SEQUENCE_LENGTH, 2), dtype=np.float32)
+                for i in range(Config.SEQUENCE_LENGTH):
+                    if isinstance(y[i], np.ndarray):
+                        if y[i].size == 2:
+                            label = np.argmax(y[i])
+                        else:
+                            label = int(y[i].item())
+                    else:
+                        label = int(y[i])
+                    y_one_hot[i, label] = 1
+                
+                cached_val_sequences.append(X)
+                cached_val_labels.append(y_one_hot)
+        
+        # Создаем датасеты из кэшированных данных
+        print("[DEBUG] Создание датасетов из кэшированных данных...")
+        train_data = tf.data.Dataset.from_tensor_slices((cached_train_sequences, cached_train_labels))
+        train_data = train_data.shuffle(len(cached_train_sequences))
+        train_data = train_data.batch(batch_size)
+        train_data = train_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+        
+        val_data = tf.data.Dataset.from_tensor_slices((cached_val_sequences, cached_val_labels))
+        val_data = val_data.batch(batch_size)
+        val_data = val_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
+        
+        print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей")
         print(f"[DEBUG] Используемые веса классов для модели: {class_weights}")
         
         # Получаем callbacks
