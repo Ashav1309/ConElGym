@@ -485,17 +485,13 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
                 'batch_size': batch_size,
                 'positive_class_weight': 1.0
             }
-        # Загружаем веса классов из config_weights.json
-        try:
-            if os.path.exists(Config.CONFIG_PATH):
-                with open(Config.CONFIG_PATH, 'r') as f:
-                    config = json.load(f)
-                    class_weights = config.get('class_weights', {'background': 1.0, 'action': 10.0})
-            else:
-                class_weights = {'background': 1.0, 'action': 10.0}
-        except Exception as e:
-            print(f"[WARNING] Не удалось загрузить веса классов: {str(e)}")
-            class_weights = {'background': 1.0, 'action': 10.0}
+        # Загружаем веса классов из config_weights.json (только для модели)
+        if os.path.exists(Config.CONFIG_PATH):
+            with open(Config.CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                class_weights = config.get('class_weights', {'background': 1.0, 'action': 1.0})
+        else:
+            class_weights = {'background': 1.0, 'action': 1.0}
 
         # Для передачи в модель нужны строковые ключи
         if isinstance(list(class_weights.keys())[0], int):
@@ -515,13 +511,6 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             class_weights=class_weights_for_model
         )
         
-        # Преобразуем ключи class_weights к int, если они строки (для model.fit)
-        if isinstance(list(class_weights.keys())[0], str):
-            class_weights = {
-                0: class_weights.get('background', 1.0),
-                1: class_weights.get('action', 1.0)
-            }
-
         # Загружаем данные
         train_data = create_data_pipeline(
             VideoDataLoader(
@@ -552,13 +541,12 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         # Получаем callbacks
         callbacks = get_training_callbacks(val_data)
         
-        # Обучаем модель
+        # Обучаем модель (без class_weight)
         history = model.fit(
             train_data,
             epochs=epochs,
             validation_data=val_data,
             callbacks=callbacks,
-            class_weight=class_weights,
             verbose=1
         )
         
