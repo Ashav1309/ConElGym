@@ -239,7 +239,7 @@ def objective(trial):
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 64, 256)
         model_type = Config.MODEL_TYPE
-        rnn_type = trial.suggest_categorical('rnn_type', ['lstm'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn','tcn', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
