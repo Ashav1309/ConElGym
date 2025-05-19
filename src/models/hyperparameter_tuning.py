@@ -313,7 +313,11 @@ def objective(trial):
             print("[DEBUG] Обучение модели завершено")
             
             # Получаем лучший F1-score
-            best_f1 = max(history.history['val_f1_score'])
+            val_f1_scores = history.history['val_scalar_f1_score']
+            if isinstance(val_f1_scores, list):
+                best_f1 = max(val_f1_scores)
+            else:
+                best_f1 = float(val_f1_scores)
             print(f"[DEBUG] Лучший F1-score: {best_f1}")
             
             # Очищаем память
