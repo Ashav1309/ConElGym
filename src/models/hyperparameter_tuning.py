@@ -299,6 +299,8 @@ def objective(trial):
             
             # Создаем и компилируем модель
             print("[DEBUG] Создание и компиляция модели...")
+            print(f"[DEBUG] Передаем тип модели в create_model_with_params: {model_type}")
+            print(f"[DEBUG] Проверка типа модели: {model_type.lower()}")
             model = create_model_with_params(
                 model_type=model_type,
                 input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),

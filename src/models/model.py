@@ -804,29 +804,34 @@ def create_model_with_params(model_type, input_shape, num_classes, params, class
     """
     print("\n[DEBUG] Создание модели с параметрами:")
     print(f"  - Тип модели: {model_type}")
+    print(f"  - Тип модели (lower): {model_type.lower()}")
     print(f"  - Dropout: {params['dropout_rate']}")
     print(f"  - LSTM units: {params.get('lstm_units', 'N/A')}")
     print(f"  - RNN type: {params.get('rnn_type', 'lstm')}")
     print(f"  - Temporal block type: {params.get('temporal_block_type', 'rnn')}")
     print(f"  - Веса классов: {class_weights}")
     
-    if model_type == 'v3':
+    if model_type.lower() == 'v3':
+        print("[DEBUG] Создание модели MobileNetV3...")
         return create_mobilenetv3_model(
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=params['dropout_rate'],
-            lstm_units=params['lstm_units'],
+            lstm_units=params.get('lstm_units', 128),
             class_weights=class_weights,
             rnn_type=params.get('rnn_type', 'lstm'),
             temporal_block_type=params.get('temporal_block_type', 'rnn')
         )
-    else:  # v4
+    elif model_type.lower() == 'v4':
+        print("[DEBUG] Создание модели MobileNetV4...")
         return create_mobilenetv4_model(
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=params['dropout_rate'],
             class_weights=class_weights
         )
+    else:
+        raise ValueError(f"Неизвестный тип модели: {model_type}. Поддерживаемые типы: 'v3', 'v4'")
 
 def postprocess_predictions(preds, threshold=0.5):
     """

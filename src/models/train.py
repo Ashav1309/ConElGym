@@ -463,16 +463,21 @@ def load_best_params(model_type=None):
         default_params['lstm_units'] = 128
     return default_params
 
-def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BATCH_SIZE):
+def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
+    if model_type is None:
+        model_type = Config.MODEL_TYPE
+    if batch_size is None:
+        batch_size = Config.BATCH_SIZE
+    print(f"[DEBUG] Выбран тип модели для обучения: {model_type}")
     try:
         # Загружаем лучшие параметры
-        best_params = load_best_params()
+        best_params = load_best_params(model_type)
         if best_params is None:
             print("[WARNING] Не удалось загрузить лучшие параметры, используем значения по умолчанию")
             best_params = {
                 'learning_rate': 1e-4,
                 'dropout_rate': 0.3,
-                'batch_size': Config.BATCH_SIZE,
+                'batch_size': batch_size,
                 'positive_class_weight': 1.0
             }
         # Загружаем веса классов из config_weights.json
