@@ -21,7 +21,7 @@ import re
 import psutil
 from src.data_proc.augmentation import VideoAugmenter, augment_rare_classes
 from src.models.losses import focal_loss, F1ScoreAdapter
-from src.models.metrics import f1_score_element, get_training_metrics
+from src.models.metrics import get_training_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
 from src.utils.gpu_config import setup_gpu
 
