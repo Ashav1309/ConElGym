@@ -73,7 +73,16 @@ def apply_augmentations(image):
     # Размытие
     if np.random.random() < Config.AUGMENTATION['blur_prob']:
         kernel_size = np.random.choice([3, 5])
-        image = tf.image.gaussian_filter(image, kernel_size, Config.AUGMENTATION['blur_sigma'])
+        # Преобразуем тензор в numpy массив для cv2
+        image_np = image.numpy() if isinstance(image, tf.Tensor) else image
+        # Применяем размытие
+        blurred = cv2.GaussianBlur(
+            image_np,
+            (kernel_size, kernel_size),
+            Config.AUGMENTATION['blur_sigma']
+        )
+        # Преобразуем обратно в тензор
+        image = tf.convert_to_tensor(blurred, dtype=tf.float32)
     
     return image
 
