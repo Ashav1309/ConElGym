@@ -507,6 +507,9 @@ class VideoDataLoader:
                 min_action_frames = np.where(labels[:, 1] < 0.1)[0]  # Уменьшаем порог для отрицательных последовательностей
                 print(f"[DEBUG] Найдено {len(min_action_frames)} кадров с минимальным действием")
                 
+                # Перемешиваем индексы для случайного выбора
+                np.random.shuffle(min_action_frames)
+                
                 for frame_idx in min_action_frames[::step]:  # Используем step
                     if sequence_attempts >= max_sequence_attempts:
                         break
@@ -606,6 +609,7 @@ class VideoDataLoader:
             
             while attempts < max_attempts:
                 print(f"\n[DEBUG] Попытка {attempts + 1}/{max_attempts}")
+                
                 # Проверяем, все ли видео в текущей порции обработаны
                 available_videos = []
                 for video_path in self.video_paths:
@@ -620,6 +624,7 @@ class VideoDataLoader:
                     if reset_count >= max_resets:
                         print("[DEBUG] Слишком много сбросов счетчика попыток")
                         return None
+                        
                     print("[DEBUG] Все видео в текущей порции обработаны")
                     self.current_video_index += self.max_videos
                     
@@ -630,10 +635,19 @@ class VideoDataLoader:
                         
                     # Загружаем следующую порцию видео
                     self._load_video_chunk()
-                    # Очищаем только кэши, связанные с текущей порцией
+                    
+                    # Полностью очищаем состояние для новой чанки
                     self.used_frames_cache.clear()
                     self.used_sequences.clear()
                     self.sequence_counter.clear()
+                    self.video_cache.clear()  # Очищаем кэш видео
+                    self.open_videos.clear()  # Очищаем список открытых видео
+                    
+                    # Очищаем кэш аннотаций для видео из предыдущей чанки
+                    for video_path in list(self.annotations_cache.keys()):
+                        if video_path not in self.video_paths:
+                            del self.annotations_cache[video_path]
+                    
                     attempts = 0
                     continue
                 
@@ -716,6 +730,7 @@ class VideoDataLoader:
                 labels=self.annotations_cache[video_path],
                 sequence_length=sequence_length,
                 max_sequences=self.max_sequences_per_video,
+                step=1,  # Используем шаг 1 для более точного выбора
                 force_positive=force_positive  # Используем переданный параметр
             )
 
