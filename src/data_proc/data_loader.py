@@ -697,6 +697,7 @@ class VideoDataLoader:
                 if not os.path.exists(video_path):
                     print(f"[DEBUG] Видео не найдено: {video_path}")
                     self.processed_video_paths.add(video_path)
+                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     continue
                 
                 # Проверяем, все ли кадры использованы
@@ -705,12 +706,14 @@ class VideoDataLoader:
                     if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
                         print(f"[DEBUG] Все кадры видео {os.path.basename(video_path)} уже использованы")
                         self.processed_video_paths.add(video_path)
+                        print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                         continue
                 
                 # Проверяем, не превышен ли лимит последовательностей
                 if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
                     print(f"[DEBUG] Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
                     self.processed_video_paths.add(video_path)
+                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     continue
                 
                 print(f"[DEBUG] Выбрано видео: {os.path.basename(video_path)}")
