@@ -636,11 +636,18 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     x = Reshape((sequence_length, -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
+    # Добавляем регуляризацию
+    regularizer = tf.keras.regularizers.l2(0.01)
+    
     # Добавляем RNN слой в зависимости от типа
     if rnn_type == 'lstm':
-        x = LSTM(lstm_units, return_sequences=True)(x)
+        x = LSTM(lstm_units, return_sequences=True, 
+                kernel_regularizer=regularizer,
+                recurrent_regularizer=regularizer)(x)
     elif rnn_type == 'bigru':
-        x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
+        x = Bidirectional(GRU(lstm_units, return_sequences=True,
+                            kernel_regularizer=regularizer,
+                            recurrent_regularizer=regularizer))(x)
     else:
         raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
     print(f"[DEBUG] Форма после RNN: {x.shape}")
@@ -657,7 +664,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         import numpy as np
         spatial_dim = int(np.ceil(np.sqrt(x.shape[-1])))
         new_features = spatial_dim * spatial_dim
-        x = Dense(new_features)(x)  # Приводим к квадрату
+        x = Dense(new_features, kernel_regularizer=regularizer)(x)  # Приводим к квадрату
         x = Reshape((sequence_length, spatial_dim, spatial_dim, 1))(x)
         x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
         x = Reshape((sequence_length, -1))(x)
@@ -677,18 +684,18 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     x = BatchNormalization()(x)
     print(f"[DEBUG] Форма после BatchNorm: {x.shape}")
     
-    # Добавляем слой dropout
-    x = Dropout(dropout_rate)(x)
+    # Увеличиваем dropout
+    x = Dropout(dropout_rate + 0.2)(x)  # Увеличиваем dropout
 
     # Добавляем выходной слой для двух классов
-    outputs = Dense(2, activation='sigmoid')(x)  # 2 класса: фон и действие
+    outputs = Dense(2, activation='sigmoid', kernel_regularizer=regularizer)(x)  # 2 класса: фон и действие
     print(f"[DEBUG] Выходная форма: {outputs.shape}")
     
     # Создаем модель
     model = Model(inputs=inputs, outputs=outputs)
     
-    # Оптимизатор
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    # Оптимизатор с меньшим learning rate
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)  # Уменьшаем learning rate
     
     # Метрики для двухклассовой модели
     metrics = get_training_metrics()
