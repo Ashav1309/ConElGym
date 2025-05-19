@@ -69,34 +69,24 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
 
         def generator():
             while True:
-                # Получаем следующий батч
                 X_batch, y_batch = loader.get_batch(
-                    batch_size=1,  # Получаем один пример за раз
+                    batch_size=1,
                     sequence_length=sequence_length,
                     target_size=target_size,
                     force_positive=force_positive,
                     is_validation=not is_training
                 )
                 if X_batch is not None and y_batch is not None:
-                    # Берем первый (и единственный) пример из батча
                     X = X_batch[0]
                     y = y_batch[0]
-                    
-                    # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
-                    
-                    # Используем правильную индексацию для создания one-hot encoding
                     for i in range(sequence_length):
                         try:
-                            # Проверяем, является ли y[i] массивом
                             if isinstance(y[i], np.ndarray):
-                                if y[i].size == 2:  # Если это one-hot encoding
-                                    # Находим индекс максимального значения (класс)
+                                if y[i].size == 2:
                                     label = np.argmax(y[i])
-                                    # Создаем one-hot encoding
                                     y_one_hot[i, label] = 1
                                 else:
-                                    # Если это скалярное значение
                                     label = int(y[i].item())
                                     y_one_hot[i, label] = 1
                             else:
@@ -109,13 +99,20 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
                             if isinstance(y[i], np.ndarray):
                                 print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
                             raise
-                    
                     yield X, y_one_hot
+                else:
+                    # Для обучения: сбрасываем обработанные видео и продолжаем
+                    if is_training:
+                        print("[DEBUG] Все видео обработаны, сбрасываем processed_video_paths и продолжаем обучение...")
+                        loader.processed_video_paths.clear()
+                        continue
+                    else:
+                        print("[DEBUG] Нет больше подходящих данных для генератора — завершаем работу.")
+                        break
 
-        # Создаем dataset напрямую из генератора
         output_signature = (
             tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)  # two-hot encoding для 2 классов
+            tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)
         )
 
         dataset = tf.data.Dataset.from_generator(
@@ -123,7 +120,6 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
             output_signature=output_signature
         )
 
-        # Оптимизация производительности
         if cache_dataset and (not hasattr(loader, 'video_count') or loader.video_count <= 50):
             dataset = dataset.cache()
         if is_training:
@@ -131,7 +127,6 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
 
-        # Применяем аугментацию только в режиме обучения
         if is_training:
             dataset = dataset.map(
                 lambda x, y: tf.py_function(
@@ -175,18 +170,15 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         print(f"  - target_size: {target_size}")
         print(f"  - force_positive: {force_positive}")
         
-        # Создаем генератор данных
         def generator():
             while True:
-                # Получаем следующую последовательность
                 X, y = data_loader._get_sequence(
                     sequence_length=sequence_length,
                     target_size=target_size,
                     force_positive=force_positive,
-                    is_validation=True  # Для подбора гиперпараметров используем валидационный режим
+                    is_validation=True
                 )
                 if X is not None and y is not None:
-                    # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
                     for i in range(sequence_length):
                         try:
@@ -209,9 +201,9 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                             raise
                     yield X, y_one_hot
                 else:
-                    continue  # Вместо break, чтобы генератор не завершался
+                    print("[DEBUG] Нет больше подходящих данных для генератора — завершаем работу.")
+                    break
 
-        # Создаем dataset из генератора
         output_signature = (
             tf.TensorSpec(shape=(sequence_length, *target_size, 3), dtype=tf.float32),
             tf.TensorSpec(shape=(sequence_length, 2), dtype=tf.float32)
@@ -222,11 +214,9 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
             output_signature=output_signature
         )
         
-        # Оптимизируем производительность согласно конфигурации
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
         
-        # Применяем аугментацию только если она включена в конфигурации
         if Config.AUGMENTATION['enabled']:
             dataset = dataset.map(
                 lambda x, y: tf.py_function(
