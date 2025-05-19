@@ -409,7 +409,7 @@ def load_best_params(model_type=None):
     """
     try:
         model_type = model_type or Config.MODEL_TYPE
-        results_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        results_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', model_type)
         params_path = os.path.join(results_dir, 'best_params.json')
 
         # Проверяем существование директории
