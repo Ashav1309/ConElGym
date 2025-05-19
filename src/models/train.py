@@ -405,77 +405,61 @@ def load_best_params(model_type=None):
         model_type = model_type or Config.MODEL_TYPE
         results_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
         params_path = os.path.join(results_dir, 'best_params.json')
-        
+
         # Проверяем существование директории
         if not os.path.exists(results_dir):
             print(f"[DEBUG] Создание директории для результатов: {results_dir}")
             os.makedirs(results_dir, exist_ok=True)
-        
-        # Загружаем веса из конфигурационного файла
+
+        # Загружаем веса классов из config_weights.json
         if os.path.exists(Config.CONFIG_PATH):
-            print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
+            print(f"[DEBUG] Загрузка весов классов из {Config.CONFIG_PATH}")
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
-                positive_class_weight = config['MODEL_PARAMS'][model_type]['positive_class_weight']
-                print(f"[DEBUG] Загружен вес положительного класса: {positive_class_weight}")
+                class_weights = config.get('class_weights', {'background': 1.0, 'action': 1.0})
+                positive_class_weight = class_weights.get('action', 1.0)
         else:
             print(f"[WARNING] Конфигурационный файл не найден: {Config.CONFIG_PATH}")
-            positive_class_weight = None
-        
+            class_weights = {'background': 1.0, 'action': 1.0}
+            positive_class_weight = 1.0
+
         if not os.path.exists(params_path):
             print(f"[DEBUG] Файл с параметрами не найден. Используем параметры по умолчанию для {model_type}.")
             default_params = {
                 'learning_rate': 1e-4,
-                'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+                'dropout_rate': 0.3,
                 'batch_size': Config.BATCH_SIZE,
                 'positive_class_weight': positive_class_weight
             }
             if model_type == 'v3':
-                default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+                default_params['lstm_units'] = 128
             return default_params
-        
+
         print(f"[DEBUG] Загрузка параметров из {params_path}")
         with open(params_path, 'r') as f:
             params = json.load(f)
-            
-            # Проверяем, что параметры соответствуют запрошенному типу модели
-            if params.get('model_type') != model_type:
-                print(f"[WARNING] Параметры в файле соответствуют модели {params.get('model_type')}, а запрошена {model_type}")
-                print("[DEBUG] Используем параметры по умолчанию")
-                default_params = {
-                    'learning_rate': 1e-4,
-                    'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
-                    'batch_size': Config.BATCH_SIZE,
-                    'positive_class_weight': positive_class_weight
-                }
-                if model_type == 'v3':
-                    default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
-                return default_params
-            
             # Объединяем параметры модели и аугментации
             best_params = {**params['model_params'], **params['augmentation_params']}
-            
-            # Добавляем вес положительного класса из конфигурации
             best_params['positive_class_weight'] = positive_class_weight
-            
             print(f"[DEBUG] Загружены лучшие параметры для {model_type}: {best_params}")
             return best_params
-            
+
     except Exception as e:
         print(f"[ERROR] Ошибка при загрузке параметров: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-    
+        positive_class_weight = 1.0
+
     print(f"[DEBUG] Не удалось загрузить параметры для {model_type}. Используем параметры по умолчанию.")
     default_params = {
         'learning_rate': 1e-4,
-        'dropout_rate': Config.MODEL_PARAMS[model_type]['dropout_rate'],
+        'dropout_rate': 0.3,
         'batch_size': Config.BATCH_SIZE,
         'positive_class_weight': positive_class_weight
     }
     if model_type == 'v3':
-        default_params['lstm_units'] = Config.MODEL_PARAMS[model_type]['lstm_units']
+        default_params['lstm_units'] = 128
     return default_params
 
 def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BATCH_SIZE):
