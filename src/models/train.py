@@ -594,8 +594,8 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей")
         print(f"[DEBUG] Используемые веса классов для модели: {class_weights}")
         
-        # Получаем callbacks
-        callbacks = get_training_callbacks(val_data)
+        # Получаем callbacks (передаём кортеж numpy-массивов, как в тюнинге)
+        callbacks = get_training_callbacks((np.array(cached_val_sequences), np.array(cached_val_labels)))
         
         # Создаем модель
         model = create_model_with_params(
