@@ -633,6 +633,7 @@ class VideoDataLoader:
             reset_count = 0
             max_resets = 3
             
+            logger.debug(f"[DEBUG] Начало поиска случайного видео")
             while attempts < max_attempts:
                 logger.debug(f"[DEBUG] Попытка {attempts + 1}/{max_attempts}")
                 # Проверяем, все ли видео в текущей порции обработаны
