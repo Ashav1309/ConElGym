@@ -680,7 +680,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     x = Dropout(dropout_rate)(x)
 
     # Добавляем выходной слой для двух классов
-    outputs = Dense(2, activation='softmax')(x)  # 2 класса: фон и действие
+    outputs = Dense(2, activation='sigmoid')(x)  # 2 класса: фон и действие
     print(f"[DEBUG] Выходная форма: {outputs.shape}")
     
     # Создаем модель
