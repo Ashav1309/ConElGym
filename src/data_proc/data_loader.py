@@ -428,7 +428,7 @@ class VideoDataLoader:
             action_segments = []
             in_action = False
             start_frame = 0
-            processed_frames = 0  # Счетчик обработанных кадров
+            processed_frames = 0
             
             for i in range(total_frames):
                 if labels[i, 1] == 1 and not in_action:
@@ -448,26 +448,29 @@ class VideoDataLoader:
             background_dominant_sequences = []  # Последовательности с преобладанием фона
             background_dominant_labels = []
             
-            max_sequence_attempts = min(max_sequences * 2, 100)  # Ограничиваем количество попыток
-            sequence_attempts = 0
-            processed_frames = 0  # Сбрасываем счетчик для подсчета кадров при создании последовательностей
+            # Ограничиваем количество последовательностей каждого типа
+            max_positive = int(max_sequences * 0.75)  # 75% положительных
+            max_negative = max_sequences - max_positive  # 25% отрицательных
             
-            # Сначала создаем последовательности из сегментов с действиями
+            # Сначала создаем положительные последовательности из сегментов с действиями
+            sequence_attempts = 0
+            max_sequence_attempts = min(max_positive * 2, 100)
+            
             for start_frame, end_frame in action_segments:
-                if sequence_attempts >= max_sequence_attempts:
+                if sequence_attempts >= max_sequence_attempts or len(action_dominant_sequences) >= max_positive:
                     break
                 
                 # Вычисляем возможные начальные позиции для последовательностей
                 possible_starts = []
-                for i in range(start_frame, end_frame - sequence_length + 2, step):  # Используем step
+                for i in range(start_frame, end_frame - sequence_length + 2, step):
                     sequence_label = labels[i:i + sequence_length]
-                    if np.any(sequence_label[:, 1] == 1):  # Есть хотя бы один кадр с действием
+                    if np.any(sequence_label[:, 1] == 1):
                         possible_starts.append(i)
                     processed_frames += sequence_length
                 
                 # Создаем последовательности из этого сегмента
                 for start_idx in possible_starts:
-                    if sequence_attempts >= max_sequence_attempts:
+                    if sequence_attempts >= max_sequence_attempts or len(action_dominant_sequences) >= max_positive:
                         break
                     
                     # Читаем кадры для последовательности
@@ -489,65 +492,56 @@ class VideoDataLoader:
                         sequence_label = labels[start_idx:start_idx + sequence_length]
                         action_ratio = np.mean(sequence_label[:, 1])
                         
-                        if action_ratio > 0.3:  # Уменьшаем порог для положительных последовательностей
+                        if action_ratio > 0.3:
                             action_dominant_sequences.append(frames_array)
                             action_dominant_labels.append(sequence_label)
-                        else:
-                            background_dominant_sequences.append(frames_array)
-                            background_dominant_labels.append(sequence_label)
                     
                     sequence_attempts += 1
             
-            # Если не набрали достаточно последовательностей, создаем дополнительные
-            if len(action_dominant_sequences) + len(background_dominant_sequences) < max_sequences:
-                # Находим кадры с минимальным действием для создания отрицательных последовательностей
-                min_action_frames = np.where(labels[:, 1] < 0.1)[0]  # Уменьшаем порог для отрицательных последовательностей
+            # Теперь создаем отрицательные последовательности
+            sequence_attempts = 0
+            max_sequence_attempts = min(max_negative * 2, 100)
+            
+            # Находим кадры с минимальным действием
+            min_action_frames = np.where(labels[:, 1] < 0.1)[0]
+            np.random.shuffle(min_action_frames)
+            
+            # Создаем отрицательные последовательности
+            for frame_idx in min_action_frames[::step]:
+                if sequence_attempts >= max_sequence_attempts or len(background_dominant_sequences) >= max_negative:
+                    break
+                    
+                if frame_idx + sequence_length > total_frames:
+                    continue
                 
-                # Перемешиваем индексы для случайного выбора
-                np.random.shuffle(min_action_frames)
+                # Проверяем, что все кадры в последовательности имеют минимальное действие
+                sequence_label = labels[frame_idx:frame_idx + sequence_length]
+                if np.any(sequence_label[:, 1] > 0.1):
+                    continue
                 
-                # Ограничиваем количество попыток создания отрицательных последовательностей
-                max_negative_attempts = min(max_sequences - len(action_dominant_sequences), 50)
-                negative_attempts = 0
+                # Читаем кадры
+                frames = []
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
                 
-                # Создаем отрицательные последовательности
-                for frame_idx in min_action_frames[::step]:  # Используем step
-                    if sequence_attempts >= max_sequence_attempts or negative_attempts >= max_negative_attempts:
+                for _ in range(sequence_length):
+                    ret, frame = cap.read()
+                    if not ret:
                         break
-                        
-                    if frame_idx + sequence_length > total_frames:
-                        continue
+                    try:
+                        frame = cv2.resize(frame, (self.frame_size, self.frame_size))
+                        frames.append(frame)
+                    except Exception as e:
+                        break
+                
+                if len(frames) == sequence_length:
+                    frames_array = np.array(frames)
+                    action_ratio = np.mean(sequence_label[:, 1])
                     
-                    # Проверяем, что все кадры в последовательности имеют минимальное действие
-                    sequence_label = labels[frame_idx:frame_idx + sequence_length]
-                    if np.any(sequence_label[:, 1] > 0.1):  # Пропускаем, если есть кадры с действием
-                        continue
-                    
-                    # Читаем кадры
-                    frames = []
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                    
-                    for _ in range(sequence_length):
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        try:
-                            frame = cv2.resize(frame, (self.frame_size, self.frame_size))
-                            frames.append(frame)
-                        except Exception as e:
-                            break
-                    
-                    if len(frames) == sequence_length:
-                        frames_array = np.array(frames)
-                        action_ratio = np.mean(sequence_label[:, 1])
-                        
-                        if action_ratio < 0.1:  # Проверяем, что последовательность действительно отрицательная
-                            background_dominant_sequences.append(frames_array)
-                            background_dominant_labels.append(sequence_label)
-                            negative_attempts += 1
-                    
-                    sequence_attempts += 1
-                    processed_frames += sequence_length
+                    if action_ratio < 0.1:
+                        background_dominant_sequences.append(frames_array)
+                        background_dominant_labels.append(sequence_label)
+                
+                sequence_attempts += 1
             
             cap.release()
             
