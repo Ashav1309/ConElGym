@@ -206,7 +206,7 @@ def create_data_pipeline(loader, sequence_length, batch_size, target_size, is_tr
 
 def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target_size, force_positive=False):
     """
-    Создание оптимизированного pipeline данных для подбора гиперпараметров
+    Создание оптимизированного pipeline данных для обучения
     
     Args:
         data_loader: VideoDataLoader
@@ -219,7 +219,7 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
         tf.data.Dataset: оптимизированный dataset
     """
     try:
-        print("\n[DEBUG] Создание pipeline данных для подбора гиперпараметров...")
+        print("\n[DEBUG] Создание pipeline данных для обучения...")
         print(f"[DEBUG] Параметры:")
         print(f"  - sequence_length: {sequence_length}")
         print(f"  - batch_size: {batch_size}")
@@ -306,7 +306,7 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                 num_parallel_calls=Config.MEMORY_OPTIMIZATION['num_parallel_calls']
             )
         
-        print("[DEBUG] Pipeline данных для подбора гиперпараметров успешно создан")
+        print("[DEBUG] Pipeline данных для обучения успешно создан")
         return dataset
         
     except Exception as e:
@@ -500,30 +500,24 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         batch_size = Config.BATCH_SIZE
     print(f"[DEBUG] Выбран тип модели для обучения: {model_type}")
     try:
-        # Загружаем лучшие параметры
+        # Загружаем лучшие параметры из файла
         best_params = load_best_params(model_type)
         if best_params is None:
-            print("[WARNING] Не удалось загрузить лучшие параметры, используем значения по умолчанию")
-            best_params = {
-                'learning_rate': 1e-4,
-                'dropout_rate': 0.3,
-                'batch_size': batch_size,
-                'positive_class_weight': 1.0
-            }
-        # Загружаем веса классов из config_weights.json (только для модели)
+            raise ValueError(f"Не удалось загрузить параметры для модели {model_type}")
+
+        # Загружаем веса классов из config_weights.json
         if os.path.exists(Config.CONFIG_PATH):
             with open(Config.CONFIG_PATH, 'r') as f:
                 config = json.load(f)
                 class_weights = config.get('class_weights', {'background': 1.0, 'action': 1.0})
         else:
-            class_weights = {'background': 1.0, 'action': 1.0}
+            raise ValueError(f"Файл конфигурации не найден: {Config.CONFIG_PATH}")
 
-        # Используем create_tuning_data_pipeline для генерации данных (как при тюнинге)
-        print("[DEBUG] Создание обучающего pipeline данных...")
-        train_loader = VideoDataLoader(
-            Config.TRAIN_DATA_PATH,
-            max_videos=Config.MAX_VIDEOS if hasattr(Config, 'MAX_VIDEOS') else None
-        )
+        # Создаем загрузчики данных
+        train_loader = VideoDataLoader(Config.TRAIN_DATA_PATH)
+        val_loader = VideoDataLoader(Config.VALID_DATA_PATH)
+
+        # Создаем датасеты
         train_data = create_tuning_data_pipeline(
             train_loader,
             Config.SEQUENCE_LENGTH,
@@ -532,11 +526,6 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             force_positive=True
         )
 
-        print("[DEBUG] Создание валидационного pipeline данных...")
-        val_loader = VideoDataLoader(
-            Config.VALID_DATA_PATH,
-            max_videos=Config.MAX_VIDEOS if hasattr(Config, 'MAX_VIDEOS') else None
-        )
         val_data = create_tuning_data_pipeline(
             val_loader,
             Config.SEQUENCE_LENGTH,
@@ -559,7 +548,7 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             class_weights=class_weights
         )
         
-        # Обучаем модель (без class_weight)
+        # Обучаем модель
         history = model.fit(
             train_data,
             epochs=epochs,
@@ -568,18 +557,16 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             verbose=1
         )
         
-        # Сохраняем метаданные модели и саму модель
+        # Сохраняем модель и метаданные
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         model_dir = os.path.join(Config.MODEL_SAVE_PATH, f"model_{model_type}_{timestamp}")
         os.makedirs(model_dir, exist_ok=True)
         
-        # Сохраняем модель
         model_path = os.path.join(model_dir, f"best_model_{model_type}.pkl")
         with open(model_path, 'wb') as f:
             pickle.dump({'model': model}, f)
         print(f"[INFO] Модель сохранена: {model_path}")
         
-        # Сохраняем метаданные
         metadata = {
             'model_type': model_type,
             'epochs': epochs,
@@ -591,7 +578,6 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         with open(os.path.join(model_dir, 'metadata.json'), 'w') as f:
             json.dump(metadata, f, indent=4)
         
-        # Сохраняем графики обучения
         plot_training_results(history, model_dir)
         
         return model, history
@@ -601,7 +587,6 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
-        # Аварийное сохранение модели
         if 'model' in locals():
             emergency_path = f"emergency_save_{model_type}.pkl"
             with open(emergency_path, 'wb') as f:
