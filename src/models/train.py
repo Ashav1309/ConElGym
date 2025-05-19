@@ -24,6 +24,7 @@ from src.models.losses import focal_loss, F1ScoreAdapter
 from src.models.metrics import get_training_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
 from src.utils.gpu_config import setup_gpu
+import time
 
 # Настройка GPU
 setup_gpu()
@@ -478,87 +479,50 @@ def load_best_params(model_type=None):
     return default_params
 
 def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BATCH_SIZE):
-    """
-    Обучение модели
-    Args:
-        model_type: тип модели ('v3' или 'v4')
-        epochs: количество эпох
-        batch_size: размер батча (по умолчанию берется из конфига)
-    """
     try:
-        print("\n[DEBUG] ===== Начало обучения =====")
-        print(f"[DEBUG] Тип модели: {model_type}")
-        print(f"[DEBUG] Количество эпох: {epochs}")
-        print(f"[DEBUG] Размер батча: {batch_size}")
-
-        # Загрузка лучших параметров из подбора гиперпараметров
-        best_params = load_best_params(model_type)
-        print(f"[DEBUG] Загружены лучшие параметры: {best_params}")
-
-        # Загрузка весов классов из config_weights.json
-        with open(Config.CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-            class_weights = config['class_weights']
-        tf_class_weights = {
-            0: class_weights['background'],
-            1: class_weights['action']
-        }
-
-        # Создаем загрузчики данных без ограничения на количество видео
-        train_loader = VideoDataLoader(
-            Config.TRAIN_DATA_PATH,
-            max_videos=None  # Убираем ограничение
-        )
-        val_loader = VideoDataLoader(
-            Config.VALID_DATA_PATH,
-            max_videos=None  # Убираем ограничение
+        # Загружаем лучшие параметры
+        best_params = load_best_params()
+        if best_params is None:
+            print("[WARNING] Не удалось загрузить лучшие параметры, используем значения по умолчанию")
+            best_params = Config.MODEL_PARAMS
+        
+        # Создаем модель
+        model = create_model_with_params(
+            model_type=model_type,
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
+            num_classes=Config.NUM_CLASSES,
+            params=best_params
         )
         
-        # Создаем пайплайны данных
-        train_data = create_data_pipeline(
-            train_loader,
+        # Загружаем данные
+        train_data, val_data, class_weights = create_data_pipeline(
+            VideoDataLoader(
+                Config.TRAIN_DATA_PATH,
+                max_videos=None  # Убираем ограничение
+            ),
             Config.SEQUENCE_LENGTH,
             batch_size,
             Config.TARGET_SIZE,
             is_training=True,
             force_positive=True,
             cache_dataset=True
-        )
-        val_data = create_data_pipeline(
-            val_loader,
+        ), create_data_pipeline(
+            VideoDataLoader(
+                Config.VALID_DATA_PATH,
+                max_videos=None  # Убираем ограничение
+            ),
             Config.SEQUENCE_LENGTH,
             batch_size,
             Config.TARGET_SIZE,
             is_training=False,
             force_positive=False,
             cache_dataset=True
-        )
+        ), class_weights
         
-        # Создаем и компилируем модель с лучшими параметрами
-        model = create_model_with_params(
-            model_type=model_type,
-            input_shape=(Config.SEQUENCE_LENGTH, *Config.TARGET_SIZE, 3),
-            num_classes=Config.NUM_CLASSES,
-            params={
-                'dropout_rate': best_params['dropout_rate'],
-                'lstm_units': best_params.get('lstm_units', Config.MODEL_PARAMS[model_type].get('lstm_units', 128)),
-                'rnn_type': best_params.get('rnn_type', 'lstm'),
-                'temporal_block_type': best_params.get('temporal_block_type', 'rnn')
-            },
-            class_weights=class_weights
-        )
+        # Преобразуем веса классов в формат TensorFlow
+        tf_class_weights = {i: w for i, w in enumerate(class_weights)}
         
-        # Компилируем модель с лучшими параметрами
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                learning_rate=best_params['learning_rate'],
-                clipnorm=best_params.get('clipnorm', 1.0)
-            ),
-            loss=focal_loss(gamma=Config.FOCAL_LOSS['gamma'], alpha=Config.FOCAL_LOSS['alpha']),
-            metrics=get_training_metrics()
-        )
-        
-        # Создаем callbacks
+        # Получаем callbacks
         callbacks = get_training_callbacks(val_data)
         
         # Обучаем модель
@@ -570,7 +534,28 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
             class_weight=tf_class_weights,
             verbose=1
         )
+        
+        # Сохраняем метаданные модели
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        model_dir = os.path.join(Config.MODEL_SAVE_PATH, f'model_{timestamp}')
+        
+        metadata = {
+            'model_type': model_type,
+            'epochs': epochs,
+            'batch_size': batch_size,
+            'best_params': best_params,
+            'class_weights': class_weights,
+            'history': history.history
+        }
+        
+        with open(os.path.join(model_dir, 'metadata.json'), 'w') as f:
+            json.dump(metadata, f, indent=4)
+        
+        # Сохраняем графики обучения
+        plot_training_results(history, model_dir)
+        
         return model, history
+        
     except Exception as e:
         print(f"[ERROR] Ошибка при обучении модели: {str(e)}")
         print("[DEBUG] Stack trace:", flush=True)
@@ -578,70 +563,63 @@ def train(model_type: str = 'v4', epochs: int = 50, batch_size: int = Config.BAT
         traceback.print_exc()
         raise
 
-def plot_training_results(history, save_path):
+def plot_training_results(history, save_dir):
     """
-    Визуализация результатов обучения
+    Сохранение графиков процесса обучения
+    
+    Args:
+        history: история обучения модели
+        save_dir: директория для сохранения графиков
     """
-    try:
-        print("\n[DEBUG] Визуализация результатов обучения...")
-        
-        # Валидация входных параметров
-        if not isinstance(history, tf.keras.callbacks.History):
-            raise ValueError("history должен быть экземпляром tf.keras.callbacks.History")
-            
-        if not os.path.exists(save_path):
-            raise ValueError(f"Директория не существует: {save_path}")
-        
-        # Создаем директорию для графиков
-        plot_path = os.path.join(save_path, 'plots')
-        os.makedirs(plot_path, exist_ok=True)
-        
-        # Графики потерь и точности
-        plt.figure(figsize=(12, 5))
-        
-        plt.subplot(1, 2, 1)
-        plt.plot(history.history['loss'], label='Training Loss')
-        plt.plot(history.history['val_loss'], label='Validation Loss')
-        plt.title('Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid(True)
-        
-        plt.subplot(1, 2, 2)
-        plt.plot(history.history['accuracy'], label='Training Accuracy')
-        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-        plt.title('Accuracy')
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy')
-        plt.legend()
-        plt.grid(True)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(plot_path, 'training_metrics.png'))
-        plt.close()
-        
-        # График F1-score
-        plt.figure(figsize=(6, 4))
-        plt.plot(history.history['scalar_f1_score'], label='Training F1-score')
-        plt.plot(history.history['val_scalar_f1_score'], label='Validation F1-score')
-        plt.title('F1-score')
-        plt.xlabel('Epoch')
-        plt.ylabel('F1-score')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join(plot_path, 'f1_score.png'))
-        plt.close()
-        
-        print("[DEBUG] Результаты обучения успешно визуализированы")
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка при визуализации результатов: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
+    # Создаем директорию для графиков
+    plots_dir = os.path.join(save_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    # График функции потерь
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='train')
+    plt.plot(history.history['val_loss'], label='validation')
+    plt.title('Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    # График метрик
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['f1_score'], label='train')
+    plt.plot(history.history['val_f1_score'], label='validation')
+    plt.title('F1 Score')
+    plt.xlabel('Epoch')
+    plt.ylabel('F1 Score')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, 'training_history.png'))
+    plt.close()
+    
+    # График точности
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['accuracy'], label='train')
+    plt.plot(history.history['val_accuracy'], label='validation')
+    plt.title('Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    
+    # График AUC
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['auc'], label='train')
+    plt.plot(history.history['val_auc'], label='validation')
+    plt.title('AUC')
+    plt.xlabel('Epoch')
+    plt.ylabel('AUC')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, 'metrics.png'))
+    plt.close()
 
 if __name__ == "__main__":
     # Обучаем обе модели

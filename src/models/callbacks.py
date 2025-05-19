@@ -5,6 +5,7 @@ from typing import Tuple
 from src.config import Config
 import pickle
 import os
+import time
 
 class ScalarF1Score(tf.keras.metrics.Metric):
     """
@@ -122,6 +123,11 @@ def get_training_callbacks(val_data, config=None):
     if config is None:
         config = Config.OVERFITTING_PREVENTION
     
+    # Создаем директорию для сохранения модели с временной меткой
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    model_dir = os.path.join(Config.MODEL_SAVE_PATH, f'model_{timestamp}')
+    os.makedirs(model_dir, exist_ok=True)
+    
     return [
         tf.keras.callbacks.EarlyStopping(
             monitor='val_f1_score',
@@ -138,7 +144,7 @@ def get_training_callbacks(val_data, config=None):
         ),
         AdaptiveThresholdCallback(validation_data=val_data),
         PickleModelCheckpoint(
-            os.path.join(Config.MODEL_SAVE_PATH, 'best_model.pkl'),
+            os.path.join(model_dir, 'model.pkl'),
             monitor='val_f1_score',
             save_best_only=True,
             mode='max'
