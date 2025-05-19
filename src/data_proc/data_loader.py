@@ -663,6 +663,7 @@ class VideoDataLoader:
                     attempts = 0
                     continue
                 
+                logger.debug(f"[DEBUG] Доступные видео: {available_videos}")
                 video_path = np.random.choice(available_videos)
                 attempts += 1
                 
