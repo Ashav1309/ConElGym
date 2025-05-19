@@ -63,7 +63,15 @@ def apply_augmentations(image):
             -Config.AUGMENTATION['shift_range'],
             Config.AUGMENTATION['shift_range']
         )
-        image = tf.image.translate(image, [shift, shift])
+        # Преобразуем тензор в numpy массив для cv2
+        image_np = image.numpy() if isinstance(image, tf.Tensor) else image
+        # Создаем матрицу преобразования
+        rows, cols = image_np.shape[:2]
+        M = np.float32([[1, 0, shift], [0, 1, shift]])
+        # Применяем сдвиг
+        shifted = cv2.warpAffine(image_np, M, (cols, rows))
+        # Преобразуем обратно в тензор
+        image = tf.convert_to_tensor(shifted, dtype=tf.float32)
     
     # Шум
     if np.random.random() < Config.AUGMENTATION['noise_prob']:
