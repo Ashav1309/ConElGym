@@ -232,32 +232,6 @@ class VideoDataLoader:
             if not ret or frame is None:
                 raise CorruptedVideoError(f"Не удалось прочитать первый кадр видео: {video_path}")
             
-            # Проверяем, что указатель кадров работает корректно
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Возвращаемся к началу
-            # frame_count = 0
-            # while True:
-            #     ret, frame = cap.read()
-            #     if not ret or frame is None:
-            #         break
-            #     frame_count += 1
-            
-            # Используем заявленное количество кадров
-            frame_count = info.total_frames
-            
-            # Проверяем разницу между заявленным и фактическим количеством кадров
-            frame_diff = abs(frame_count - info.total_frames)
-            frame_diff_percent = (frame_diff / info.total_frames) * 100
-            
-            if frame_diff > 0:
-                if frame_diff_percent <= 6:  # Допускаем погрешность до 6%
-                    logger.warning(f"Небольшое несоответствие количества кадров: заявлено {info.total_frames}, фактически {frame_count} (разница: {frame_diff_percent:.1f}%)")
-                    # Используем фактическое количество кадров
-                    info.total_frames = frame_count
-                    self.file_info_cache[video_path] = info
-                else:
-                    logger.error(f"Значительное несоответствие количества кадров: заявлено {info.total_frames}, фактически {frame_count} (разница: {frame_diff_percent:.1f}%)")
-                    raise CorruptedVideoError(f"Значительное несоответствие количества кадров в видео: {video_path}")
-            
             # Возвращаемся к началу видео
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 
@@ -1055,39 +1029,28 @@ class VideoDataLoader:
             traceback.print_exc()
             self.total_batches = 0
     
-    def get_video_info(self, video_path):
+    def get_video_info(self, video_path: str) -> dict:
         """
-        Получение информации о видео
+        Получение информации о видео в виде словаря
         
         Args:
             video_path: путь к видео файлу
             
         Returns:
             dict: словарь с информацией о видео (total_frames, fps, width, height)
+            
+        Raises:
+            CorruptedVideoError: если видео повреждено или имеет некорректные параметры
         """
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError(f"Не удалось открыть видео: {video_path}")
-            
-            # Получаем информацию о видео
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
-            cap.release()
-            
-            return {
-                'total_frames': total_frames,
-                'fps': fps,
-                'width': width,
-                'height': height
-            }
-            
-        except Exception as e:
-            logger.error(f"[ERROR] Ошибка при получении информации о видео {video_path}: {str(e)}")
-            raise
+        info = self._get_video_info(video_path)
+        return {
+            'total_frames': info.total_frames,
+            'fps': info.fps,
+            'width': info.width,
+            'height': info.height,
+            'file_size': info.file_size,
+            'exists': info.exists
+        }
 
     def _load_frame(self, video_path: str, frame_idx: int, target_size: Tuple[int, int]) -> Optional[np.ndarray]:
         """
