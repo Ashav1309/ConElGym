@@ -497,12 +497,14 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             print(f"[WARNING] Не удалось загрузить веса классов: {str(e)}")
             class_weights = {'background': 1.0, 'action': 10.0}
 
-        # Преобразуем ключи class_weights к int, если они строки
-        if isinstance(list(class_weights.keys())[0], str):
-            class_weights = {
-                0: class_weights.get('background', 1.0),
-                1: class_weights.get('action', 1.0)
+        # Для передачи в модель нужны строковые ключи
+        if isinstance(list(class_weights.keys())[0], int):
+            class_weights_for_model = {
+                'background': class_weights.get(0, 1.0),
+                'action': class_weights.get(1, 1.0)
             }
+        else:
+            class_weights_for_model = class_weights
 
         # Создаем модель
         model = create_model_with_params(
@@ -510,9 +512,16 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
             num_classes=Config.NUM_CLASSES,
             params=best_params,
-            class_weights=class_weights
+            class_weights=class_weights_for_model
         )
         
+        # Преобразуем ключи class_weights к int, если они строки (для model.fit)
+        if isinstance(list(class_weights.keys())[0], str):
+            class_weights = {
+                0: class_weights.get('background', 1.0),
+                1: class_weights.get('action', 1.0)
+            }
+
         # Загружаем данные
         train_data = create_data_pipeline(
             VideoDataLoader(
