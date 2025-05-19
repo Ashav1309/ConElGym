@@ -26,6 +26,7 @@ from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbac
 from src.utils.gpu_config import setup_gpu
 import time
 import argparse
+import pickle
 
 # Настройка GPU
 setup_gpu()
@@ -366,7 +367,9 @@ class TrainingPlotter(Callback):
         self.ax1.set_xlabel('Epoch')
         self.ax1.set_ylabel('Loss')
         self.ax1.legend()
-        self.ax1.grid(True)
+        self.ax1.grid(True, linestyle='--', alpha=0.7)
+        self.ax1.xticks(fontsize=12, rotation=45)
+        self.ax1.yticks(fontsize=12)
         
         # График точности
         self.ax2.plot(self.epochs, self.accuracies, label='Training Accuracy')
@@ -375,7 +378,9 @@ class TrainingPlotter(Callback):
         self.ax2.set_xlabel('Epoch')
         self.ax2.set_ylabel('Accuracy')
         self.ax2.legend()
-        self.ax2.grid(True)
+        self.ax2.grid(True, linestyle='--', alpha=0.7)
+        self.ax2.xticks(fontsize=12, rotation=45)
+        self.ax2.yticks(fontsize=12)
         
         # Сохраняем графики
         plt.tight_layout()
@@ -541,10 +546,18 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             verbose=1
         )
         
-        # Сохраняем метаданные модели
+        # Сохраняем метаданные модели и саму модель
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        model_dir = os.path.join(Config.MODEL_SAVE_PATH, f'model_{timestamp}')
+        model_dir = os.path.join(Config.MODEL_SAVE_PATH, f"model_{model_type}_{timestamp}")
+        os.makedirs(model_dir, exist_ok=True)
         
+        # Сохраняем модель
+        model_path = os.path.join(model_dir, f"best_model_{model_type}.pkl")
+        with open(model_path, 'wb') as f:
+            pickle.dump({'model': model}, f)
+        print(f"[INFO] Модель сохранена: {model_path}")
+        
+        # Сохраняем метаданные
         metadata = {
             'model_type': model_type,
             'epochs': epochs,
@@ -553,7 +566,6 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
             'class_weights': class_weights,
             'history': history.history
         }
-        
         with open(os.path.join(model_dir, 'metadata.json'), 'w') as f:
             json.dump(metadata, f, indent=4)
         
@@ -567,6 +579,12 @@ def train(model_type: str = None, epochs: int = 50, batch_size: int = None):
         print("[DEBUG] Stack trace:", flush=True)
         import traceback
         traceback.print_exc()
+        # Аварийное сохранение модели
+        if 'model' in locals():
+            emergency_path = f"emergency_save_{model_type}.pkl"
+            with open(emergency_path, 'wb') as f:
+                pickle.dump({'model': model}, f)
+            print(f"[WARNING] Модель аварийно сохранена: {emergency_path}")
         raise
 
 def plot_training_results(history, save_dir):

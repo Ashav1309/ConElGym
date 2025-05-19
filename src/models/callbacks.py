@@ -154,10 +154,12 @@ def get_training_callbacks(val_data, config=None):
 def get_tuning_callbacks(trial_number):
     """
     Получение callbacks для подбора гиперпараметров
-    
     Args:
         trial_number: номер текущего trial
     """
+    model_type = Config.MODEL_TYPE
+    tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', model_type)
+    os.makedirs(tuning_dir, exist_ok=True)
     return [
         tf.keras.callbacks.EarlyStopping(
             monitor='val_scalar_f1_score',
@@ -172,5 +174,5 @@ def get_tuning_callbacks(trial_number):
             min_lr=1e-6,
             mode='max'
         ),
-        tf.keras.callbacks.CSVLogger(f'trial_{trial_number}_history.csv')
+        tf.keras.callbacks.CSVLogger(os.path.join(tuning_dir, f'trial_{trial_number}_history.csv'))
     ] 
