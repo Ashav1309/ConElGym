@@ -183,24 +183,41 @@ def objective(trial):
         }
         
         # Рассчитываем веса классов
+        print(f"[DEBUG] Тип модели: {model_type}")
+        print(f"[DEBUG] MODEL_PARAMS: {Config.MODEL_PARAMS}")
+
         try:
-            base_weights = Config.MODEL_PARAMS[model_type]['class_weights']
-            if base_weights is None or 'action' not in base_weights:
-                print("[WARNING] Веса классов не найдены в конфигурации, используем значения по умолчанию")
+            if model_type not in Config.MODEL_PARAMS:
+                print(f"[WARNING] Тип модели {model_type} не найден в конфигурации")
                 base_weights = {
                     'background': 1.0,
-                    'action': 10.0  # Значение по умолчанию для положительного класса
+                    'action': 10.0
                 }
+            else:
+                base_weights = Config.MODEL_PARAMS[model_type].get('class_weights', {
+                    'background': 1.0,
+                    'action': 10.0
+                })
+                print(f"[DEBUG] Получены веса из конфигурации: {base_weights}")
+                
+            if not isinstance(base_weights, dict) or 'action' not in base_weights:
+                print("[WARNING] Некорректные веса классов в конфигурации")
+                base_weights = {
+                    'background': 1.0,
+                    'action': 10.0
+                }
+                
         except Exception as e:
             print(f"[WARNING] Ошибка при получении весов классов: {str(e)}")
             print("[WARNING] Используем значения по умолчанию")
             base_weights = {
                 'background': 1.0,
-                'action': 10.0  # Значение по умолчанию для положительного класса
+                'action': 10.0
             }
 
+        print(f"[DEBUG] Используемые базовые веса: {base_weights}")
         weight_deviation = trial.suggest_float('weight_deviation', -0.2, 0.2)
-        action_weight = base_weights['action'] * (1 + weight_deviation)
+        action_weight = float(base_weights['action']) * (1 + weight_deviation)
 
         class_weights = {
             'background': 1.0,  # Фон всегда 1.0
