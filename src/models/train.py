@@ -188,19 +188,13 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                 if X is not None and y is not None:
                     # Преобразуем метки в one-hot encoding для 2 классов
                     y_one_hot = np.zeros((sequence_length, 2), dtype=np.float32)
-                    
-                    # Используем правильную индексацию для создания one-hot encoding
                     for i in range(sequence_length):
                         try:
-                            # Проверяем, является ли y[i] массивом
                             if isinstance(y[i], np.ndarray):
-                                if y[i].size == 2:  # Если это one-hot encoding
-                                    # Находим индекс максимального значения (класс)
+                                if y[i].size == 2:
                                     label = np.argmax(y[i])
-                                    # Создаем one-hot encoding
                                     y_one_hot[i, label] = 1
                                 else:
-                                    # Если это скалярное значение
                                     label = int(y[i].item())
                                     y_one_hot[i, label] = 1
                             else:
@@ -213,10 +207,9 @@ def create_tuning_data_pipeline(data_loader, sequence_length, batch_size, target
                             if isinstance(y[i], np.ndarray):
                                 print(f"[DEBUG] Форма y[{i}]: {y[i].shape}")
                             raise
-                    
                     yield X, y_one_hot
                 else:
-                    break
+                    continue  # Вместо break, чтобы генератор не завершался
 
         # Создаем dataset из генератора
         output_signature = (
