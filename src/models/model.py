@@ -25,7 +25,7 @@ from tensorflow.keras.regularizers import l1_l2
 import numpy as np
 import json
 import pickle
-from src.models.metrics import get_training_metrics
+from src.models.metrics import get_training_metrics, get_tuning_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -690,12 +690,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
     # Метрики для двухклассовой модели
-    metrics = [
-        'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-        ScalarF1Score(name='scalar_f1_score')
-    ]
+    metrics = get_training_metrics()
     
     model.compile(
         optimizer=optimizer,
@@ -776,12 +771,7 @@ def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
     
     # Метрики для двухклассовой модели
-    metrics = [
-        'accuracy',
-        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),  # метрика для класса "действие"
-        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),        # метрика для класса "действие"
-        ScalarF1Score(name='scalar_f1_score')                                             # F1-score для класса "действие"
-    ]
+    metrics = get_training_metrics()
     
     model.compile(
         optimizer=optimizer,
