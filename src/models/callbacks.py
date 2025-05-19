@@ -84,7 +84,7 @@ class PickleModelCheckpoint(Callback):
         self.monitor = monitor
         self.save_best_only = save_best_only
         self.mode = mode
-        self.best = -np.Inf if mode == 'max' else np.Inf
+        self.best = -np.inf if mode == 'max' else np.inf
         
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
