@@ -380,12 +380,13 @@ def save_tuning_results(study, total_time, n_trials):
     Сохранение результатов подбора гиперпараметров + визуализация и подробный лог
     """
     try:
-        print("\n[DEBUG] Сохранение результатов подбора гиперпараметров...")
-        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        model_type = Config.MODEL_TYPE
+        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', model_type)
+        print(f"\n[DEBUG] Сохранение результатов подбора гиперпараметров в {tuning_dir}...")
         
-        # Очищаем старые результаты
+        # Очищаем старые результаты только из папки текущей модели
         if os.path.exists(tuning_dir):
-            print("[DEBUG] Удаление старых результатов...")
+            print(f"[DEBUG] Удаление старых результатов из {tuning_dir}...")
             for file in os.listdir(tuning_dir):
                 file_path = os.path.join(tuning_dir, file)
                 try:
@@ -393,15 +394,15 @@ def save_tuning_results(study, total_time, n_trials):
                         os.unlink(file_path)
                 except Exception as e:
                     print(f"[WARNING] Ошибка при удалении файла {file_path}: {str(e)}")
-        
-        # Создаем директорию заново
-        os.makedirs(tuning_dir, exist_ok=True)
+        else:
+            print(f"[DEBUG] Папка {tuning_dir} не существует, создаю...")
+            os.makedirs(tuning_dir, exist_ok=True)
         
         # Сохраняем результаты в текстовый файл
         results_file = os.path.join(tuning_dir, 'optuna_results.txt')
         with open(results_file, 'w') as f:
             f.write(f"=== Результаты оптимизации гиперпараметров ===\n")
-            f.write(f"Модель: {Config.MODEL_TYPE}\n")
+            f.write(f"Модель: {model_type}\n")
             f.write(f"Время выполнения: {timedelta(seconds=int(total_time))}\n")
             f.write(f"Количество trials: {n_trials}\n")
             f.write(f"Лучшее значение: {study.best_value}\n")
@@ -433,12 +434,11 @@ def save_tuning_results(study, total_time, n_trials):
                 'noise_prob': study.best_params['noise_prob'],
                 'blur_prob': study.best_params['blur_prob']
             },
-            'model_type': Config.MODEL_TYPE,
+            'model_type': model_type,
             'best_value': study.best_value,
             'total_time': total_time,
             'n_trials': n_trials
         }
-        
         with open(params_file, 'w') as f:
             json.dump(params, f, indent=4)
         
