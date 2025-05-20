@@ -618,6 +618,11 @@ class VideoDataLoader:
                     print(f"  - video_paths: {len(self.video_paths)}")
                     print(f"  - current_video_index: {self.current_video_index}")
                     
+                    # Если достигли конца списка видео, возвращаем None
+                    if self.current_video_index >= self.total_videos:
+                        print("[DEBUG] Достигнут конец списка видео")
+                        return None
+                        
                     self.processed_video_paths = set()
                     continue
                 
@@ -630,6 +635,14 @@ class VideoDataLoader:
                     if reset_count < max_resets:
                         reset_count += 1
                         print(f"[DEBUG] Сброс счетчиков (попытка {reset_count}/{max_resets})")
+                        print("[DEBUG] Загружаем следующую порцию видео")
+                        self._load_video_chunk()  # Загружаем следующую порцию
+                        
+                        # Проверяем, достигли ли конца списка видео
+                        if self.current_video_index >= self.total_videos:
+                            print("[DEBUG] Достигнут конец списка видео")
+                            return None
+                            
                         self.processed_video_paths = set()
                         continue
                     else:
