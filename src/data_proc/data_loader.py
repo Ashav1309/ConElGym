@@ -298,51 +298,36 @@ class VideoDataLoader:
             raise
 
     def _load_video_chunk(self):
-        """Загружает очередную порцию видео согласно MAX_VIDEOS"""
+        """Загрузка следующей порции видео"""
         try:
-            # Очищаем кэш перед загрузкой новой порции
-            self.clear_cache()
-            
             start_idx = self.current_video_index
             end_idx = min(start_idx + self.max_videos, self.total_videos)
             
-            # Проверяем существование файлов и что они еще не обработаны
-            valid_videos = []
-            for video_path in self.all_video_paths[start_idx:end_idx]:
-                if os.path.exists(video_path) and video_path not in self.processed_video_paths:
-                    # Проверяем, что видео можно открыть
-                    cap = cv2.VideoCapture(video_path)
-                    if cap.isOpened():
-                        valid_videos.append(video_path)
-                        cap.release()
-                    else:
-                        logger.warning(f"[WARNING] Видео повреждено или недоступно: {video_path}")
-                        self.processed_video_paths.add(video_path)  # Помечаем как обработанное
-                else:
-                    if video_path in self.processed_video_paths:
-                        logger.debug(f"[DEBUG] Видео уже обработано: {video_path}")
-                    else:
-                        logger.warning(f"[WARNING] Видео не найдено: {video_path}")
-                        self.processed_video_paths.add(video_path)  # Помечаем как обработанное
+            if start_idx >= self.total_videos:
+                print("[DEBUG] Достигнут конец списка видео")
+                return
+                
+            print(f"[DEBUG] Загрузка порции видео {start_idx+1}-{end_idx} из {self.total_videos}")
+            self.video_paths = self.all_video_paths[start_idx:end_idx]
+            self.current_video_index = end_idx
             
-            self.video_paths = valid_videos
-            self.video_count = len(self.video_paths)
-            self.labels = [None] * self.video_count
+            # Очищаем временные кэши при загрузке новой порции
+            self.video_cache.clear()
+            self.used_frames_cache.clear()
+            self.positive_indices_cache.clear()
+            self.file_info_cache.clear()
+            self.open_videos.clear()
+            self.sequence_counter.clear()
+            self.used_sequences.clear()
+            self.annotations_cache.clear()
             
-            logger.debug(f"[DEBUG] Загружена порция видео: {self.video_count} видео (индексы {start_idx}:{end_idx})")
-            logger.debug(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
-            
-            # Если все видео в текущей порции невалидны или уже обработаны, пробуем следующую порцию
-            if not valid_videos and start_idx < self.total_videos:
-                logger.debug("[DEBUG] Все видео в текущей порции невалидны или обработаны, пробуем следующую порцию")
-                self.current_video_index = end_idx
-                self._load_video_chunk()
+            # Принудительная очистка памяти
+            gc.collect()
             
         except Exception as e:
-            logger.error(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
-            self.video_paths = []
-            self.video_count = 0
-            self.labels = []
+            print(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def _load_annotations(self, video_path: str) -> np.ndarray:
         """
@@ -625,104 +610,45 @@ class VideoDataLoader:
             print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
             
             while attempts < max_attempts:
-                print(f"\n[DEBUG] Попытка {attempts + 1}/{max_attempts}")
+                attempts += 1
+                print(f"\n[DEBUG] Попытка {attempts}/{max_attempts}")
                 
-                # Проверяем, все ли видео в текущей порции обработаны
-                available_videos = []
-                for video_path in self.video_paths:
-                    if video_path not in self.processed_video_paths:
-                        available_videos.append(video_path)
-                
-                print(f"[DEBUG] Доступные видео: {len(available_videos)}")
-                
-                # Если нет доступных видео, переходим к следующей порции
-                if not available_videos:
-                    reset_count += 1
-                    if reset_count >= max_resets:
-                        print("[DEBUG] Слишком много сбросов счетчика попыток")
-                        return None
-                        
-                    print("[DEBUG] Все видео в текущей порции обработаны")
-                    self.current_video_index += self.max_videos
-                    
-                    # Проверяем, есть ли еще видео для обработки
-                    if self.current_video_index >= self.total_videos:
-                        # Проверяем, все ли видео обработаны
-                        if len(self.processed_video_paths) < self.total_videos:
-                            print(f"[DEBUG] Не все видео обработаны: {len(self.processed_video_paths)}/{self.total_videos}")
-                            # Возвращаемся к началу списка видео
-                            self.current_video_index = 0
-                            self._load_video_chunk()
-                        else:
-                            if is_train:
-                                # Проверяем, что действительно все видео обработаны
-                                if len(self.processed_video_paths) == self.total_videos:
-                                    print("[DEBUG] Все видео из обучающего набора обработаны, переходим к валидационному")
-                                    return None
-                                else:
-                                    print(f"[DEBUG] Не все видео обработаны: {len(self.processed_video_paths)}/{self.total_videos}")
-                                    self.current_video_index = 0
-                                    self._load_video_chunk()
-                            else:
-                                print("[DEBUG] Все видео из валидационного набора обработаны, завершаем")
-                                return None
-                    else:
-                        # Загружаем следующую порцию видео
-                        self._load_video_chunk()
-                    
-                    # Полностью очищаем состояние для новой чанки
-                    self.used_frames_cache.clear()
-                    self.used_sequences.clear()
-                    self.sequence_counter.clear()
-                    self.video_cache.clear()  # Очищаем кэш видео
-                    self.open_videos.clear()  # Очищаем список открытых видео
-                    
-                    # Очищаем кэш аннотаций для видео из предыдущей чанки
-                    for video_path in list(self.annotations_cache.keys()):
-                        if video_path not in self.video_paths:
-                            del self.annotations_cache[video_path]
-                    
-                    print(f"[DEBUG] Загружена новая порция видео: {len(self.video_paths)} видео")
-                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
-                    
-                    attempts = 0
+                # Если все видео обработаны, загружаем новую порцию
+                if len(self.processed_video_paths) >= len(self.video_paths):
+                    print("[DEBUG] Все видео обработаны, загружаем новую порцию")
+                    self._load_video_chunk()  # Загружаем следующую порцию
+                    self.processed_video_paths = set()
                     continue
                 
+                # Получаем список доступных видео
+                available_videos = [v for v in self.video_paths if v not in self.processed_video_paths]
+                print(f"[DEBUG] Доступные видео: {len(available_videos)}")
+                
+                if not available_videos:
+                    print("[DEBUG] Нет доступных видео")
+                    if reset_count < max_resets:
+                        reset_count += 1
+                        print(f"[DEBUG] Сброс счетчиков (попытка {reset_count}/{max_resets})")
+                        self.processed_video_paths = set()
+                        continue
+                    else:
+                        print("[DEBUG] Достигнут лимит сбросов")
+                        return None
+                
+                # Выбираем случайное видео
                 print(f"[DEBUG] Выбираем случайное видео из {len(available_videos)} доступных")
                 video_path = np.random.choice(available_videos)
-                attempts += 1
+                print(f"[DEBUG] Выбрано видео: {os.path.basename(video_path)}")
                 
                 # Проверяем существование видео
                 if not os.path.exists(video_path):
                     print(f"[DEBUG] Видео не найдено: {video_path}")
-                    self.processed_video_paths.add(video_path)
-                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
                     continue
                 
-                # Проверяем, все ли кадры использованы
-                if video_path in self.used_frames_cache:
-                    video_info = self._get_video_info(video_path)
-                    if video_info and len(self.used_frames_cache[video_path]) >= video_info.total_frames - self.sequence_length:
-                        print(f"[DEBUG] Все кадры видео {os.path.basename(video_path)} уже использованы")
-                        self.processed_video_paths.add(video_path)
-                        print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
-                        continue
-                
-                # Проверяем, не превышен ли лимит последовательностей
-                if video_path in self.sequence_counter and self.sequence_counter[video_path] >= self.max_sequences_per_video:
-                    print(f"[DEBUG] Достигнут лимит последовательностей для видео {os.path.basename(video_path)}")
-                    self.processed_video_paths.add(video_path)
-                    print(f"[DEBUG] Прогресс обработки: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
-                    continue
-                
-                print(f"[DEBUG] Выбрано видео: {os.path.basename(video_path)}")
                 return video_path
-            
-            print(f"[DEBUG] Превышено максимальное количество попыток ({max_attempts})")
-            return None
-            
+                
         except Exception as e:
-            print(f"[ERROR] Ошибка при выборе случайного видео: {str(e)}")
+            print(f"[ERROR] Ошибка при получении случайного видео: {str(e)}")
             import traceback
             traceback.print_exc()
             return None
