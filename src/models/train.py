@@ -504,7 +504,7 @@ def to_serializable(val):
         return [to_serializable(v) for v in val]
     return val
 
-def train(model_type: str = None, epochs: int = 10, batch_size: int = None):
+def train(model_type: str = None, epochs: int = 100, batch_size: int = None):
     if model_type is None:
         model_type = Config.MODEL_TYPE
     if batch_size is None:
