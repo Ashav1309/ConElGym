@@ -254,12 +254,13 @@ class ModelTrainer:
             try:
                 print("[DEBUG] Начало обучения модели...")
                 
-                # Получаем генератор данных
-                data_gen = self.data_loader.data_generator()
+                # Получаем генераторы данных для обучения и валидации
+                train_gen = self.data_loader.data_generator(force_positive=True, is_validation=False)
+                val_gen = self.data_loader.data_generator(force_positive=True, is_validation=True)
                 
                 # Обрабатываем первый батч для проверки размерностей
                 try:
-                    x_batch, y_batch = next(data_gen)
+                    x_batch, y_batch = next(train_gen)
                     print(f"[DEBUG] Размерность входных данных из генератора: {x_batch.shape}")
                     
                     # Функция для корректировки размерностей
@@ -289,9 +290,9 @@ class ModelTrainer:
                         print(f"[DEBUG] Итоговая форма: {x.shape}")
                         return x
                     
-                    # Создаем новый генератор с исправленными размерностями
-                    def corrected_generator():
-                        for x, y in data_gen:
+                    # Создаем новые генераторы с исправленными размерностями
+                    def corrected_generator(gen):
+                        for x, y in gen:
                             try:
                                 x = correct_dimensions(x)
                                 # Проверяем форму после коррекции
@@ -306,12 +307,14 @@ class ModelTrainer:
                                 raise
                     
                     # Проверяем первый батч после коррекции
-                    test_gen = corrected_generator()
-                    test_x, test_y = next(test_gen)
+                    train_gen_corrected = corrected_generator(train_gen)
+                    val_gen_corrected = corrected_generator(val_gen)
+                    test_x, test_y = next(train_gen_corrected)
                     print(f"[DEBUG] Размерность после коррекции: {test_x.shape}")
                     
                     history = self.model.fit(
-                        corrected_generator(),
+                        train_gen_corrected,
+                        validation_data=val_gen_corrected,
                         epochs=epochs,
                         batch_size=batch_size,
                         callbacks=[
