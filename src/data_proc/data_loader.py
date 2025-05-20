@@ -615,7 +615,11 @@ class VideoDataLoader:
             reset_count = 0
             max_resets = 5  # Увеличиваем количество сбросов
             
+            # Определяем тип данных (train/valid)
+            is_train = 'train' in str(self.data_path)
+            
             print(f"\n[DEBUG] Начало поиска случайного видео")
+            print(f"[DEBUG] Тип данных: {'train' if is_train else 'valid'}")
             print(f"[DEBUG] Всего видео в датасете: {self.total_videos}")
             print(f"[DEBUG] Видео в текущей порции: {len(self.video_paths)}")
             print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
@@ -643,11 +647,21 @@ class VideoDataLoader:
                     
                     # Проверяем, есть ли еще видео для обработки
                     if self.current_video_index >= self.total_videos:
-                        print("[DEBUG] Все видео обработаны, завершаем")
-                        return None
-                        
-                    # Загружаем следующую порцию видео
-                    self._load_video_chunk()
+                        # Проверяем, все ли видео обработаны
+                        if len(self.processed_video_paths) < self.total_videos:
+                            print(f"[DEBUG] Не все видео обработаны: {len(self.processed_video_paths)}/{self.total_videos}")
+                            # Возвращаемся к началу списка видео
+                            self.current_video_index = 0
+                            self._load_video_chunk()
+                        else:
+                            if is_train:
+                                print("[DEBUG] Все видео из обучающего набора обработаны, переходим к валидационному")
+                            else:
+                                print("[DEBUG] Все видео из валидационного набора обработаны, завершаем")
+                            return None
+                    else:
+                        # Загружаем следующую порцию видео
+                        self._load_video_chunk()
                     
                     # Полностью очищаем состояние для новой чанки
                     self.used_frames_cache.clear()
