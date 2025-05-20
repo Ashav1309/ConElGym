@@ -122,14 +122,10 @@ def load_and_prepare_data(batch_size):
         # Если данных нет в кэше, загружаем их
         print("[DEBUG] Загрузка новых данных...")
         
-        # Создаем загрузчики данных
+        # Сначала загружаем обучающий набор
+        print("[DEBUG] Загрузка обучающего набора...")
         train_loader = VideoDataLoader(
             data_path=Config.TRAIN_DATA_PATH,
-            max_videos=Config.MAX_VIDEOS
-        )
-        
-        val_loader = VideoDataLoader(
-            data_path=Config.VALID_DATA_PATH,
             max_videos=Config.MAX_VIDEOS
         )
         
@@ -161,6 +157,20 @@ def load_and_prepare_data(batch_size):
                 cached_train_sequences.append(X)
                 cached_train_labels.append(y_one_hot)
         
+        print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих последовательностей")
+        
+        # Очищаем память после обработки обучающего набора
+        train_loader.clear_cache()
+        del train_loader
+        gc.collect()
+        
+        # Теперь загружаем валидационный набор
+        print("\n[DEBUG] Загрузка валидационного набора...")
+        val_loader = VideoDataLoader(
+            data_path=Config.VALID_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
+        )
+        
         # Кэшируем последовательности для валидации
         print("[DEBUG] Кэширование валидационных последовательностей...")
         cached_val_sequences = []
@@ -188,6 +198,13 @@ def load_and_prepare_data(batch_size):
                 
                 cached_val_sequences.append(X)
                 cached_val_labels.append(y_one_hot)
+        
+        print(f"[DEBUG] Загружено {len(cached_val_sequences)} валидационных последовательностей")
+        
+        # Очищаем память после обработки валидационного набора
+        val_loader.clear_cache()
+        del val_loader
+        gc.collect()
         
         # Создаем датасеты из кэшированных данных
         print("[DEBUG] Создание датасетов из кэшированных данных...")
