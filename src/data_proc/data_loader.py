@@ -817,6 +817,14 @@ class VideoDataLoader:
         """
         Получение батча данных с исправлением некорректных форм и балансировкой классов
         """
+        # Сбрасываем индексы при переключении между наборами данных
+        if not hasattr(self, '_last_is_validation') or self._last_is_validation != is_validation:
+            self.current_video_index = 0
+            self.current_frame_index = 0
+            self.current_batch = 0
+            self._last_is_validation = is_validation
+            print(f"[DEBUG] Сброс индексов при переключении на {'валидационный' if is_validation else 'обучающий'} набор")
+        
         X_batch = []
         y_batch = []
         attempts = 0
