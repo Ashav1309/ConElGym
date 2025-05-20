@@ -311,19 +311,6 @@ class VideoDataLoader:
             self.video_paths = self.all_video_paths[start_idx:end_idx]
             self.current_video_index = end_idx
             
-            # Очищаем временные кэши при загрузке новой порции
-            self.video_cache.clear()
-            self.used_frames_cache.clear()
-            self.positive_indices_cache.clear()
-            self.file_info_cache.clear()
-            self.open_videos.clear()
-            self.sequence_counter.clear()
-            self.used_sequences.clear()
-            self.annotations_cache.clear()
-            
-            # Принудительная очистка памяти
-            gc.collect()
-            
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
             import traceback
