@@ -655,10 +655,17 @@ class VideoDataLoader:
                             self._load_video_chunk()
                         else:
                             if is_train:
-                                print("[DEBUG] Все видео из обучающего набора обработаны, переходим к валидационному")
+                                # Проверяем, что действительно все видео обработаны
+                                if len(self.processed_video_paths) == self.total_videos:
+                                    print("[DEBUG] Все видео из обучающего набора обработаны, переходим к валидационному")
+                                    return None
+                                else:
+                                    print(f"[DEBUG] Не все видео обработаны: {len(self.processed_video_paths)}/{self.total_videos}")
+                                    self.current_video_index = 0
+                                    self._load_video_chunk()
                             else:
                                 print("[DEBUG] Все видео из валидационного набора обработаны, завершаем")
-                            return None
+                                return None
                     else:
                         # Загружаем следующую порцию видео
                         self._load_video_chunk()
