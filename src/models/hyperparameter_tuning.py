@@ -134,7 +134,7 @@ def load_and_prepare_data(batch_size):
         cached_train_sequences = []
         cached_train_labels = []
         
-        while len(train_loader.processed_video_paths) < len(train_loader.video_paths):
+        while len(train_loader.processed_video_paths) < train_loader.total_videos:
             X, y = train_loader._get_sequence(
                 sequence_length=Config.SEQUENCE_LENGTH,
                 target_size=Config.INPUT_SIZE,
@@ -158,6 +158,7 @@ def load_and_prepare_data(batch_size):
                 cached_train_labels.append(y_one_hot)
         
         print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих последовательностей")
+        print(f"[DEBUG] Обработано видео: {len(train_loader.processed_video_paths)}/{train_loader.total_videos} ({len(train_loader.processed_video_paths)/train_loader.total_videos*100:.1f}%)")
         
         # Очищаем память после обработки обучающего набора
         train_loader.clear_cache()
@@ -176,7 +177,7 @@ def load_and_prepare_data(batch_size):
         cached_val_sequences = []
         cached_val_labels = []
         
-        while len(val_loader.processed_video_paths) < len(val_loader.video_paths):
+        while len(val_loader.processed_video_paths) < val_loader.total_videos:
             X, y = val_loader._get_sequence(
                 sequence_length=Config.SEQUENCE_LENGTH,
                 target_size=Config.INPUT_SIZE,
