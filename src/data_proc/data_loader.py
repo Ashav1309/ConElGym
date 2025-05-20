@@ -310,6 +310,7 @@ class VideoDataLoader:
             print(f"[DEBUG] Загрузка порции видео {start_idx+1}-{end_idx} из {self.total_videos}")
             self.video_paths = self.all_video_paths[start_idx:end_idx]
             self.current_video_index = end_idx
+            self.processed_video_paths = set()  # Сбрасываем только для текущей порции
             
         except Exception as e:
             print(f"[ERROR] Ошибка при загрузке порции видео: {str(e)}")
@@ -582,19 +583,18 @@ class VideoDataLoader:
             Optional[str]: путь к видео или None, если все видео обработаны
         """
         try:
-            max_attempts = len(self.video_paths) * 2  # Увеличиваем количество попыток
+            max_attempts = len(self.video_paths) * 2
             attempts = 0
             reset_count = 0
-            max_resets = 5  # Увеличиваем количество сбросов
+            max_resets = 5
             
-            # Определяем тип данных (train/valid)
             is_train = 'train' in str(self.data_path)
             
             print(f"\n[DEBUG] Начало поиска случайного видео")
             print(f"[DEBUG] Тип данных: {'train' if is_train else 'valid'}")
             print(f"[DEBUG] Всего видео в датасете: {self.total_videos}")
             print(f"[DEBUG] Видео в текущей порции: {len(self.video_paths)}")
-            print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+            print(f"[DEBUG] Обработано видео: {self.total_processed_videos}/{self.total_videos} ({self.total_processed_videos/self.total_videos*100:.1f}%)")
             print(f"[DEBUG] Текущий индекс видео: {self.current_video_index}")
             
             while attempts < max_attempts:
@@ -603,7 +603,6 @@ class VideoDataLoader:
                 print(f"[DEBUG] processed_video_paths: {len(self.processed_video_paths)}")
                 print(f"[DEBUG] video_paths: {len(self.video_paths)}")
                 
-                # Если все видео обработаны, загружаем новую порцию
                 if len(self.processed_video_paths) >= len(self.video_paths):
                     print("[DEBUG] Все видео обработаны, загружаем новую порцию")
                     print(f"[DEBUG] До загрузки новой порции:")
@@ -611,22 +610,19 @@ class VideoDataLoader:
                     print(f"  - video_paths: {len(self.video_paths)}")
                     print(f"  - current_video_index: {self.current_video_index}")
                     
-                    self._load_video_chunk()  # Загружаем следующую порцию
+                    self._load_video_chunk()
                     
                     print(f"[DEBUG] После загрузки новой порции:")
                     print(f"  - processed_video_paths: {len(self.processed_video_paths)}")
                     print(f"  - video_paths: {len(self.video_paths)}")
                     print(f"  - current_video_index: {self.current_video_index}")
                     
-                    # Если достигли конца списка видео, возвращаем None
                     if self.current_video_index >= self.total_videos:
                         print("[DEBUG] Достигнут конец списка видео")
                         return None
                         
-                    self.processed_video_paths = set()
                     continue
                 
-                # Получаем список доступных видео
                 available_videos = [v for v in self.video_paths if v not in self.processed_video_paths]
                 print(f"[DEBUG] Доступные видео: {len(available_videos)}")
                 
@@ -636,29 +632,27 @@ class VideoDataLoader:
                         reset_count += 1
                         print(f"[DEBUG] Сброс счетчиков (попытка {reset_count}/{max_resets})")
                         print("[DEBUG] Загружаем следующую порцию видео")
-                        self._load_video_chunk()  # Загружаем следующую порцию
+                        self._load_video_chunk()
                         
-                        # Проверяем, достигли ли конца списка видео
                         if self.current_video_index >= self.total_videos:
                             print("[DEBUG] Достигнут конец списка видео")
                             return None
                             
-                        self.processed_video_paths = set()
                         continue
                     else:
                         print("[DEBUG] Достигнут лимит сбросов")
                         return None
                 
-                # Выбираем случайное видео
                 print(f"[DEBUG] Выбираем случайное видео из {len(available_videos)} доступных")
                 video_path = np.random.choice(available_videos)
                 print(f"[DEBUG] Выбрано видео: {os.path.basename(video_path)}")
                 
-                # Проверяем существование видео
                 if not os.path.exists(video_path):
                     print(f"[DEBUG] Видео не найдено: {video_path}")
                     continue
                 
+                self.processed_video_paths.add(video_path)
+                self.total_processed_videos += 1  # Увеличиваем общий счетчик
                 return video_path
                 
         except Exception as e:
