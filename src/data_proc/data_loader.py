@@ -595,15 +595,29 @@ class VideoDataLoader:
             print(f"[DEBUG] Всего видео в датасете: {self.total_videos}")
             print(f"[DEBUG] Видео в текущей порции: {len(self.video_paths)}")
             print(f"[DEBUG] Обработано видео: {len(self.processed_video_paths)}/{self.total_videos} ({len(self.processed_video_paths)/self.total_videos*100:.1f}%)")
+            print(f"[DEBUG] Текущий индекс видео: {self.current_video_index}")
             
             while attempts < max_attempts:
                 attempts += 1
                 print(f"\n[DEBUG] Попытка {attempts}/{max_attempts}")
+                print(f"[DEBUG] processed_video_paths: {len(self.processed_video_paths)}")
+                print(f"[DEBUG] video_paths: {len(self.video_paths)}")
                 
                 # Если все видео обработаны, загружаем новую порцию
                 if len(self.processed_video_paths) >= len(self.video_paths):
                     print("[DEBUG] Все видео обработаны, загружаем новую порцию")
+                    print(f"[DEBUG] До загрузки новой порции:")
+                    print(f"  - processed_video_paths: {len(self.processed_video_paths)}")
+                    print(f"  - video_paths: {len(self.video_paths)}")
+                    print(f"  - current_video_index: {self.current_video_index}")
+                    
                     self._load_video_chunk()  # Загружаем следующую порцию
+                    
+                    print(f"[DEBUG] После загрузки новой порции:")
+                    print(f"  - processed_video_paths: {len(self.processed_video_paths)}")
+                    print(f"  - video_paths: {len(self.video_paths)}")
+                    print(f"  - current_video_index: {self.current_video_index}")
+                    
                     self.processed_video_paths = set()
                     continue
                 
