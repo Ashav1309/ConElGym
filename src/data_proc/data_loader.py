@@ -115,18 +115,25 @@ class VideoDataLoader:
                 if cap is not None:
                     cap.release()
             
-            # Очищаем только временные кэши
+            # Очищаем временные кэши
             self.video_cache.clear()
             self.used_frames_cache.clear()
             self.positive_indices_cache.clear()
             self.file_info_cache.clear()
             self.open_videos.clear()
+            self.sequence_counter.clear()       # Очищаем счетчик последовательностей
+            self.used_sequences.clear()         # Очищаем множество использованных последовательностей
+            self.annotations_cache.clear()      # Очищаем кэш аннотаций
             
-            # НЕ очищаем:
-            # - processed_video_paths (множество обработанных видео)
-            # - annotations_cache (кэш аннотаций)
-            # - sequence_counter (счетчик последовательностей)
-            # - used_sequences (множество использованных последовательностей)
+            # НЕ очищаем processed_video_paths, так как это общий список обработанных видео
+            
+            # Сбрасываем счетчики
+            self.total_processed_videos = len(self.processed_video_paths)  # Обновляем из processed_video_paths
+            self.total_processed_frames = 0
+            self.total_processed_sequences = 0
+            self.current_video_index = 0
+            self.current_frame_index = 0
+            self.current_batch = 0
             
             # Принудительная очистка памяти
             gc.collect()
