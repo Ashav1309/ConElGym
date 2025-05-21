@@ -10,7 +10,7 @@ import pickle
 from sklearn.metrics import f1_score, precision_score, recall_score
 from src.models.metrics import calculate_metrics
 
-def test_model(model_path, test_data_path, model_type=None, batch_size=1):
+def test_model(model_path, test_data_path, model_type=None, batch_size=None):
     """
     Тестирование модели на тестовых данных
     Args:
@@ -20,6 +20,9 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
         batch_size: размер батча
     """
     try:
+        if batch_size is None:
+            batch_size = Config.BATCH_SIZE
+    
         print("\n[DEBUG] ===== Начало тестирования модели =====")
         
         # Проверяем существование директорий и файлов

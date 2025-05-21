@@ -262,7 +262,7 @@ def objective(trial):
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
         # Подбираем размер батча с шагом 16 для лучшей стабильности
-        batch_size = trial.suggest_int('batch_size', 8, 64, step=16)
+        batch_size = trial.suggest_int('batch_size', 16, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
         # Подбираем параметры аугментации
@@ -361,20 +361,27 @@ def objective(trial):
             print("[DEBUG] Начало обучения модели...")
             history = model.fit(
                 train_data,
-                epochs=Config.HYPERPARAM_TUNING['epochs'],
+                epochs=Config.EARLY_STOPPING['patience'],
                 validation_data=val_data,
                 callbacks=callbacks,
                 verbose=1
             )
             print("[DEBUG] Обучение модели завершено")
             
-            # Получаем лучший F1-score
-            val_f1_scores = history.history['val_scalar_f1_score']
-            if isinstance(val_f1_scores, list):
-                best_f1 = max(val_f1_scores)
-            else:
-                best_f1 = float(val_f1_scores)
-            print(f"[DEBUG] Лучший F1-score: {best_f1}")
+            # Получаем метрики из истории
+            val_metrics = history.history
+            
+            # Проверяем наличие метрик в истории
+            if 'val_f1_action' not in val_metrics:
+                print("[WARNING] Метрика val_f1_action не найдена в истории обучения")
+                print(f"Доступные метрики: {list(val_metrics.keys())}")
+                return None
+            
+            # Используем val_f1_action вместо val_scalar_f1_score
+            val_f1_scores = val_metrics['val_f1_action']
+            
+            # Находим лучший F1-score
+            best_f1 = max(val_f1_scores)
             
             # Очищаем память
             clear_memory()

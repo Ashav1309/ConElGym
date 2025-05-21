@@ -628,7 +628,7 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         sequence_length = input_shape[0]
     else:  # (height, width, channels)
         image_shape = input_shape
-        sequence_length = 12  # значение по умолчанию
+        sequence_length = Config.SEQUENCE_LENGTH    # значение по умолчанию
     
     print(f"[DEBUG] Размерность изображения: {image_shape}")
     print(f"[DEBUG] Длина последовательности: {sequence_length}")
@@ -722,7 +722,12 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     model.compile(
         optimizer=optimizer,
         loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
-        metrics=metrics
+        metrics=[
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+            tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+            F1ScoreAdapter(name='f1_action', class_id=1, threshold=0.5)
+        ]
     )
     
     return model
@@ -739,7 +744,7 @@ def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class
         sequence_length = input_shape[0]
     else:  # (height, width, channels)
         image_shape = input_shape
-        sequence_length = 12  # значение по умолчанию
+        sequence_length = Config.SEQUENCE_LENGTH  # значение по умолчанию
     
     print(f"[DEBUG] Размерность изображения: {image_shape}")
     print(f"[DEBUG] Длина последовательности: {sequence_length}")

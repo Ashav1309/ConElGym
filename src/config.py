@@ -37,7 +37,7 @@ class Config:
     LEARNING_RATE = 0.002
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
-    SEQUENCE_LENGTH = 8  # Уменьшаем длину последовательности
+    SEQUENCE_LENGTH = 32  # Уменьшаем длину последовательности
     INPUT_SIZE = (96, 96)  # Уменьшаем размер входных изображений
     STEPS_PER_EPOCH = 100
     VALIDATION_STEPS = 20

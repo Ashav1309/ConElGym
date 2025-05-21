@@ -378,8 +378,8 @@ class VideoDataLoader:
             empty_labels[:, 0] = 1  # Все кадры - фон [1, 0]
             return empty_labels
 
-    def create_sequences(self, video_path: str, labels: np.ndarray, sequence_length: int = 12, 
-                        max_sequences: int = 200, step: int = 1, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def create_sequences(self, video_path: str, labels: np.ndarray, sequence_length: int = Config.SEQUENCE_LENGTH, 
+                        max_sequences: int = 200, step: int = 16, force_positive: bool = False) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Создает последовательности кадров из видео.
         """
@@ -429,7 +429,7 @@ class VideoDataLoader:
             background_dominant_labels = []
             
             # Ограничиваем количество последовательностей каждого типа
-            max_positive = int(max_sequences * 0.75)  # 75% положительных
+            max_positive = int(max_sequences * 0.6)  # 75% положительных
             max_negative = max_sequences - max_positive  # 25% отрицательных
             
             # Сначала создаем положительные последовательности из сегментов с действиями
@@ -553,7 +553,7 @@ class VideoDataLoader:
                 # Иначе выбираем последовательность с учетом баланса
                 if len(action_dominant_sequences) > 0 and len(background_dominant_sequences) > 0:
                     # Если есть оба типа последовательностей, выбираем с вероятностью 75/25
-                    if np.random.random() < 0.75:
+                    if np.random.random() < 0.6:
                         idx = np.random.randint(len(action_dominant_sequences))
                         X = action_dominant_sequences[idx]
                         y = action_dominant_labels[idx]
@@ -701,7 +701,7 @@ class VideoDataLoader:
                 labels=self.annotations_cache[video_path],
                 sequence_length=sequence_length,
                 max_sequences=self.max_sequences_per_video,
-                step=1,  # Используем шаг 1 для более точного выбора
+                step=16,  # Используем шаг 1 для более точного выбора
                 force_positive=force_positive  # Используем переданный параметр
             )
 
@@ -797,7 +797,7 @@ class VideoDataLoader:
         # Счетчики для балансировки классов
         positive_count = 0
         negative_count = 0
-        max_positive = int(batch_size * 0.75)  # 75% положительных
+        max_positive = int(batch_size * 0.6)  # 75% положительных
         max_negative = batch_size - max_positive  # 25% отрицательных
         
         # Ожидаемая форма последовательности
