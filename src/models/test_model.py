@@ -80,19 +80,13 @@ def evaluate_model(model, test_data):
 
 if __name__ == "__main__":
     try:
-        # Тестируем обе модели
-        print("[DEBUG] ===== Запуск тестирования моделей =====")
+        # Тестируем модель
+        print("[DEBUG] ===== Запуск тестирования модели =====")
         
         print("\n[DEBUG] Тестирование MobileNetV3...")
         test_model(
             model_path=os.path.join(Config.MODEL_SAVE_PATH, 'v3', 'best_model.h5'),
             model_type='v3'
-        )
-        
-        print("\n[DEBUG] Тестирование MobileNetV4...")
-        test_model(
-            model_path=os.path.join(Config.MODEL_SAVE_PATH, 'v4', 'best_model.h5'),
-            model_type='v4'
         )
     except Exception as e:
         print(f"[ERROR] Критическая ошибка при запуске тестирования: {str(e)}")

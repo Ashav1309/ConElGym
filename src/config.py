@@ -15,9 +15,9 @@ class Config:
     MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'best_model.h5')
     
     # Базовые пути
-    DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
-    MODEL_SAVE_PATH = os.path.join(PROJECT_ROOT, 'models')
-    LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+    DATA_DIR = os.path.join('data')
+    MODEL_SAVE_PATH = os.path.join('models')
+    LOG_DIR = os.path.join('logs')
     
     # Пути к данным
     TRAIN_DATA_PATH = os.path.join(DATA_DIR, 'train')
@@ -32,17 +32,17 @@ class Config:
     # Параметры модели
     MODEL_TYPE = 'v3'
     INPUT_SHAPE = (224, 224, 3)
-    BATCH_SIZE = 32
-    EPOCHS = 50
-    LEARNING_RATE = 0.002
+    BATCH_SIZE = 2
+    EPOCHS = 30
+    LEARNING_RATE = 1e-4
     EARLY_STOPPING_PATIENCE = 10
     NUM_CLASSES = 2  # Фон и действие
-    SEQUENCE_LENGTH = 32  # Уменьшаем длину последовательности
-    INPUT_SIZE = (96, 96)  # Уменьшаем размер входных изображений
-    STEPS_PER_EPOCH = 100
-    VALIDATION_STEPS = 20
+    SEQUENCE_LENGTH = 16
+    INPUT_SIZE = (224, 224)
+    STEPS_PER_EPOCH = 5
+    VALIDATION_STEPS = 2
     MAX_SEQUENCES_PER_VIDEO = 200
-    MAX_VIDEOS = 5
+    MAX_VIDEOS = 100
     
     # Параметры загрузчика данных
     MAX_STUCK_BATCHES = 10  # Максимальное количество попыток получения батча
@@ -55,16 +55,12 @@ class Config:
     # Параметры модели
     MODEL_PARAMS = {
         'v3': {
-            'learning_rate': 0.001,
+            'input_shape': (16, 224, 224, 3),  # (sequence_length, height, width, channels)
+            'num_classes': 2,  # background, action
             'dropout_rate': 0.3,
             'lstm_units': 128,
             'rnn_type': 'lstm',
-            'temporal_block_type': 'rnn',
-            'temporal_params': {
-                'rnn_dropout': 0.2,
-                'rnn_recurrent_dropout': 0.2,
-                'rnn_bidirectional': False
-            }
+            'temporal_block_type': 'rnn'
         }
     }
     
@@ -103,22 +99,16 @@ class Config:
     
     # Параметры аугментации
     AUGMENTATION = {
-        'enabled': True,
-        'brightness_prob': 0.5,
         'brightness_range': 0.2,
-        'contrast_prob': 0.5,
         'contrast_range': 0.2,
-        'rotation_prob': 0.5,
         'rotation_range': 10,
-        'flip_prob': 0.5,
-        'scale_prob': 0.5,
-        'scale_range': 0.1,
-        'shift_prob': 0,
-        'shift_range': 0.1,
-        'noise_prob': 0.3,
         'noise_std': 0.05,
-        'blur_prob': 0,
-        'blur_sigma': 1.0
+        'blur_sigma': 1.0,
+        'brightness_prob': 0.5,
+        'contrast_prob': 0.5,
+        'rotation_prob': 0.5,
+        'noise_prob': 0.3,
+        'blur_prob': 0.2
     }
     
     # Настройки предотвращения переобучения
@@ -132,14 +122,9 @@ class Config:
     
     # Настройки подбора гиперпараметров
     HYPERPARAM_TUNING = {
-        'n_trials': 30,  
-        'timeout': 3600 * 8,
-        'n_jobs': 1,
-        'epochs': 50, 
-        'early_stopping_patience': 5,
-        'min_epochs': 20,
-        'validation_split': 0.2,
-        'metric_threshold': 0.5
+        'n_trials': 10,
+        'timeout': 3600,  # 1 час
+        'epochs': 30
     }
     
     # Параметры градиентной аккумуляции
@@ -210,6 +195,9 @@ class Config:
         'weight_increase': 1.1,
         'num_classes': 2  # 2 класса: фон, действие
     }
+    
+    # Параметры логирования
+    TENSORBOARD_DIR = os.path.join(LOG_DIR, 'tensorboard')
     
     @classmethod
     def apply_debug_small_dataset(cls):
@@ -312,6 +300,14 @@ class Config:
         """Сохраняет конфигурацию в JSON файл"""
         with open(cls.CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=4)
+
+    @classmethod
+    def create_directories(cls):
+        os.makedirs(cls.MODEL_SAVE_PATH, exist_ok=True)
+        os.makedirs(cls.LOG_DIR, exist_ok=True)
+        os.makedirs(cls.TENSORBOARD_DIR, exist_ok=True)
+        os.makedirs(os.path.join(cls.MODEL_SAVE_PATH, 'v3'), exist_ok=True)
+        os.makedirs(os.path.join(cls.MODEL_SAVE_PATH, 'tuning'), exist_ok=True)
 
 # Валидация и применение debug-режима при импорте
 Config.apply_debug_small_dataset()

@@ -80,8 +80,8 @@ def objective(trial):
 
 def main():
     try:
-        parser = argparse.ArgumentParser(description="Подбор гиперпараметров для модели (v3 или v4)")
-        parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3 или v4')
+        parser = argparse.ArgumentParser(description="Подбор гиперпараметров для модели v3")
+        parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3')
         args = parser.parse_args()
 
         if args.model_type is not None:

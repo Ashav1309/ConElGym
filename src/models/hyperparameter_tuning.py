@@ -31,6 +31,11 @@ import cv2
 from optuna.trial import Trial
 from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
 from src.models.train import create_data_pipeline, create_tuning_data_pipeline
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras.mixed_precision import Policy
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px
 
 # Настройка GPU
 setup_gpu()
@@ -45,6 +50,25 @@ cached_train_sequences = None
 cached_train_labels = None
 cached_val_sequences = None
 cached_val_labels = None
+
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        # Включаем mixed precision
+        policy = Policy('mixed_float16')
+        tf.keras.mixed_precision.set_global_policy(policy)
+        print("Mixed precision policy set:", policy.name)
+        
+        # Проверяем, что GPU действительно используется
+        with tf.device('/GPU:0'):
+            a = tf.random.normal([1000, 1000])
+            b = tf.random.normal([1000, 1000])
+            c = tf.matmul(a, b)
+            print("GPU test successful")
+    except RuntimeError as e:
+        print(f"Error setting up GPU: {e}")
+else:
+    print("\nNo GPU devices found")
 
 def clear_memory():
     """Очистка памяти"""
@@ -242,380 +266,311 @@ def count_total_sequences(video_paths, sequence_length, step):
     return total
 
 def objective(trial):
+    """
+    Целевая функция для оптимизации гиперпараметров
+    """
     try:
-        print(f"=======================================")
-        print(f"\n[DEBUG] Начало триала #{trial.number}")
-        print(f"[DEBUG] Время начала: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"=======================================")
+        print(f"\n[DEBUG] ===== ============================ ======")
+        print(f"\n[DEBUG] ===== Начало триала #{trial.number} =====")
+        print(f"\n[DEBUG] ===== ============================ ======")
         
-        # Очищаем память перед началом триала
-        clear_memory()
-        
-        # Базовые гиперпараметры
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)
+        # Получаем гиперпараметры из trial
+        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
-        lstm_units = trial.suggest_int('lstm_units', 64, 256)
+        lstm_units = trial.suggest_int('lstm_units', 32, 256)
         model_type = Config.MODEL_TYPE
-        rnn_type = trial.suggest_categorical('rnn_type', ['lstm'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['tcn', 'transformer', 'rnn'])
+        rnn_type = trial.suggest_categorical('rnn_type', ['lstm', 'bigru'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn', 'hybrid', '3d_attention', 'transformer'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
-        
-        # Подбираем веса классов
-        action_weight = trial.suggest_float('action_weight', 5.0, 10.0)
-        base_weights = {
-            'background': 1.0,
-            'action': action_weight
-        }
-        
-        # Специфичные гиперпараметры для каждого типа временного блока
-        temporal_params = {}
-        
-        if temporal_block_type == 'tcn':
-            temporal_params = {
-                'tcn_kernel_size': trial.suggest_int('tcn_kernel_size', 2, 5),
-                'tcn_dilation_base': trial.suggest_int('tcn_dilation_base', 1, 3),
-                'tcn_num_channels': trial.suggest_categorical('tcn_num_channels', [
-                    [lstm_units, lstm_units//2],
-                    [lstm_units, lstm_units//2, lstm_units//4],
-                    [lstm_units*2, lstm_units, lstm_units//2]
-                ]),
-                'tcn_dropout': trial.suggest_float('tcn_dropout', 0.1, 0.4)
-            }
-        elif temporal_block_type == 'transformer':
-            temporal_params = {
-                'transformer_num_heads': trial.suggest_int('transformer_num_heads', 2, 8),
-                'transformer_ff_dim': trial.suggest_categorical('transformer_ff_dim', [
-                    lstm_units,
-                    lstm_units * 2,
-                    lstm_units * 4
-                ]),
-                'transformer_dropout': trial.suggest_float('transformer_dropout', 0.1, 0.4),
-                'transformer_attention_dropout': trial.suggest_float('transformer_attention_dropout', 0.1, 0.3)
-            }
-        elif temporal_block_type == 'rnn':
-            temporal_params = {
-                'rnn_dropout': trial.suggest_float('rnn_dropout', 0.1, 0.4),
-                'rnn_recurrent_dropout': trial.suggest_float('rnn_recurrent_dropout', 0.1, 0.3),
-                'rnn_bidirectional': trial.suggest_categorical('rnn_bidirectional', [True, False])
-            }
-        
-        # Подбираем размер батча с шагом 8 для лучшей стабильности
-        batch_size = trial.suggest_int('batch_size', 16, 64, step=8)
-        print(f"[DEBUG] Выбран размер батча: {batch_size}")
-        
-        # Подбираем параметры аугментации
-        augmentation_params = {
-            'brightness_range': trial.suggest_float('brightness_range', 0.1, 0.3),
-            'contrast_range': trial.suggest_float('contrast_range', 0.1, 0.3),
-            'rotation_range': trial.suggest_int('rotation_range', 5, 15),
-            'noise_std': trial.suggest_float('noise_std', 0.02, 0.08),
-            'blur_sigma': trial.suggest_float('blur_sigma', 0.5, 1.5)
-        }
-        
-        # Подбираем вероятности аугментации
-        augmentation_probs = {
-            'brightness_prob': trial.suggest_float('brightness_prob', 0.3, 0.7),
-            'contrast_prob': trial.suggest_float('contrast_prob', 0.3, 0.7),
-            'rotation_prob': trial.suggest_float('rotation_prob', 0.3, 0.7),
-            'noise_prob': trial.suggest_float('noise_prob', 0.2, 0.5),
-            'blur_prob': trial.suggest_float('blur_prob', 0.1, 0.3)
-        }
         
         print(f"[DEBUG] Параметры триала #{trial.number}:")
         print(f"  - learning_rate: {learning_rate}")
         print(f"  - dropout_rate: {dropout_rate}")
         print(f"  - lstm_units: {lstm_units}")
-        print(f"  - model_type: {model_type}")
         print(f"  - rnn_type: {rnn_type}")
         print(f"  - temporal_block_type: {temporal_block_type}")
         print(f"  - clipnorm: {clipnorm}")
-        print(f"  - batch_size: {batch_size}")
-        print(f"  - action_weight: {action_weight}")
-        print(f"  - temporal_params: {temporal_params}")
-        print(f"  - augmentation_params: {augmentation_params}")
-        print(f"  - augmentation_probs: {augmentation_probs}")
         
-        # Рассчитываем веса классов
-        print(f"[DEBUG] Тип модели: {model_type}")
-        print(f"[DEBUG] MODEL_PARAMS: {Config.MODEL_PARAMS}")
-
-        try:
-            # Создаем и компилируем модель
-            print("[DEBUG] Создание и компиляция модели...")
-            print(f"[DEBUG] Передаем тип модели в create_model_with_params: {model_type}")
-            print(f"[DEBUG] Проверка типа модели: {model_type.lower()}")
-            model = create_model_with_params(
-                model_type=model_type,
-                input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
-                num_classes=2,
-                params={
-                    'dropout_rate': dropout_rate,
-                    'lstm_units': lstm_units,
-                    'rnn_type': rnn_type,
-                    'temporal_block_type': temporal_block_type,
-                    **temporal_params  # Добавляем специфичные параметры временного блока
-                },
-                class_weights=base_weights
-            )
-            
-            optimizer = Adam(
-                learning_rate=learning_rate,
-                clipnorm=clipnorm
-            )
-            
-            model.compile(
-                optimizer=optimizer,
-                loss=focal_loss(gamma=2.0, alpha=[base_weights['background'], base_weights['action']]),
-                metrics=get_tuning_metrics()
-            )
-            
-            print("[DEBUG] Модель успешно создана и скомпилирована")
-            
-            # Загружаем данные
-            print("[DEBUG] Загрузка данных...")
-            train_data, val_data = load_and_prepare_data(batch_size)
-            print("[DEBUG] Данные успешно загружены")
-            
-            # Создаем колбэки
-            print("[DEBUG] Создание колбэков...")
-            callbacks = get_tuning_callbacks(trial.number)
-            print("[DEBUG] Колбэки успешно созданы")
-            
-            # Обучаем модель
-            print("[DEBUG] Начало обучения модели...")
-            history = model.fit(
-                train_data,
-                epochs=Config.HYPERPARAM_TUNING['epochs'],
-                validation_data=val_data,
-                callbacks=callbacks,
+        # Создаем модель с текущими гиперпараметрами
+        model = create_model_with_params(
+            model_type=model_type,
+            input_shape=(Config.SEQUENCE_LENGTH, *Config.INPUT_SIZE, 3),
+            num_classes=2,
+            params={
+                'dropout_rate': dropout_rate,
+                'lstm_units': lstm_units,
+                'rnn_type': rnn_type,
+                'temporal_block_type': temporal_block_type,
+                'clipnorm': clipnorm
+            },
+            class_weights={
+                'background': 1.0,
+                'action': 1.0
+            }
+        )
+        
+        # Загружаем данные
+        data_loader = VideoDataLoader(
+            data_path=Config.TRAIN_DATA_PATH,
+            max_videos=Config.MAX_VIDEOS
+        )
+        
+        train_data, val_data = load_and_prepare_data(Config.BATCH_SIZE)
+        
+        # Создаем директорию для сохранения результатов
+        trial_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', f'trial_{trial.number}')
+        os.makedirs(trial_dir, exist_ok=True)
+        
+        # Создаем callbacks
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=5,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            ModelCheckpoint(
+                filepath=os.path.join(trial_dir, 'best_model.h5'),
+                monitor='val_loss',
+                save_best_only=True,
+                verbose=1
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.2,
+                patience=3,
+                min_lr=1e-6,
                 verbose=1
             )
-            print("[DEBUG] Обучение модели завершено")
-            
-            # Получаем метрики из истории
-            val_metrics = history.history
-            
-            # Проверяем наличие метрик в истории
-            if 'val_f1_action' not in val_metrics:
-                print("[WARNING] Метрика val_f1_action не найдена в истории обучения")
-                print(f"Доступные метрики: {list(val_metrics.keys())}")
-                return None
-            
-            # Используем val_f1_action вместо val_scalar_f1_score
-            val_f1_scores = val_metrics['val_f1_action']
-            
-            # Находим лучший F1-score
-            best_f1 = max(val_f1_scores)
-            
-            # Очищаем память
-            clear_memory()
-            
-            return best_f1
-            
-        except Exception as e:
-            print(f"[ERROR] Ошибка в процессе обучения: {str(e)}")
-            print("[DEBUG] Stack trace:", flush=True)
-            traceback.print_exc()
-            clear_memory()
-            raise
-            
-    except Exception as e:
-        print(f"[ERROR] Критическая ошибка в триале #{trial.number}: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        clear_memory()
-        raise
-
-def save_tuning_results(study, total_time, n_trials):
-    """
-    Сохранение результатов подбора гиперпараметров + визуализация и подробный лог
-    """
-    try:
-        model_type = Config.MODEL_TYPE
-        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', model_type)
-        print(f"\n[DEBUG] Сохранение результатов подбора гиперпараметров в {tuning_dir}...")
+        ]
         
-        # Очищаем старые результаты только из папки текущей модели
-        if os.path.exists(tuning_dir):
-            print(f"[DEBUG] Удаление старых результатов из {tuning_dir}...")
-            for file in os.listdir(tuning_dir):
-                file_path = os.path.join(tuning_dir, file)
-                try:
-                    if os.path.isfile(file_path):
-                        os.unlink(file_path)
-                except Exception as e:
-                    print(f"[WARNING] Ошибка при удалении файла {file_path}: {str(e)}")
-        else:
-            print(f"[DEBUG] Папка {tuning_dir} не существует, создаю...")
-            os.makedirs(tuning_dir, exist_ok=True)
+        # Обучаем модель
+        history = model.fit(
+            train_data,
+            epochs=Config.EPOCHS,
+            steps_per_epoch=Config.STEPS_PER_EPOCH,
+            validation_data=val_data,
+            validation_steps=Config.VALIDATION_STEPS,
+            callbacks=callbacks,
+            verbose=1
+        )
         
-        # Сохраняем результаты в текстовый файл
-        results_file = os.path.join(tuning_dir, 'optuna_results.txt')
-        with open(results_file, 'w') as f:
-            f.write(f"=== Результаты оптимизации гиперпараметров ===\n")
-            f.write(f"Модель: {model_type}\n")
-            f.write(f"Время выполнения: {timedelta(seconds=int(total_time))}\n")
-            f.write(f"Количество trials: {n_trials}\n")
-            f.write(f"Лучшее значение: {study.best_value}\n")
-            f.write("\nЛучшие параметры:\n")
-            for key, value in study.best_params.items():
-                f.write(f"{key}: {value}\n")
-        
-        # Сохраняем все параметры в JSON файл
-        params_file = os.path.join(tuning_dir, 'best_params.json')
-        params = {
-            'model_params': {
-                'learning_rate': study.best_params['learning_rate'],
-                'dropout_rate': study.best_params['dropout_rate'],
-                'lstm_units': study.best_params['lstm_units'],
-                'rnn_type': study.best_params['rnn_type'],
-                'temporal_block_type': study.best_params['temporal_block_type'],
-                'clipnorm': study.best_params['clipnorm'],
-                'batch_size': study.best_params['batch_size']
-            },
-            'augmentation_params': {
-                'brightness_range': study.best_params['brightness_range'],
-                'contrast_range': study.best_params['contrast_range'],
-                'rotation_range': study.best_params['rotation_range'],
-                'noise_std': study.best_params['noise_std'],
-                'blur_sigma': study.best_params['blur_sigma'],
-                'brightness_prob': study.best_params['brightness_prob'],
-                'contrast_prob': study.best_params['contrast_prob'],
-                'rotation_prob': study.best_params['rotation_prob'],
-                'noise_prob': study.best_params['noise_prob'],
-                'blur_prob': study.best_params['blur_prob']
-            },
-            'model_type': model_type,
-            'best_value': study.best_value,
-            'total_time': total_time,
-            'n_trials': n_trials
+        # Сохраняем историю обучения
+        history_dict = {
+            'loss': [float(x) for x in history.history['loss']],
+            'accuracy': [float(x) for x in history.history['accuracy']],
+            'val_loss': [float(x) for x in history.history['val_loss']],
+            'val_accuracy': [float(x) for x in history.history['val_accuracy']]
         }
-        with open(params_file, 'w') as f:
-            json.dump(params, f, indent=4)
         
-        # Создаем визуализации
-        try:
-            # График оптимизации
-            plt.figure(figsize=(10, 6))
-            optuna.visualization.matplotlib.plot_optimization_history(study)
-            plt.savefig(os.path.join(tuning_dir, 'optimization_history.png'))
-            plt.close()
-            
-            # График важности параметров
-            ax = optuna.visualization.matplotlib.plot_param_importances(study)
-            ax.set_title('Важность гиперпараметров', fontsize=18, pad=20)
-            ax.figure.savefig(os.path.join(tuning_dir, 'param_importances.png'), bbox_inches='tight')
-            plt.close(ax.figure)
-            
-            # График параллельных координат
-            plt.figure(figsize=(15, 10))
-            optuna.visualization.matplotlib.plot_parallel_coordinate(study)
-            plt.savefig(os.path.join(tuning_dir, 'parallel_coordinate.png'))
-            plt.close()
-            
-        except Exception as e:
-            print(f"[WARNING] Ошибка при создании визуализаций: {str(e)}")
-            traceback.print_exc()
+        with open(os.path.join(trial_dir, 'history.json'), 'w') as f:
+            json.dump(history_dict, f)
         
-        print(f"[DEBUG] Результаты сохранены в {tuning_dir}")
+        # Визуализируем результаты
+        plot_training_history(history, trial_dir)
+        
+        # Оцениваем модель на валидационном наборе
+        val_metrics = model.evaluate(val_data, steps=Config.VALIDATION_STEPS, verbose=1)
+        val_loss, val_accuracy = val_metrics
+        
+        # Сохраняем метрики
+        metrics = {
+            'val_loss': float(val_loss),
+            'val_accuracy': float(val_accuracy)
+        }
+        
+        with open(os.path.join(trial_dir, 'metrics.json'), 'w') as f:
+            json.dump(metrics, f)
+        
+        # Очищаем память
+        tf.keras.backend.clear_session()
+        gc.collect()
+        
+        return val_accuracy
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при сохранении результатов: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        raise
+        print(f"\n[ERROR] Ошибка в триале #{trial.number}: {str(e)}")
+        return None
 
-def tune_hyperparameters(n_trials=None):
-    """Подбор гиперпараметров с использованием Optuna"""
+def tune_hyperparameters():
+    """
+    Функция для оптимизации гиперпараметров модели
+    """
     try:
-        print("[DEBUG] Начало подбора гиперпараметров...")
+        print("\n[DEBUG] ===== Начало оптимизации гиперпараметров =====")
+        
+        # Создаем директорию для сохранения результатов
+        tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning')
+        os.makedirs(tuning_dir, exist_ok=True)
         
         # Создаем study
         study = optuna.create_study(
-            direction="maximize",
-            sampler=optuna.samplers.TPESampler(seed=42),
-            pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=5,
-                n_warmup_steps=5,
-                interval_steps=1
-            )
+            direction='maximize',
+            study_name=f'hyperparameter_tuning_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
         )
         
         # Запускаем оптимизацию
-        start_time = time.time()
-        study.optimize(
-            objective,
-            n_trials=n_trials or Config.HYPERPARAM_TUNING['n_trials'],
-            timeout=Config.HYPERPARAM_TUNING['timeout'],
-            show_progress_bar=True
-        )
-        total_time = time.time() - start_time
+        study.optimize(objective, n_trials=Config.N_TRIALS)
         
         # Сохраняем результаты
-        save_tuning_results(study, total_time, n_trials or Config.HYPERPARAM_TUNING['n_trials'])
+        results = []
+        for trial in study.trials:
+            if trial.value is not None:
+                results.append({
+                    'trial_number': trial.number,
+                    'value': trial.value,
+                    'params': trial.params
+                })
         
-        # Извлекаем лучшие параметры и значение
-        best_params = study.best_params
-        best_value = study.best_value
+        # Сортируем результаты по значению метрики
+        results.sort(key=lambda x: x['value'], reverse=True)
         
-        print("\n[INFO] Лучшие параметры:")
-        for param, value in best_params.items():
-            print(f"  {param}: {value}")
-        print(f"[INFO] Лучшее значение метрики: {best_value:.4f}")
+        # Сохраняем результаты в файл
+        with open(os.path.join(tuning_dir, 'optuna_results.txt'), 'w') as f:
+            f.write("Results of hyperparameter optimization:\n\n")
+            for result in results:
+                f.write(f"Trial #{result['trial_number']}\n")
+                f.write(f"Value: {result['value']:.4f}\n")
+                f.write("Parameters:\n")
+                for param, value in result['params'].items():
+                    f.write(f"  {param}: {value}\n")
+                f.write("\n")
         
-        return best_params, best_value
+        # Визуализируем результаты
+        plot_optimization_history(study, tuning_dir)
+        plot_param_importances(study, tuning_dir)
+        
+        print("\n[DEBUG] ===== Оптимизация гиперпараметров завершена =====")
+        
+        return study.best_params, study.best_value
         
     except Exception as e:
-        print(f"[ERROR] Ошибка при подборе гиперпараметров: {str(e)}")
-        print("[DEBUG] Stack trace:", flush=True)
-        traceback.print_exc()
-        raise
+        print(f"\n[ERROR] Ошибка при оптимизации гиперпараметров: {str(e)}")
+        return None, None
 
-def create_and_compile_model(params, input_shape, num_classes, class_weights):
+def plot_optimization_history(study, save_dir):
     """
-    Создание и компиляция модели с заданными параметрами
+    Визуализация истории оптимизации
     """
-    print("\n[DEBUG] Создание модели с параметрами:")
-    print(f"  - Тип модели: {params['model_type']}")
-    print(f"  - Dropout: {params['dropout_rate']}")
-    print(f"  - LSTM units: {params['lstm_units']}")
-    print(f"  - Тип RNN: {params['rnn_type']}")
-    print(f"  - Тип временного блока: {params['temporal_block_type']}")
-    print(f"  - Веса классов: {class_weights}")
-    print(f"  - Параметры аугментации: {params.get('augmentation_params', {})}")
-    print(f"  - Вероятности аугментации: {params.get('augmentation_probs', {})}")
-    
-    # Обновляем параметры аугментации в конфиге
-    if 'augmentation_params' in params:
-        Config.AUGMENTATION.update(params['augmentation_params'])
-    if 'augmentation_probs' in params:
-        Config.AUGMENTATION.update(params['augmentation_probs'])
-    
-    # Создаем модель
-    model = create_model_with_params(
-        model_type=params['model_type'],
-        input_shape=input_shape,
-        num_classes=num_classes,
-        params={
-            'dropout_rate': params['dropout_rate'],
-            'lstm_units': params['lstm_units'],
-            'rnn_type': params['rnn_type'],
-            'temporal_block_type': params['temporal_block_type']
-        },
-        class_weights=class_weights
-    )
-    
-    # Создаем оптимизатор
-    optimizer = Adam(
-        learning_rate=params['learning_rate'],
-        clipnorm=params.get('clipnorm', 1.0)
-    )
-    
-    # Компилируем модель с focal loss и метриками
-    model.compile(
-        optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
-        metrics=get_tuning_metrics()
-    )
-    
-    return model
+    try:
+        # Создаем DataFrame с результатами
+        trials_df = pd.DataFrame([
+            {
+                'trial': t.number,
+                'value': t.value,
+                'datetime_start': t.datetime_start,
+                'datetime_complete': t.datetime_complete
+            }
+            for t in study.trials
+            if t.value is not None
+        ])
+        
+        # Сортируем по номеру триала
+        trials_df = trials_df.sort_values('trial')
+        
+        # Создаем график
+        fig = go.Figure()
+        
+        # Добавляем линию значений
+        fig.add_trace(go.Scatter(
+            x=trials_df['trial'],
+            y=trials_df['value'],
+            mode='lines+markers',
+            name='Значение метрики',
+            line=dict(color='blue'),
+            marker=dict(size=8)
+        ))
+        
+        # Добавляем линию лучшего значения
+        best_values = [study.best_value] * len(trials_df)
+        fig.add_trace(go.Scatter(
+            x=trials_df['trial'],
+            y=best_values,
+            mode='lines',
+            name='Лучшее значение',
+            line=dict(color='red', dash='dash')
+        ))
+        
+        # Настраиваем layout
+        fig.update_layout(
+            title='История оптимизации гиперпараметров',
+            xaxis_title='Номер триала',
+            yaxis_title='Значение метрики',
+            showlegend=True,
+            template='plotly_white'
+        )
+        
+        # Сохраняем график
+        fig.write_image(os.path.join(save_dir, 'optimization_history.png'))
+        fig.write_html(os.path.join(save_dir, 'optimization_history.html'))
+        
+    except Exception as e:
+        print(f"\n[ERROR] Ошибка при создании графика истории оптимизации: {str(e)}")
+
+def plot_param_importances(study, save_dir):
+    """
+    Визуализация важности параметров
+    """
+    try:
+        # Получаем важность параметров
+        param_importances = optuna.importance.get_param_importances(study)
+        
+        # Создаем DataFrame
+        importances_df = pd.DataFrame({
+            'parameter': list(param_importances.keys()),
+            'importance': list(param_importances.values())
+        })
+        
+        # Сортируем по важности
+        importances_df = importances_df.sort_values('importance', ascending=True)
+        
+        # Создаем график
+        fig = go.Figure()
+        
+        # Добавляем горизонтальные бары
+        fig.add_trace(go.Bar(
+            y=importances_df['parameter'],
+            x=importances_df['importance'],
+            orientation='h',
+            marker=dict(color='blue')
+        ))
+        
+        # Настраиваем layout
+        fig.update_layout(
+            title='Важность гиперпараметров',
+            xaxis_title='Важность',
+            yaxis_title='Параметр',
+            showlegend=False,
+            template='plotly_white'
+        )
+        
+        # Сохраняем график
+        fig.write_image(os.path.join(save_dir, 'param_importances.png'))
+        fig.write_html(os.path.join(save_dir, 'param_importances.html'))
+        
+    except Exception as e:
+        print(f"\n[ERROR] Ошибка при создании графика важности параметров: {str(e)}")
+
+if __name__ == "__main__":
+    try:
+        print("[DEBUG] ===== Запуск оптимизации гиперпараметров =====")
+        best_params, best_value = tune_hyperparameters()
+        
+        if best_params is not None:
+            print("\n[INFO] Лучшие параметры:")
+            for param, value in best_params.items():
+                print(f"  {param}: {value}")
+            print(f"[INFO] Лучшее значение метрики: {best_value:.4f}")
+            
+            # Сохраняем лучшие параметры в файл
+            with open('best_params.txt', 'w') as f:
+                f.write("Best parameters:\n")
+                for param, value in best_params.items():
+                    f.write(f"{param}: {value}\n")
+                f.write(f"\nBest validation accuracy: {best_value:.4f}\n")
+        else:
+            print("\n[ERROR] Не удалось найти оптимальные параметры")
+            
+    except Exception as e:
+        print(f"\n[ERROR] Критическая ошибка при запуске оптимизации: {str(e)}")
+        sys.exit(1)

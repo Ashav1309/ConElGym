@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     'create_model_with_params',
-    'create_mobilenetv3_model',
+    'create_mobilenet_model',
     'postprocess_predictions',
     'indices_to_seconds',
     'merge_classes',
@@ -621,7 +621,7 @@ class TemporalBlock(tf.keras.layers.Layer):
         self.norm = tf.keras.layers.LayerNormalization()
         self.add = tf.keras.layers.Add()
 
-def create_mobilenetv3_model(
+def create_mobilenet_model(
     input_shape,
     num_classes=2,
     dropout_rate=0.3,
@@ -674,9 +674,9 @@ def create_mobilenetv3_model(
     # Замораживаем веса базовой модели
     base_model.trainable = False
     
-    # Применяем MobileNetV3 к каждому кадру
+    # Применяем MobileNet к каждому кадру
     x = TimeDistributed(base_model)(inputs)
-    print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
+    print(f"[DEBUG] Форма после MobileNet: {x.shape}")
     
     # Reshape для временной обработки
     x = Reshape((sequence_length, -1))(x)
@@ -734,7 +734,6 @@ def create_model_with_params(model_type, input_shape, num_classes, params, class
     """
     print("\n[DEBUG] Создание модели с параметрами:")
     print(f"  - Тип модели: {model_type}")
-    print(f"  - Тип модели (lower): {model_type.lower()}")
     print(f"  - Dropout: {params['dropout_rate']}")
     print(f"  - LSTM units: {params.get('lstm_units', 'N/A')}")
     print(f"  - RNN type: {params.get('rnn_type', 'lstm')}")
@@ -743,7 +742,7 @@ def create_model_with_params(model_type, input_shape, num_classes, params, class
     
     if model_type.lower() == 'v3':
         print("[DEBUG] Создание модели MobileNetV3...")
-        return create_mobilenetv3_model(
+        return create_mobilenet_model(
             input_shape=input_shape,
             num_classes=num_classes,
             dropout_rate=params['dropout_rate'],
