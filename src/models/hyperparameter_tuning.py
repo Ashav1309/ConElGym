@@ -19,7 +19,7 @@ from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
 from src.models.losses import focal_loss
 from src.models.metrics import get_tuning_metrics
-from src.models.callbacks import get_tuning_callbacks, AdaptiveThresholdCallback
+from src.models.callbacks import get_tuning_callbacks
 from src.utils.gpu_config import setup_gpu
 from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
 import matplotlib.pyplot as plt
