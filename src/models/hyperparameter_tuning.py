@@ -252,16 +252,48 @@ def objective(trial):
         # Очищаем память перед началом триала
         clear_memory()
         
-        # Получаем гиперпараметры
+        # Базовые гиперпараметры
         learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-4, log=True)
         dropout_rate = trial.suggest_float('dropout_rate', 0.1, 0.5)
         lstm_units = trial.suggest_int('lstm_units', 64, 256)
         model_type = Config.MODEL_TYPE
         rnn_type = trial.suggest_categorical('rnn_type', ['lstm'])
-        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['rnn','tcn','transformer'])
+        temporal_block_type = trial.suggest_categorical('temporal_block_type', ['tcn', 'transformer', 'rnn'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
-        # Подбираем размер батча с шагом 16 для лучшей стабильности
+        # Специфичные гиперпараметры для каждого типа временного блока
+        temporal_params = {}
+        
+        if temporal_block_type == 'tcn':
+            temporal_params = {
+                'tcn_kernel_size': trial.suggest_int('tcn_kernel_size', 2, 5),
+                'tcn_dilation_base': trial.suggest_int('tcn_dilation_base', 1, 3),
+                'tcn_num_channels': trial.suggest_categorical('tcn_num_channels', [
+                    [lstm_units, lstm_units//2],
+                    [lstm_units, lstm_units//2, lstm_units//4],
+                    [lstm_units*2, lstm_units, lstm_units//2]
+                ]),
+                'tcn_dropout': trial.suggest_float('tcn_dropout', 0.1, 0.4)
+            }
+        elif temporal_block_type == 'transformer':
+            temporal_params = {
+                'transformer_num_heads': trial.suggest_int('transformer_num_heads', 2, 8),
+                'transformer_ff_dim': trial.suggest_categorical('transformer_ff_dim', [
+                    lstm_units,
+                    lstm_units * 2,
+                    lstm_units * 4
+                ]),
+                'transformer_dropout': trial.suggest_float('transformer_dropout', 0.1, 0.4),
+                'transformer_attention_dropout': trial.suggest_float('transformer_attention_dropout', 0.1, 0.3)
+            }
+        elif temporal_block_type == 'rnn':
+            temporal_params = {
+                'rnn_dropout': trial.suggest_float('rnn_dropout', 0.1, 0.4),
+                'rnn_recurrent_dropout': trial.suggest_float('rnn_recurrent_dropout', 0.1, 0.3),
+                'rnn_bidirectional': trial.suggest_categorical('rnn_bidirectional', [True, False])
+            }
+        
+        # Подбираем размер батча с шагом 8 для лучшей стабильности
         batch_size = trial.suggest_int('batch_size', 16, 64, step=8)
         print(f"[DEBUG] Выбран размер батча: {batch_size}")
         
@@ -292,6 +324,7 @@ def objective(trial):
         print(f"  - temporal_block_type: {temporal_block_type}")
         print(f"  - clipnorm: {clipnorm}")
         print(f"  - batch_size: {batch_size}")
+        print(f"  - temporal_params: {temporal_params}")
         print(f"  - augmentation_params: {augmentation_params}")
         print(f"  - augmentation_probs: {augmentation_probs}")
         
@@ -329,7 +362,8 @@ def objective(trial):
                     'dropout_rate': dropout_rate,
                     'lstm_units': lstm_units,
                     'rnn_type': rnn_type,
-                    'temporal_block_type': temporal_block_type
+                    'temporal_block_type': temporal_block_type,
+                    **temporal_params  # Добавляем специфичные параметры временного блока
                 },
                 class_weights=base_weights
             )

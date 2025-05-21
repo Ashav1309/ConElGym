@@ -462,12 +462,13 @@ class SpatioTemporal3DAttention(tf.keras.layers.Layer):
         return out
 
 class TransformerBlock(tf.keras.layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, rnn_type='lstm'):
+    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, attention_dropout=0.1, rnn_type='lstm'):
         super(TransformerBlock, self).__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.ff_dim = ff_dim
         self.rate = rate
+        self.attention_dropout = attention_dropout
         self.rnn_type = rnn_type
         
     def build(self, input_shape):
@@ -488,7 +489,8 @@ class TransformerBlock(tf.keras.layers.Layer):
             num_heads=self.num_heads,
             key_dim=key_dim,
             value_dim=value_dim,
-            output_shape=output_dim
+            output_shape=output_dim,
+            dropout=self.attention_dropout
         )
         
         self.ffn = tf.keras.Sequential([
@@ -512,22 +514,35 @@ class TransformerBlock(tf.keras.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
+        
+    def get_config(self):
+        config = super(TransformerBlock, self).get_config()
+        config.update({
+            'embed_dim': self.embed_dim,
+            'num_heads': self.num_heads,
+            'ff_dim': self.ff_dim,
+            'rate': self.rate,
+            'attention_dropout': self.attention_dropout,
+            'rnn_type': self.rnn_type
+        })
+        return config
 
 class TemporalConvNet(tf.keras.layers.Layer):
     """
     Временная сверточная сеть (TCN) для обработки последовательностей
     """
-    def __init__(self, num_channels, kernel_size=3, dropout=0.2, **kwargs):
+    def __init__(self, num_channels, kernel_size=3, dropout=0.2, dilation_base=2, **kwargs):
         super(TemporalConvNet, self).__init__(**kwargs)
         self.num_channels = num_channels
         self.kernel_size = kernel_size
         self.dropout = dropout
+        self.dilation_base = dilation_base
         self.layers = []
         
     def build(self, input_shape):
         # Создаем слои TCN
         for i, num_channels in enumerate(self.num_channels):
-            dilation_rate = 2 ** i
+            dilation_rate = self.dilation_base ** i
             self.layers.append([
                 tf.keras.layers.Conv1D(
                     filters=num_channels,
@@ -557,7 +572,8 @@ class TemporalConvNet(tf.keras.layers.Layer):
         config.update({
             'num_channels': self.num_channels,
             'kernel_size': self.kernel_size,
-            'dropout': self.dropout
+            'dropout': self.dropout,
+            'dilation_base': self.dilation_base
         })
         return config
 
@@ -593,7 +609,7 @@ class TemporalBlock(tf.keras.layers.Layer):
         self.norm = tf.keras.layers.LayerNormalization()
         self.add = tf.keras.layers.Add()
 
-def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None, rnn_type='lstm', temporal_block_type='rnn'):
+def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None, rnn_type='lstm', temporal_block_type='rnn', **temporal_params):
     """
     Создание модели на основе MobileNetV3
     
@@ -604,7 +620,8 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
         lstm_units: количество юнитов в LSTM
         class_weights: веса классов
         rnn_type: тип RNN ('lstm', 'bigru')
-        temporal_block_type: тип временного блока ('rnn', 'tcn', '3d_attention', 'transformer')
+        temporal_block_type: тип временного блока ('rnn', 'tcn', 'transformer')
+        temporal_params: специфичные параметры для временного блока
     """
     if class_weights is None:
         class_weights = {
@@ -672,28 +689,52 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     
     # Добавляем временной блок в зависимости от типа
     if temporal_block_type == 'rnn':
-        # Используем уже добавленный RNN слой
-        pass
+        # Используем уже добавленный RNN слой с дополнительными параметрами
+        rnn_dropout = temporal_params.get('rnn_dropout', 0.2)
+        rnn_recurrent_dropout = temporal_params.get('rnn_recurrent_dropout', 0.2)
+        rnn_bidirectional = temporal_params.get('rnn_bidirectional', False)
+        
+        if rnn_bidirectional:
+            x = Bidirectional(LSTM(lstm_units, return_sequences=True,
+                                 dropout=rnn_dropout,
+                                 recurrent_dropout=rnn_recurrent_dropout,
+                                 kernel_regularizer=regularizer,
+                                 recurrent_regularizer=regularizer))(x)
+        else:
+            x = LSTM(lstm_units, return_sequences=True,
+                    dropout=rnn_dropout,
+                    recurrent_dropout=rnn_recurrent_dropout,
+                    kernel_regularizer=regularizer,
+                    recurrent_regularizer=regularizer)(x)
+                    
     elif temporal_block_type == 'tcn':
-        # Комбинируем RNN с TCN
-        x = TemporalConvNet(num_channels=[lstm_units, lstm_units//2], kernel_size=3, dropout=dropout_rate)(x)
-    elif temporal_block_type == '3d_attention':
-        # Преобразуем в 3D форму для пространственно-временного внимания
-        import numpy as np
-        spatial_dim = int(np.ceil(np.sqrt(x.shape[-1])))
-        new_features = spatial_dim * spatial_dim
-        x = Dense(new_features, kernel_regularizer=regularizer)(x)  # Приводим к квадрату
-        x = Reshape((sequence_length, spatial_dim, spatial_dim, 1))(x)
-        x = SpatioTemporal3DAttention(num_heads=4, key_dim=32)(x)
-        x = Reshape((sequence_length, -1))(x)
+        # Комбинируем RNN с TCN используя специфичные параметры
+        tcn_kernel_size = temporal_params.get('tcn_kernel_size', 3)
+        tcn_dilation_base = temporal_params.get('tcn_dilation_base', 2)
+        tcn_num_channels = temporal_params.get('tcn_num_channels', [lstm_units, lstm_units//2])
+        tcn_dropout = temporal_params.get('tcn_dropout', dropout_rate)
+        
+        x = TemporalConvNet(
+            num_channels=tcn_num_channels,
+            kernel_size=tcn_kernel_size,
+            dropout=tcn_dropout,
+            dilation_base=tcn_dilation_base
+        )(x)
+        
     elif temporal_block_type == 'transformer':
-        # Используем трансформерный блок с учетом типа RNN
+        # Используем трансформерный блок с учетом специфичных параметров
+        transformer_num_heads = temporal_params.get('transformer_num_heads', 4)
+        transformer_ff_dim = temporal_params.get('transformer_ff_dim', lstm_units * 2)
+        transformer_dropout = temporal_params.get('transformer_dropout', dropout_rate)
+        transformer_attention_dropout = temporal_params.get('transformer_attention_dropout', 0.1)
+        
         x = TransformerBlock(
             embed_dim=lstm_units,
-            num_heads=2,  # Уменьшаем количество голов
-            ff_dim=lstm_units,  # Уменьшаем размер FF слоя
-            rate=dropout_rate,
-            rnn_type=rnn_type  # Передаем тип RNN
+            num_heads=transformer_num_heads,
+            ff_dim=transformer_ff_dim,
+            rate=transformer_dropout,
+            attention_dropout=transformer_attention_dropout,
+            rnn_type=rnn_type
         )(x)
     else:
         raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
@@ -842,7 +883,8 @@ def create_model_with_params(model_type, input_shape, num_classes, params, class
             lstm_units=params.get('lstm_units', 128),
             class_weights=class_weights,
             rnn_type=params.get('rnn_type', 'lstm'),
-            temporal_block_type=params.get('temporal_block_type', 'rnn')
+            temporal_block_type=params.get('temporal_block_type', 'rnn'),
+            **params.get('temporal_params', {})
         )
     elif model_type.lower() == 'v4':
         print("[DEBUG] Создание модели MobileNetV4...")
