@@ -5,88 +5,50 @@ from src.models.callbacks import ScalarF1Score
 def get_training_metrics():
     """
     Получение метрик для обучения модели.
-    Использует те же метрики, что и для подбора гиперпараметров.
+    Все метрики рассчитываются для класса действия (class_id=1).
     """
-    class SequenceMetrics(tf.keras.metrics.Metric):
-        def __init__(self, name='sequence_metrics', **kwargs):
-            super().__init__(name=name, **kwargs)
-            self.precision = tf.keras.metrics.Precision(thresholds=0.5)
-            self.recall = tf.keras.metrics.Recall(thresholds=0.5)
-            self.f1 = tf.keras.metrics.F1Score(threshold=0.5)
-            
-        def update_state(self, y_true, y_pred, sample_weight=None):
-             # Преобразуем входные данные в 2D
-            batch_size = tf.shape(y_true)[0]
-            y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-            y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-            # Добавить бинаризацию
-            y_pred = tf.cast(y_pred > 0.5, tf.float32)
-            
-            if sample_weight is not None:
-                sample_weight = tf.reshape(sample_weight, [-1])
-            
-            # Обновляем метрики
-            self.precision.update_state(y_true, y_pred, sample_weight)
-            self.recall.update_state(y_true, y_pred, sample_weight)
-            self.f1.update_state(y_true, y_pred, sample_weight)
-            
-        def result(self):
-            return {
-                'precision': self.precision.result(),
-                'recall': self.recall.result(),
-                'f1_score': self.f1.result()
-            }
-            
-        def reset_state(self):
-            self.precision.reset_state()
-            self.recall.reset_state()
-            self.f1.reset_state()
-    
     return [
         'accuracy',
-        SequenceMetrics(name='sequence_metrics'),
-        ScalarF1Score(name='scalar_f1_score')
+        tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
+        tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
+        F1ScoreAdapter(name='f1_action', class_id=1, threshold=0.5)
     ]
 
 def get_tuning_metrics():
     """
-    Получение метрик для подбора гиперпараметров
+    Получение метрик для подбора гиперпараметров.
+    Использует те же метрики, что и для обучения.
     """
-    class SequenceMetrics(tf.keras.metrics.Metric):
-        def __init__(self, name='sequence_metrics', **kwargs):
-            super().__init__(name=name, **kwargs)
-            self.precision = tf.keras.metrics.Precision(thresholds=0.5)
-            self.recall = tf.keras.metrics.Recall(thresholds=0.5)
-            self.f1 = tf.keras.metrics.F1Score(threshold=0.5)
-            
-        def update_state(self, y_true, y_pred, sample_weight=None):
-            # Преобразуем входные данные в 2D
-            batch_size = tf.shape(y_true)[0]
-            y_true = tf.reshape(y_true, [-1, y_true.shape[-1]])
-            y_pred = tf.reshape(y_pred, [-1, y_pred.shape[-1]])
-            
-            if sample_weight is not None:
-                sample_weight = tf.reshape(sample_weight, [-1])
-            
-            # Обновляем метрики
-            self.precision.update_state(y_true, y_pred, sample_weight)
-            self.recall.update_state(y_true, y_pred, sample_weight)
-            self.f1.update_state(y_true, y_pred, sample_weight)
-            
-        def result(self):
-            return {
-                'precision': self.precision.result(),
-                'recall': self.recall.result(),
-                'f1_score': self.f1.result()
-            }
-            
-        def reset_state(self):
-            self.precision.reset_state()
-            self.recall.reset_state()
-            self.f1.reset_state()
+    return get_training_metrics()
+
+def calculate_metrics(y_true, y_pred, threshold=0.5):
+    """
+    Расчет всех метрик для заданных предсказаний.
     
-    return [
-        'accuracy',
-        SequenceMetrics(name='sequence_metrics'),
-        ScalarF1Score(name='scalar_f1_score')
-    ] 
+    Args:
+        y_true: Истинные метки
+        y_pred: Предсказания модели
+        threshold: Порог классификации
+        
+    Returns:
+        dict: Словарь с метриками
+    """
+    # Бинаризация предсказаний
+    y_pred_binary = tf.cast(y_pred > threshold, tf.float32)
+    
+    # Получаем метрики для класса действия
+    precision = tf.keras.metrics.Precision(thresholds=threshold)
+    recall = tf.keras.metrics.Recall(thresholds=threshold)
+    f1 = F1ScoreAdapter(threshold=threshold)
+    
+    # Обновляем состояние метрик
+    precision.update_state(y_true[..., 1], y_pred[..., 1])
+    recall.update_state(y_true[..., 1], y_pred[..., 1])
+    f1.update_state(y_true, y_pred)
+    
+    return {
+        'accuracy': tf.reduce_mean(tf.cast(tf.equal(y_true, y_pred_binary), tf.float32)),
+        'precision_action': precision.result(),
+        'recall_action': recall.result(),
+        'f1_action': f1.result()
+    } 

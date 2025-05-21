@@ -8,6 +8,7 @@ import json
 import sys
 import pickle
 from sklearn.metrics import f1_score, precision_score, recall_score
+from src.models.metrics import calculate_metrics
 
 def test_model(model_path, test_data_path, model_type=None, batch_size=1):
     """
@@ -153,6 +154,32 @@ def test_model(model_path, test_data_path, model_type=None, batch_size=1):
         import traceback
         traceback.print_exc()
         raise
+
+def evaluate_model(model, test_data):
+    """
+    Оценка модели на тестовых данных
+    """
+    all_y_true = []
+    all_y_pred = []
+    
+    for X, y in test_data:
+        y_pred = model.predict(X)
+        all_y_true.extend(y.numpy())
+        all_y_pred.extend(y_pred)
+    
+    all_y_true = np.array(all_y_true)
+    all_y_pred = np.array(all_y_pred)
+    
+    # Рассчитываем метрики
+    metrics = calculate_metrics(all_y_true, all_y_pred)
+    
+    print("\nРезультаты оценки модели:")
+    print(f"Accuracy: {metrics['accuracy']:.4f}")
+    print(f"Precision (action): {metrics['precision_action']:.4f}")
+    print(f"Recall (action): {metrics['recall_action']:.4f}")
+    print(f"F1-Score (action): {metrics['f1_action']:.4f}")
+    
+    return metrics
 
 if __name__ == "__main__":
     try:

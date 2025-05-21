@@ -21,7 +21,7 @@ import re
 import psutil
 from src.data_proc.augmentation import VideoAugmenter, augment_rare_classes
 from src.models.losses import focal_loss, F1ScoreAdapter
-from src.models.metrics import get_training_metrics
+from src.models.metrics import get_training_metrics, calculate_metrics
 from src.models.callbacks import AdaptiveThresholdCallback, get_training_callbacks
 from src.utils.gpu_config import setup_gpu
 import time
@@ -617,7 +617,7 @@ def train(model_type: str = None, epochs: int = 100, batch_size: int = None):
             class_weights=class_weights
         )
         
-        # Используем метрики для обучения, чтобы гарантировать наличие f1_action
+        # Компилируем модель с согласованными метриками
         model.compile(
             optimizer=model.optimizer,
             loss=model.loss,
@@ -632,6 +632,18 @@ def train(model_type: str = None, epochs: int = 100, batch_size: int = None):
             callbacks=callbacks,
             verbose=1
         )
+        
+        # Оцениваем финальные метрики
+        final_metrics = calculate_metrics(
+            np.concatenate([y for _, y in val_data]),
+            model.predict(np.concatenate([X for X, _ in val_data]))
+        )
+        
+        print("\nФинальные метрики на валидационном наборе:")
+        print(f"Accuracy: {final_metrics['accuracy']:.4f}")
+        print(f"Precision (action): {final_metrics['precision_action']:.4f}")
+        print(f"Recall (action): {final_metrics['recall_action']:.4f}")
+        print(f"F1-Score (action): {final_metrics['f1_action']:.4f}")
         
         # Сохраняем модель и метаданные
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -656,7 +668,7 @@ def train(model_type: str = None, epochs: int = 100, batch_size: int = None):
         
         plot_training_results(history, model_dir)
         
-        return model, history
+        return model, history, final_metrics
         
     except Exception as e:
         print(f"[ERROR] Ошибка при обучении модели: {str(e)}")
@@ -755,4 +767,4 @@ if __name__ == "__main__":
 
     model_type = args.model_type if args.model_type is not None else Config.MODEL_TYPE
     print(f"Обучение основной модели: {model_type}")
-    model, history = train(model_type) 
+    model, history, final_metrics = train(model_type) 
