@@ -409,7 +409,7 @@ def tune_hyperparameters():
         )
         
         # Запускаем оптимизацию
-        study.optimize(objective, n_trials=Config.N_TRIALS)
+        study.optimize(objective, n_trials=Config.HYPERPARAM_TUNING['n_trials'])
         
         # Сохраняем результаты
         results = []
