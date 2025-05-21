@@ -10,7 +10,6 @@ import optuna
 from src.models.model import (
     create_model_with_params,
     create_mobilenetv3_model,
-    create_mobilenetv4_model,
     postprocess_predictions,
     indices_to_seconds,
     merge_classes

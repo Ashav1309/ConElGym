@@ -55,20 +55,15 @@ class Config:
     # Параметры модели
     MODEL_PARAMS = {
         'v3': {
+            'learning_rate': 0.001,
             'dropout_rate': 0.3,
-            'lstm_units': 256,
-            'rnn_type': 'lstm',  # Может быть 'lstm' или 'bigru'
-            'temporal_block_type': 'rnn',  # Может быть 'rnn', 'tcn', '3d_attention', 'transformer'
-            'class_weights': {
-                'background': None,  # Будет рассчитано автоматически
-                'action': None      # Будет рассчитано автоматически
-            }
-        },
-        'v4': {
-            'dropout_rate': 0.5,
-            'class_weights': {
-                'background': None,  # Будет рассчитано автоматически
-                'action': None      # Будет рассчитано автоматически
+            'lstm_units': 128,
+            'rnn_type': 'lstm',
+            'temporal_block_type': 'rnn',
+            'temporal_params': {
+                'rnn_dropout': 0.2,
+                'rnn_recurrent_dropout': 0.2,
+                'rnn_bidirectional': False
             }
         }
     }
@@ -258,8 +253,8 @@ class Config:
                 os.makedirs(path, exist_ok=True)
         
         # Проверка параметров модели
-        if cls.MODEL_TYPE not in ['v3', 'v4']:
-            raise ValueError(f"Неверный тип модели: {cls.MODEL_TYPE}. Допустимые значения: v3, v4")
+        if cls.MODEL_TYPE not in ['v3']:
+            raise ValueError(f"Неверный тип модели: {cls.MODEL_TYPE}. Допустимое значение: v3")
             
         if cls.NUM_CLASSES <= 0:
             raise ValueError(f"Количество классов должно быть положительным: {cls.NUM_CLASSES}")

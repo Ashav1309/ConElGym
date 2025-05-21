@@ -20,7 +20,7 @@ import json
 import re
 import psutil
 from src.data_proc.augmentation import VideoAugmenter, augment_rare_classes
-from src.models.losses import focal_loss, F1ScoreAdapter
+from src.models.losses import focal_loss
 from src.models.metrics import get_training_metrics, calculate_metrics
 from src.models.callbacks import get_training_callbacks
 from src.utils.gpu_config import setup_gpu
@@ -761,8 +761,8 @@ def plot_training_results(history, save_dir):
     plt.close()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Обучение модели (v3 или v4)")
-    parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3 или v4')
+    parser = argparse.ArgumentParser(description="Обучение модели (v3)")
+    parser.add_argument('--model_type', type=str, default=None, help='Тип модели: v3')
     args = parser.parse_args()
 
     model_type = args.model_type if args.model_type is not None else Config.MODEL_TYPE

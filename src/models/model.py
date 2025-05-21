@@ -1,4 +1,34 @@
+import os
+import time
+import json
+import traceback
+import numpy as np
+from datetime import timedelta
 import tensorflow as tf
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from src.models.model import (
+    create_model_with_params,
+    create_mobilenetv3_model,
+    postprocess_predictions,
+    indices_to_seconds,
+    merge_classes
+)
+from src.data_proc.data_loader import VideoDataLoader
+from src.config import Config
+from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
+from src.models.metrics import get_training_metrics, get_tuning_metrics
+from src.models.callbacks import get_training_callbacks
+from src.utils.gpu_config import setup_gpu
+from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import gc
+import subprocess
+import sys
+import cv2
+from src.data_proc.data_validation import validate_data_pipeline, validate_training_data
 from tensorflow.keras import Model
 from tensorflow.keras.layers import (
     Input, Dense, Bidirectional, LSTM, GRU, 
@@ -11,18 +41,12 @@ from tensorflow.keras.layers import (
     Concatenate, Lambda
 )
 from tensorflow.keras.applications import MobileNetV3Small
-from src.utils.network_handler import NetworkErrorHandler, NetworkMonitor
-import logging
-import gc
-from tensorflow.keras.optimizers import Adam
-import traceback
 from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
 from src.config import Config
 from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate, F1ScoreAdapter
 from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
-import numpy as np
 import json
 import pickle
 from src.models.metrics import get_training_metrics, get_tuning_metrics
@@ -32,7 +56,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     'create_model_with_params',
     'create_mobilenetv3_model',
-    'create_mobilenetv4_model',
     'postprocess_predictions',
     'indices_to_seconds',
     'merge_classes',
@@ -773,93 +796,12 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     
     return model
 
-def create_mobilenetv4_model(input_shape, num_classes=2, dropout_rate=0.3, class_weights=None):
-    """
-    Создание модели на основе MobileNetV4
-    """
-    print("[DEBUG] Создание модели MobileNetV4...")
-    
-    # Извлекаем размерность изображения из input_shape
-    if len(input_shape) == 4:  # (sequence_length, height, width, channels)
-        image_shape = input_shape[1:]  # (height, width, channels)
-        sequence_length = input_shape[0]
-    else:  # (height, width, channels)
-        image_shape = input_shape
-        sequence_length = Config.SEQUENCE_LENGTH  # значение по умолчанию
-    
-    print(f"[DEBUG] Размерность изображения: {image_shape}")
-    print(f"[DEBUG] Длина последовательности: {sequence_length}")
-    
-    # Загружаем веса классов из конфига
-    if class_weights is None:
-        print("[WARNING] Веса классов не найдены в конфиге. Используем веса по умолчанию.")
-        class_weights = {
-            'background': 1.0,
-            'action': 10
-        }
-    
-    # Преобразуем веса в формат для TensorFlow
-    tf_class_weights = {
-        0: class_weights['background'],
-        1: class_weights['action']
-    }
-    
-    print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
-    
-    # Создаем модель
-    inputs = Input(shape=input_shape)
-    
-    # Применяем слои MobileNetV4 к каждому кадру последовательности
-    x = TimeDistributed(Conv2D(32, (3, 3), strides=(2, 2), padding='same'))(inputs)
-    x = TimeDistributed(BatchNormalization())(x)
-    x = TimeDistributed(ReLU(max_value=6.0))(x)
-    
-    # Добавляем инвертированные бутылочные слои
-    x = TimeDistributed(UniversalInvertedBottleneck(64, kernel_size=3, strides=1))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(128, kernel_size=3, strides=2))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(128, kernel_size=3, strides=1))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(256, kernel_size=3, strides=2))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(256, kernel_size=3, strides=1))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(512, kernel_size=3, strides=2))(x)
-    x = TimeDistributed(UniversalInvertedBottleneck(512, kernel_size=3, strides=1))(x)
-    
-    # Преобразуем в последовательность
-    x = Reshape((sequence_length, -1))(x)
-    
-    # Добавляем временной блок
-    x = LSTM(256, return_sequences=True)(x)
-    x = GlobalAveragePooling1D()(x)
-    
-    # Добавляем слои классификации
-    x = Dense(512, activation='relu')(x)
-    x = Dropout(dropout_rate)(x)
-    x = Dense(256, activation='relu')(x)
-    x = Dropout(dropout_rate)(x)
-    outputs = Dense(2, activation='softmax')(x)  # 2 класса: фон и действие
-    
-    # Создаем модель
-    model = Model(inputs=inputs, outputs=outputs)
-    
-    # Оптимизатор
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    # Метрики для двухклассовой модели
-    metrics = get_training_metrics()
-    
-    model.compile(
-        optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
-        metrics=metrics
-    )
-    
-    return model
-
 def create_model_with_params(model_type, input_shape, num_classes, params, class_weights):
     """
     Создание модели с заданными параметрами
     
     Args:
-        model_type: тип модели ('v3' или 'v4')
+        model_type: тип модели ('v3')
         input_shape: форма входных данных
         num_classes: количество классов
         params: словарь с параметрами модели
@@ -886,16 +828,8 @@ def create_model_with_params(model_type, input_shape, num_classes, params, class
             temporal_block_type=params.get('temporal_block_type', 'rnn'),
             **params.get('temporal_params', {})
         )
-    elif model_type.lower() == 'v4':
-        print("[DEBUG] Создание модели MobileNetV4...")
-        return create_mobilenetv4_model(
-            input_shape=input_shape,
-            num_classes=num_classes,
-            dropout_rate=params['dropout_rate'],
-            class_weights=class_weights
-        )
     else:
-        raise ValueError(f"Неизвестный тип модели: {model_type}. Поддерживаемые типы: 'v3', 'v4'")
+        raise ValueError(f"Неизвестный тип модели: {model_type}. Поддерживаемый тип: 'v3'")
 
 def postprocess_predictions(preds, threshold=0.5):
     """
