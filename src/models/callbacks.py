@@ -164,29 +164,34 @@ def get_training_callbacks(val_data, config=None):
 
 def get_tuning_callbacks(trial_number):
     """
-    Получение callbacks для подбора гиперпараметров
-    Args:
-        trial_number: номер текущего trial
+    Получение колбэков для подбора гиперпараметров
     """
-    model_type = Config.MODEL_TYPE
-    tuning_dir = os.path.join(Config.MODEL_SAVE_PATH, 'tuning', model_type)
-    os.makedirs(tuning_dir, exist_ok=True)
-    return [
+    callbacks = [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_scalar_f1_score',
-            patience=5,
+            monitor='val_f1_action',
+            patience=Config.HYPERPARAM_TUNING['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             factor=0.5,
-            patience=3,
+            patience=Config.HYPERPARAM_TUNING['lr_patience'],
             min_lr=1e-6,
             mode='max'
         ),
-        tf.keras.callbacks.CSVLogger(os.path.join(tuning_dir, f'trial_{trial_number}_history.csv'))
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(Config.MODEL_SAVE_PATH, f'trial_{trial_number}_best_model.h5'),
+            monitor='val_f1_action',
+            save_best_only=True,
+            mode='max'
+        ),
+        tf.keras.callbacks.CSVLogger(
+            os.path.join(Config.MODEL_SAVE_PATH, f'trial_{trial_number}_history.csv')
+        )
     ]
+    
+    return callbacks
 
 def get_training_metrics():
     """
