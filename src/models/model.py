@@ -9,7 +9,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
-from src.models.losses import focal_loss
+from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
 from src.models.metrics import get_training_metrics, get_tuning_metrics
 from src.models.callbacks import get_training_callbacks
 from src.utils.gpu_config import setup_gpu
@@ -621,44 +621,45 @@ class TemporalBlock(tf.keras.layers.Layer):
         self.norm = tf.keras.layers.LayerNormalization()
         self.add = tf.keras.layers.Add()
 
-def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_units=128, class_weights=None, rnn_type='lstm', temporal_block_type='rnn', **temporal_params):
+def create_mobilenetv3_model(
+    input_shape,
+    num_classes=2,
+    dropout_rate=0.3,
+    lstm_units=128,
+    rnn_type='lstm',
+    temporal_block_type='rnn',
+    temporal_params=None,
+    class_weights=None
+):
     """
-    Создание модели на основе MobileNetV3
+    Создает модель на основе MobileNetV3 с временной обработкой.
     
     Args:
-        input_shape: форма входных данных
+        input_shape: форма входных данных (sequence_length, height, width, channels)
         num_classes: количество классов
         dropout_rate: коэффициент dropout
         lstm_units: количество юнитов в LSTM
+        rnn_type: тип RNN ('lstm' или 'gru')
+        temporal_block_type: тип временного блока ('rnn', 'tcn' или 'transformer')
+        temporal_params: параметры временного блока
         class_weights: веса классов
-        rnn_type: тип RNN ('lstm', 'bigru')
-        temporal_block_type: тип временного блока ('rnn', 'tcn', 'transformer')
-        temporal_params: специфичные параметры для временного блока
     """
+    print("\n[DEBUG] Создание модели MobileNetV3...")
+    
     if class_weights is None:
-        class_weights = {
-            'background': 1.0,
-            'action': 10
-        }
+        class_weights = {0: 1.0, 1: 1.0}
+    print(f"[DEBUG] Используемые веса классов: {class_weights}")
     
-    tf_class_weights = {
-        0: class_weights['background'],  # фон
-        1: class_weights['action']       # действие
-    }
-    
-    print(f"[DEBUG] Используемые веса классов: {tf_class_weights}")
+    sequence_length, height, width, channels = input_shape
     print(f"[DEBUG] Входная форма: {input_shape}")
     print(f"[DEBUG] Тип RNN: {rnn_type}")
     print(f"[DEBUG] Тип временного блока: {temporal_block_type}")
     
-    # Извлекаем размерность изображения из input_shape
-    if len(input_shape) == 4:  # (sequence_length, height, width, channels)
-        image_shape = input_shape[1:]  # (height, width, channels)
-        sequence_length = input_shape[0]
-    else:  # (height, width, channels)
-        image_shape = input_shape
-        sequence_length = Config.SEQUENCE_LENGTH    # значение по умолчанию
+    # Входной слой
+    inputs = Input(shape=input_shape)
     
+    # Извлекаем размерность изображения и длину последовательности
+    image_shape = (height, width, channels)
     print(f"[DEBUG] Размерность изображения: {image_shape}")
     print(f"[DEBUG] Длина последовательности: {sequence_length}")
     
@@ -666,120 +667,55 @@ def create_mobilenetv3_model(input_shape, num_classes=2, dropout_rate=0.3, lstm_
     base_model = MobileNetV3Small(
         input_shape=image_shape,
         include_top=False,
-        weights='imagenet'
+        weights='imagenet',
+        pooling=None
     )
     
     # Замораживаем веса базовой модели
     base_model.trainable = False
     
-    # Создаем входной слой
-    inputs = Input(shape=input_shape)
-    
-    # Применяем базовую модель к каждому кадру последовательности
+    # Применяем MobileNetV3 к каждому кадру
     x = TimeDistributed(base_model)(inputs)
     print(f"[DEBUG] Форма после MobileNetV3: {x.shape}")
     
-    # Преобразуем выход MobileNetV3 в последовательность для временных блоков
+    # Reshape для временной обработки
     x = Reshape((sequence_length, -1))(x)
     print(f"[DEBUG] Форма после Reshape: {x.shape}")
     
-    # Добавляем регуляризацию
-    regularizer = tf.keras.regularizers.l2(0.01)
-    
-    # Добавляем RNN слой в зависимости от типа
+    # Временная обработка
     if rnn_type == 'lstm':
-        x = LSTM(lstm_units, return_sequences=True, 
-                kernel_regularizer=regularizer,
-                recurrent_regularizer=regularizer)(x)
-    elif rnn_type == 'bigru':
-        x = Bidirectional(GRU(lstm_units, return_sequences=True,
-                            kernel_regularizer=regularizer,
-                            recurrent_regularizer=regularizer))(x)
-    else:
-        raise ValueError(f"Неизвестный тип RNN: {rnn_type}")
+        x = Bidirectional(LSTM(lstm_units, return_sequences=True))(x)
+    else:  # gru
+        x = Bidirectional(GRU(lstm_units, return_sequences=True))(x)
     print(f"[DEBUG] Форма после RNN: {x.shape}")
     
-    # Добавляем временной блок в зависимости от типа
-    if temporal_block_type == 'rnn':
-        # Используем уже добавленный RNN слой с дополнительными параметрами
-        rnn_dropout = temporal_params.get('rnn_dropout', 0.2)
-        rnn_recurrent_dropout = temporal_params.get('rnn_recurrent_dropout', 0.2)
-        rnn_bidirectional = temporal_params.get('rnn_bidirectional', False)
-        
-        if rnn_bidirectional:
-            x = Bidirectional(LSTM(lstm_units, return_sequences=True,
-                                 dropout=rnn_dropout,
-                                 recurrent_dropout=rnn_recurrent_dropout,
-                                 kernel_regularizer=regularizer,
-                                 recurrent_regularizer=regularizer))(x)
-        else:
-            x = LSTM(lstm_units, return_sequences=True,
-                    dropout=rnn_dropout,
-                    recurrent_dropout=rnn_recurrent_dropout,
-                    kernel_regularizer=regularizer,
-                    recurrent_regularizer=regularizer)(x)
-                    
-    elif temporal_block_type == 'tcn':
-        # Комбинируем RNN с TCN используя специфичные параметры
-        tcn_kernel_size = temporal_params.get('tcn_kernel_size', 3)
-        tcn_dilation_base = temporal_params.get('tcn_dilation_base', 2)
-        tcn_num_channels = temporal_params.get('tcn_num_channels', [lstm_units, lstm_units//2])
-        tcn_dropout = temporal_params.get('tcn_dropout', dropout_rate)
-        
-        x = TemporalConvNet(
-            num_channels=tcn_num_channels,
-            kernel_size=tcn_kernel_size,
-            dropout=tcn_dropout,
-            dilation_base=tcn_dilation_base
-        )(x)
-        
+    # Временной блок
+    if temporal_block_type == 'tcn':
+        x = create_tcn_block(x, temporal_params)
     elif temporal_block_type == 'transformer':
-        # Используем трансформерный блок с учетом специфичных параметров
-        transformer_num_heads = temporal_params.get('transformer_num_heads', 4)
-        transformer_ff_dim = temporal_params.get('transformer_ff_dim', lstm_units * 2)
-        transformer_dropout = temporal_params.get('transformer_dropout', dropout_rate)
-        transformer_attention_dropout = temporal_params.get('transformer_attention_dropout', 0.1)
-        
-        x = TransformerBlock(
-            embed_dim=lstm_units,
-            num_heads=transformer_num_heads,
-            ff_dim=transformer_ff_dim,
-            rate=transformer_dropout,
-            attention_dropout=transformer_attention_dropout,
-            rnn_type=rnn_type
-        )(x)
-    else:
-        raise ValueError(f"Неизвестный тип временного блока: {temporal_block_type}")
+        x = create_transformer_block(x, temporal_params)
     print(f"[DEBUG] Форма после временного блока: {x.shape}")
     
-    # Добавляем слой нормализации
+    # Нормализация и регуляризация
     x = BatchNormalization()(x)
     print(f"[DEBUG] Форма после BatchNorm: {x.shape}")
     
-    # Увеличиваем dropout
-    x = Dropout(dropout_rate + 0.2)(x)  # Увеличиваем dropout
-
-    # Добавляем выходной слой для двух классов
-    outputs = Dense(2, activation='sigmoid', kernel_regularizer=regularizer)(x)  # 2 класса: фон и действие
+    # Выходной слой
+    outputs = Dense(num_classes, activation='softmax')(x)
     print(f"[DEBUG] Выходная форма: {outputs.shape}")
     
     # Создаем модель
     model = Model(inputs=inputs, outputs=outputs)
     
-    # Оптимизатор с меньшим learning rate
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)  # Уменьшаем learning rate
-    
-    # Метрики для двухклассовой модели
-    metrics = get_training_metrics()
-    
+    # Компилируем модель
     model.compile(
-        optimizer=optimizer,
-        loss=focal_loss(gamma=2.0, alpha=[class_weights['background'], class_weights['action']]),
+        optimizer=Adam(learning_rate=Config.LEARNING_RATE),
+        loss=focal_loss(alpha=[class_weights[0], class_weights[1]]),
         metrics=[
             'accuracy',
-            tf.keras.metrics.Precision(name='precision_action', class_id=1, thresholds=0.5),
-            tf.keras.metrics.Recall(name='recall_action', class_id=1, thresholds=0.5),
-            F1ScoreAdapter(name='f1_action', class_id=1, threshold=0.5)
+            Precision(name='precision'),
+            Recall(name='recall'),
+            F1Score(name='f1', threshold=0.5)
         ]
     )
     
