@@ -261,4 +261,5 @@ def validate_dataset() -> Tuple[Dict[str, ValidationResult], Dict[str, int]]:
             dataset_stats['total_action_frames'] += result.stats['action_frames']
             dataset_stats['total_transition_frames'] += result.stats['transition_frames']
 
-    return results, dataset_stats 
+    return results, dataset_stats
+ 
