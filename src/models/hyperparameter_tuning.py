@@ -380,11 +380,6 @@ def objective(trial):
             # Создаем колбэки
             print("[DEBUG] Создание колбэков...")
             callbacks = get_tuning_callbacks(trial.number)
-            
-            # Добавляем AdaptiveThresholdCallback с валидационными данными
-            val_data_for_callback = next(iter(val_data))
-            callbacks.append(AdaptiveThresholdCallback(validation_data=val_data_for_callback))
-            
             print("[DEBUG] Колбэки успешно созданы")
             
             # Обучаем модель
