@@ -169,14 +169,14 @@ def get_tuning_callbacks(trial_number):
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
             monitor='val_f1_action',
-            patience=Config.HYPERPARAM_TUNING['early_stopping_patience'],
+            patience=5,  # Фиксированное значение для early stopping
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor='val_f1_action',
             factor=0.5,
-            patience=Config.HYPERPARAM_TUNING['lr_patience'],
+            patience=3,  # Фиксированное значение для reduce lr
             min_lr=1e-6,
             mode='max'
         ),
