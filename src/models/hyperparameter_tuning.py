@@ -138,7 +138,7 @@ def load_and_prepare_data(batch_size):
             val_data = val_data.batch(batch_size)
             val_data = val_data.prefetch(Config.MEMORY_OPTIMIZATION['prefetch_buffer_size'])
             
-            print(f"[DEBUG] Использовано {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей из кэша")
+            print(f"[DEBUG] Загружено {len(cached_train_sequences)} обучающих и {len(cached_val_sequences)} валидационных последовательностей из кэша")
             return train_data, val_data
         
         # Если данных нет в кэше, загружаем их
