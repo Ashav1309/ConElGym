@@ -7,16 +7,9 @@ from datetime import timedelta
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-from src.models.model import (
-    create_model_with_params,
-    create_mobilenetv3_model,
-    postprocess_predictions,
-    indices_to_seconds,
-    merge_classes
-)
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
-from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate
+from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate, F1ScoreAdapter
 from src.models.metrics import get_training_metrics, get_tuning_metrics
 from src.models.callbacks import get_training_callbacks
 from src.utils.gpu_config import setup_gpu
@@ -43,13 +36,9 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.applications import MobileNetV3Small
 from tensorflow.keras.metrics import Precision, Recall, F1Score
 from tensorflow.keras.callbacks import Callback
-from src.config import Config
-from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate, F1ScoreAdapter
-from src.data_proc.augmentation import BalancedDataGenerator
 from tensorflow.keras.regularizers import l1_l2
-import json
 import pickle
-from src.models.metrics import get_training_metrics, get_tuning_metrics
+import logging
 
 logger = logging.getLogger(__name__)
 
