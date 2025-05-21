@@ -395,7 +395,7 @@ def objective(trial):
             print("[DEBUG] Начало обучения модели...")
             history = model.fit(
                 train_data,
-                epochs=Config.EARLY_STOPPING['patience'],
+                epochs=Config.HYPERPARAM_TUNING['epochs'],  # Используем epochs из HYPERPARAM_TUNING
                 validation_data=val_data,
                 callbacks=callbacks,
                 verbose=1
