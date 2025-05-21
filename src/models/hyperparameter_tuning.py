@@ -389,7 +389,7 @@ def objective(trial):
         
     except Exception as e:
         print(f"\n[ERROR] Ошибка в триале #{trial.number}: {str(e)}")
-        return None
+        return float('-inf')  # Возвращаем минус бесконечность, чтобы Optuna отбросила этот триал
 
 def tune_hyperparameters():
     """
