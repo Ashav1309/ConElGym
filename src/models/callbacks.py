@@ -141,13 +141,13 @@ def get_training_callbacks(val_data, config=None):
     
     return [
         tf.keras.callbacks.EarlyStopping(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             patience=config['early_stopping_patience'],
             restore_best_weights=True,
             mode='max'
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             factor=config['reduce_lr_factor'],
             patience=config['reduce_lr_patience'],
             min_lr=config['min_lr'],
@@ -156,7 +156,7 @@ def get_training_callbacks(val_data, config=None):
         AdaptiveThresholdCallback(validation_data=val_data),
         PickleModelCheckpoint(
             os.path.join(model_dir, 'model.pkl'),
-            monitor='val_scalar_f1_score',
+            monitor='val_f1_action',
             save_best_only=True,
             mode='max'
         )
@@ -180,7 +180,6 @@ def get_tuning_callbacks(trial_number):
             min_lr=1e-6,
             mode='max'
         ),
-        AdaptiveThresholdCallback(validation_data=None),
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(Config.MODEL_SAVE_PATH, f'trial_{trial_number}_best_model.h5'),
             monitor='val_f1_action',

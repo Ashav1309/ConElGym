@@ -452,6 +452,34 @@ def plot_tuning_results(study):
         import traceback
         traceback.print_exc()
 
+def plot_training_history(history):
+    """
+    Визуализация истории обучения
+    """
+    plt.figure(figsize=(12, 4))
+    
+    # График точности
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['accuracy'], label='Training Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.title('Model Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    
+    # График F1-score
+    plt.subplot(1, 2, 2)
+    if 'f1_action' in history.history and 'val_f1_action' in history.history:
+        plt.plot(history.history['f1_action'], label='Training F1-score')
+        plt.plot(history.history['val_f1_action'], label='Validation F1-score')
+        plt.title('Model F1-score')
+        plt.xlabel('Epoch')
+        plt.ylabel('F1-score')
+        plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
 def plot_training_results(history, save_path):
     """
     Визуализация результатов обучения
