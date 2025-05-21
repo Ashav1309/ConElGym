@@ -261,6 +261,13 @@ def objective(trial):
         temporal_block_type = trial.suggest_categorical('temporal_block_type', ['tcn', 'transformer', 'rnn'])
         clipnorm = trial.suggest_float('clipnorm', 0.1, 2.0)
         
+        # Подбираем веса классов
+        action_weight = trial.suggest_float('action_weight', 5.0, 10.0)
+        base_weights = {
+            'background': 1.0,
+            'action': action_weight
+        }
+        
         # Специфичные гиперпараметры для каждого типа временного блока
         temporal_params = {}
         
@@ -324,6 +331,7 @@ def objective(trial):
         print(f"  - temporal_block_type: {temporal_block_type}")
         print(f"  - clipnorm: {clipnorm}")
         print(f"  - batch_size: {batch_size}")
+        print(f"  - action_weight: {action_weight}")
         print(f"  - temporal_params: {temporal_params}")
         print(f"  - augmentation_params: {augmentation_params}")
         print(f"  - augmentation_probs: {augmentation_probs}")
@@ -333,23 +341,6 @@ def objective(trial):
         print(f"[DEBUG] MODEL_PARAMS: {Config.MODEL_PARAMS}")
 
         try:
-            # Загружаем веса из файла конфигурации
-            if os.path.exists(Config.CONFIG_PATH):
-                print(f"[DEBUG] Загрузка весов из {Config.CONFIG_PATH}")
-                with open(Config.CONFIG_PATH, 'r') as f:
-                    config = json.load(f)
-                    base_weights = config.get('class_weights', {
-                        'background': 1.0,
-                        'action': 10.0
-                    })
-                    print(f"[DEBUG] Загружены веса из файла: {base_weights}")
-            else:
-                print("[WARNING] Файл конфигурации не найден, используем веса по умолчанию")
-                base_weights = {
-                    'background': 1.0,
-                    'action': 10.0
-                }
-            
             # Создаем и компилируем модель
             print("[DEBUG] Создание и компиляция модели...")
             print(f"[DEBUG] Передаем тип модели в create_model_with_params: {model_type}")
@@ -395,7 +386,7 @@ def objective(trial):
             print("[DEBUG] Начало обучения модели...")
             history = model.fit(
                 train_data,
-                epochs=Config.HYPERPARAM_TUNING['epochs'],  # Используем epochs из HYPERPARAM_TUNING
+                epochs=Config.HYPERPARAM_TUNING['epochs'],
                 validation_data=val_data,
                 callbacks=callbacks,
                 verbose=1

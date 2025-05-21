@@ -180,6 +180,7 @@ def get_tuning_callbacks(trial_number):
             min_lr=1e-6,
             mode='max'
         ),
+        AdaptiveThresholdCallback(validation_data=None),
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(Config.MODEL_SAVE_PATH, f'trial_{trial_number}_best_model.h5'),
             monitor='val_f1_action',
