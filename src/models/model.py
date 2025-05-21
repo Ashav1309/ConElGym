@@ -9,7 +9,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from src.data_proc.data_loader import VideoDataLoader
 from src.config import Config
-from src.models.losses import focal_loss, DynamicClassWeights, AdaptiveLearningRate, F1ScoreAdapter
+from src.models.losses import focal_loss
 from src.models.metrics import get_training_metrics, get_tuning_metrics
 from src.models.callbacks import get_training_callbacks
 from src.utils.gpu_config import setup_gpu
