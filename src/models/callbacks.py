@@ -32,65 +32,11 @@ class ScalarF1Score(tf.keras.metrics.Metric):
     def reset_states(self):
         self.f1.reset_states()
 
-class AdaptiveThresholdCallback(Callback):
-    """
-    Callback для поиска оптимального порога классификации
-    """
-    def __init__(self, validation_data: Tuple[np.ndarray, np.ndarray]):
-        super().__init__()
-        self.validation_data = validation_data
-        self.best_threshold = 0.5
-        self.best_f1 = 0.0
-    
-    def on_epoch_end(self, epoch: int, logs: dict = None):
-        # Получаем предсказания на валидационном наборе
-        val_pred = self.model.predict(self.validation_data[0])
-        val_true = self.validation_data[1]
-        
-        # Ищем оптимальный порог
-        thresholds = np.arange(0.1, 1.0, 0.05)
-        f1_scores = []
-        
-        for threshold in thresholds:
-            val_pred_binary = (val_pred >= threshold).astype(int)
-            val_true_2d = val_true.reshape(-1, val_true.shape[-1])
-            val_pred_binary_2d = val_pred_binary.reshape(-1, val_pred_binary.shape[-1])
-            if val_true_2d.shape[0] == 0 or val_pred_binary_2d.shape[0] == 0:
-                print(f"[WARNING] Пустые данные для F1 при threshold={threshold}")
-                continue
-            try:
-                f1 = tf.keras.metrics.F1Score()(val_true_2d, val_pred_binary_2d)
-                f1_scores.append(f1)
-            except Exception as e:
-                print(f"[WARNING] Ошибка при вычислении F1 для threshold={threshold}: {e}")
-                continue
-        
-        if not f1_scores:
-            print("[WARNING] f1_scores пустой, пропускаем обновление порога")
-            return
-        
-        best_idx = np.argmax(f1_scores)
-        current_f1 = f1_scores[best_idx]
-        current_threshold = thresholds[best_idx]
-        # Приводим к скаляру, если вдруг массив
-        current_f1 = float(np.mean(current_f1))
-        
-        # Обновляем лучший порог, если нашли лучше
-        if current_f1 > self.best_f1:
-            self.best_f1 = current_f1
-            self.best_threshold = current_threshold
-            print(f"\n[INFO] Новый лучший порог: {self.best_threshold:.3f} (F1: {self.best_f1:.3f})")
-        
-        # Добавляем метрики в логи
-        logs['val_threshold'] = self.best_threshold
-        logs['val_f1'] = self.best_f1
-        logs['val_f1_action'] = self.best_f1  # Добавляем val_f1_action для совместимости с колбэками
-
 class PickleModelCheckpoint(Callback):
     """
     Callback для сохранения модели в формате pickle
     """
-    def __init__(self, filepath, monitor='val_scalar_f1_score', save_best_only=True, mode='max'):
+    def __init__(self, filepath, monitor='val_f1_action', save_best_only=True, mode='max'):
         super().__init__()
         self.filepath = filepath
         self.monitor = monitor
@@ -153,7 +99,6 @@ def get_training_callbacks(val_data, config=None):
             min_lr=config['min_lr'],
             mode='max'
         ),
-        AdaptiveThresholdCallback(validation_data=val_data),
         PickleModelCheckpoint(
             os.path.join(model_dir, 'model.pkl'),
             monitor='val_f1_action',
